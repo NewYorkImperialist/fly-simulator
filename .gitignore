@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
+runs/
+*.mp4
+.DS_Store
+demo_output/
+MUJOCO_LOG.TXT
+data/

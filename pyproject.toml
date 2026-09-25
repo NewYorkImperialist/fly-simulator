@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "perpetualfly"
+version = "0.1.0"
+description = "NeuroMechFly (FlyGym 2.x) jogging forever through procedural terrain"
+requires-python = ">=3.12,<3.15"
+dependencies = [
+    "flygym==2.1.0",        # pins mujoco>=3.9,<3.10; includes flygym_demo controllers
+    "numpy>=2.0",
+    "opencv-python>=4.9",   # live window + keyboard
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+# Residual-RL env + PPO training (perpetualfly.rl, scripts/train_ppo.py). torch comes
+# in through stable-baselines3; tensorboard is optional (--tensorboard).
+rl = [
+    "gymnasium>=1.0",
+    "stable-baselines3>=2.4",
+    "tensorboard>=2.15",
+]
+
+[project.scripts]
+perpetualfly = "perpetualfly.app:main"
+
+[tool.setuptools.packages.find]
+include = ["perpetualfly*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
