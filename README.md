@@ -78,6 +78,9 @@ With the venv activated (`source .venv/bin/activate.fish` in fish, or
 | P | pause / resume |
 | X | reset the fly (an explicit reset, counted in the metrics) |
 | C | camera: follow / side / top |
+| O | brain (`--brain`): looming shadow: LC4 looming detectors → giant fiber (escape) + MDN (backward walking). With `--brain-steer` the fly stops (see below) |
+| T | brain: sugar taste: sugar GRNs → MN9 (proboscis motor neuron). No body effect: the body model has no proboscis |
+| K | brain: bitter taste (bitter GRNs). Display only, no body effect |
 | ? | print the key table in the terminal |
 | Q / ESC | quit (closing the window or Ctrl-C in the terminal also quits) |
 
@@ -116,6 +119,69 @@ long it has been down.
 | `--render-every N` | physics steps per recorded frame (default 150 = 66.7 fps) |
 | `--no-thread` | window mode: step physics on the main thread (slower; debugging) |
 | `--print-interval S` | simulated seconds between terminal lines (default 1) |
+| `--script-keys '2:left,5:o'` | press keys at the given run times (sim s); works headless too (P is ignored headless) |
+| `--brain` | run the connectome brain model next to the fly, plus the brain window (see below) |
+| `--brain-headless` | brain without its window (terminal / HUD / logs) |
+| `--no-brain-window` | with `--brain`: no brain window |
+| `--brain-steer` | the brain's descending neurons modulate the walking controller (implies `--brain`; off by default) |
+
+## Connectome brain (optional)
+
+`--brain` runs the Shiu et al. (2024) leaky integrate-and-fire model of the whole
+FlyWire v783 central brain (138,639 neurons, 15 M connections) in its own process,
+and opens a second window with its activity (brain map, transmitter activity,
+descending neurons, spike raster). Details: [docs/BRAIN.md](docs/BRAIN.md) (model,
+checks, integration, steering) and [docs/BRAIN_WINDOW.md](docs/BRAIN_WINDOW.md).
+
+```bash
+.venv/bin/python -m pip install -e ".[brain]"      # numba, pyarrow, scipy
+.venv/bin/python scripts/fetch_brain_data.py        # ~153 MB into data/brain/ (FlyWire, CC BY-NC 4.0)
+
+.venv/bin/python scripts/run_sim.py --brain                     # fly + brain windows; brain only watches
+.venv/bin/python scripts/run_sim.py --brain-steer               # ... and its descending neurons steer the walk
+.venv/bin/python scripts/run_sim.py --headless --brain-headless --brain-steer --max-seconds 20 \
+    --terrain flat --script-keys "2:left,6:o,12:t"               # scripted, no windows
+```
+
+Without the data, `--brain` prints the fetch command and exits (code 2).
+
+* **Body → brain.** Every whip hit and shove becomes a stimulus: intensity = measured
+  impulse / the absurd level's impulse (whip 1.0 uN*s, shove 2.5 uN*s), on the side of
+  the fly that was hit, with the body that took the impulse (head hits drive head
+  bristles). Falls drive body mechanosensors plus Johnston's-organ wind/gravity
+  neurons. A fly reset also resets the brain. O / T / K inject looming, sugar and
+  bitter. Everything sent is in `events.csv` (`brain_stim`).
+* **Time.** The brain follows the fly's *simulated* time: it never runs ahead of it,
+  pauses when the fly pauses, and applies each stimulus at the fly time it happened.
+  Its latest state is usually 0.02–0.12 s behind the fly (states cover 0.1 s). If it falls further behind
+  it lags (HUD `lag`, capped at 1 s); physics is never blocked.
+* **Brain → body (`--brain-steer`).** Descending-neuron rates → CPG drive
+  (`descending_to_drive`, smoothed with τ = 0.1 s) combined with the heading hold:
+  `final = brain + clip(mean(brain), 0, 1) · d_hold · [+1, −1]`. A quiet brain gives
+  exactly the normal walk. Measured (flat, headless): pressing O fires the giant
+  fiber at 120–150 Hz and MDN at 15–45 Hz; the fly's forward speed falls from 14.6 to
+  ~1 mm/s for about a second (it stops, with brief backward steps), then it walks
+  on. With `"brain": {"gains": {"backward_ref": 20}}` in a `--config` file it clearly
+  walks backward (mean −4 mm/s, peaks −22 mm/s).
+* **HUD / terminal / logs.** `BRAIN t … lag … x… real time (can x…)`, the drive and
+  GF / MDN / MN9 rates. `metrics.csv` gains `brain_*`, `ctrl_drive_L/R`, `dn_*` and
+  `mn9_hz` columns; `config.json` has the brain config.
+* **Real vs approximated.** Real: the connectome, Shiu et al.'s LIF equations and
+  parameters (engine checked spike for spike against Brian2), the FlyWire cell types
+  used as inputs and outputs, and the sugar → MN9 pathway (validated by Shiu et al.).
+  Approximated: there is no VNC, so body touch reaches the brain only through the few
+  ascending mechanosensory afferents; whip hits light up mechanosensory/auditory
+  areas but **never reach the walking or turning descending neurons** in this model.
+  Looming is injected directly into LC4 (there is no visual input from the rendered
+  scene). The DN-to-CPG mapping (gains, the heading-hold blend) is ours, not from a
+  paper. The giant fiber's escape (take-off) is not mapped: the body can't fly.
+  Taste has no body effect.
+* Cost (M1, flat): the brain worker uses up to one CPU core, but it hardly slows the
+  fly (headless 0.56x → 0.55x real time). The brain window's 30 fps rendering does:
+  windowed 0.54x without the brain, 0.50x with the brain but no brain window, 0.45x
+  with both windows. Closing the brain window leaves the fly (and the brain) running.
+  Q / ESC / Ctrl-C / closing the fly window stop both child processes; they also exit
+  by themselves if the app is killed.
 
 ## Output
 

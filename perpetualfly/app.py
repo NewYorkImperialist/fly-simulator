@@ -20,6 +20,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Callable
 
+from perpetualfly.brain_link import BRAIN_KEYS, BrainLink, missing_requirements
 from perpetualfly.config import AppConfig
 from perpetualfly.interaction import HitEvent, install_perturbation
 from perpetualfly.interaction.perturb_controls import HIT_MODES, format_event, format_whip_event
@@ -46,10 +47,13 @@ KEY_TABLE: list[tuple[str, str]] = [
     ("P", "pause / resume"),
     ("X", "reset the fly (explicit reset, counted in the metrics)"),
     ("C", "camera: follow / side / top"),
+    ("O", BRAIN_KEYS["o"][2] + " [--brain]"),
+    ("T", BRAIN_KEYS["t"][2] + " [--brain]"),
+    ("K", BRAIN_KEYS["k"][2] + " [--brain]"),
     ("?", "print this key help"),
     ("Q / ESC", "quit (closing the window or Ctrl-C also quits)"),
 ]
-KEY_HELP = "SPACE/arrows/U hit | 1-4 strength | H whip/shove | A auto | R B S G D spawn | F flatten | P X C | ? help | Q quit"
+KEY_HELP = "SPACE/arrows/U hit | 1-4 strength | H whip/shove | A auto | R B S G D spawn | F flatten | P X C | O T K brain | ? help | Q quit"
 SPAWN_KEYS = {"r": "rock", "b": "bump", "s": "slope", "g": "gap", "d": "dip"}
 TERRAIN_CHOICES = tuple(DIFFICULTY_PRESETS)  # flat, easy, normal, hard, chaos
 
@@ -92,9 +96,13 @@ class Session:
         log: bool | None = None,
         world_extensions: list[WorldExtension] | tuple[WorldExtension, ...] = (),
         say: Callable[[str], None] | None = None,
+        brain: BrainLink | None = None,
     ) -> None:
+        """``brain``: an already started ``BrainLink`` (``run()`` creates it for
+        --brain); the session wires hits / falls / resets / steering to it."""
         self.cfg = cfg
         self.say = say or (lambda msg: print(msg, flush=True))
+        self.brain = brain
         tc = cfg.terrain
         self.terrain = ProceduralTerrain(ProceduralTerrainConfig(
             difficulty=tc.difficulty, seed=tc.seed, weights=tc.weights,
@@ -127,10 +135,14 @@ class Session:
         log = cfg.logging.enabled if log is None else log
         self.logger: RunLogger | None = None
         if log:
+            from perpetualfly.brain_link import METRIC_COLUMNS as BRAIN_COLUMNS
+
             self.logger = RunLogger(
                 cfg.logging, config=self.full_config(),
                 terrain_type_fn=self.terrain.terrain_type_at,
                 ground_height_fn=self.ground_height,
+                extra_metric_columns=BRAIN_COLUMNS if brain is not None else (),
+                extra_metric_fn=brain.metric_row if brain is not None else None,
             ).attach(sim, self.detector, self.metrics)
             # Whip hits go to events.csv as "whip" rows (shove hits stay "hit").
             hl = self.metrics.hit_listeners
@@ -139,6 +151,8 @@ class Session:
         if self.whip is not None:
             self.whip.listeners.append(self._on_whip)
         self.detector.add_listener(self._on_fall_event)
+        if brain is not None:
+            brain.attach(self)
         self.down_since: float | None = None  # sim time of the last fall (until recovered/reset)
         self._hint_shown = False
         self.n_auto_resets = 0
@@ -174,6 +188,7 @@ class Session:
                 "world_extensions": [getattr(e, "__name__", repr(e))
                                      for e in self.sim.world_extensions],
             },
+            "brain": self.brain.config_dict() if self.brain is not None else None,
         }
 
     # ------------------------------------------------------------- events
@@ -278,7 +293,10 @@ class Session:
         return msg
 
     def after_physics(self) -> None:
-        """Once per physics chunk: fall-reset hint and optional auto reset."""
+        """Once per physics chunk: brain clock / drive, fall-reset hint and optional
+        auto reset."""
+        if self.brain is not None:
+            self.brain.update()
         down = self.down_for()
         if down is None:
             return
@@ -309,6 +327,7 @@ class Session:
             "n_whip_misses": sum(not e.hit for e in self.whip.events) if self.whip else 0,
             "whip_stray_contact_steps": self.whip.stray_contact_steps if self.whip else 0,
             "auto_perturb_enabled": bool(self.auto and self.auto.enabled),
+            "brain": self.brain.summary() if self.brain is not None else None,
         }
 
     def close(self, quit_reason: str) -> None:
@@ -367,6 +386,19 @@ def build_arg_parser() -> argparse.ArgumentParser:
                    help="live window: step physics on the main thread (slower; debugging)")
     g.add_argument("--print-interval", type=float, default=None,
                    help="simulated seconds between terminal stat lines")
+    g.add_argument("--script-keys", type=str, default=None,
+                   help="press keys at given run times (sim s), e.g. '2:left,5:o,8:3,8.1:space'"
+                        " (works headless too; key names as in the key help, lowercase)")
+    g = p.add_argument_group("connectome brain (docs/BRAIN.md; needs .[brain] + data/brain)")
+    g.add_argument("--brain", action="store_true",
+                   help="run the FlyWire whole-brain model next to the fly + the brain window")
+    g.add_argument("--brain-headless", action="store_true",
+                   help="run the brain model without its window (HUD / terminal / logs only)")
+    g.add_argument("--no-brain-window", action="store_true",
+                   help="with --brain: don't open the brain window")
+    g.add_argument("--brain-steer", action="store_true",
+                   help="the brain's descending neurons modulate the walking controller "
+                        "(implies --brain; off by default: the brain only watches)")
     return p
 
 
@@ -382,6 +414,20 @@ def _parse_levels(text: str) -> tuple[tuple[int, ...], tuple[float, ...]]:
     if not levels or any(not 1 <= lv <= 4 for lv in levels):
         raise argparse.ArgumentTypeError(f"bad --auto-levels {text!r}")
     return tuple(levels), tuple(weights)
+
+
+def parse_script_keys(text: str | None) -> list[tuple[float, str]]:
+    """'2:left,5:o' -> [(2.0, 'left'), (5.0, 'o')] sorted by time."""
+    out = []
+    for part in (text or "").split(","):
+        part = part.strip()
+        if not part:
+            continue
+        t, sep, key = part.partition(":")
+        if not sep or not key.strip():
+            raise argparse.ArgumentTypeError(f"bad --script-keys entry {part!r} (want T:KEY)")
+        out.append((float(t), key.strip().lower()))
+    return sorted(out, key=lambda x: x[0])
 
 
 def config_from_args(args: argparse.Namespace) -> AppConfig:
@@ -437,6 +483,14 @@ def config_from_args(args: argparse.Namespace) -> AppConfig:
         cfg.logging.runs_dir = str(args.runs_dir)
     if args.log_hz is not None:
         cfg.logging.sample_hz = args.log_hz
+    # brain
+    b = cfg.brain
+    if args.brain or args.brain_headless or args.brain_steer:
+        b.enabled = True
+    if args.brain_headless or args.no_brain_window:
+        b.window = False
+    if args.brain_steer:
+        b.steer = True
     return cfg
 
 
@@ -465,10 +519,21 @@ def run(
     record: Path | None = None,
     log: bool | None = None,
     world_extensions: list[WorldExtension] | tuple[WorldExtension, ...] = (),
+    script_keys: list[tuple[float, str]] | None = None,
 ) -> RunResult:
     """Run until quit (or ``max_seconds`` of simulated run time). ``log=None``
-    follows ``cfg.logging.enabled``."""
-    session = Session(cfg, log=log, world_extensions=world_extensions)
+    follows ``cfg.logging.enabled``. ``cfg.brain.enabled`` starts the connectome
+    brain (+ its window unless headless / cfg.brain.window is off)."""
+    brain: BrainLink | None = None
+    if cfg.brain.enabled:
+        # Spawned now so the connectome loads while MuJoCo builds the world.
+        brain = BrainLink(cfg.brain, headless=headless)
+    try:
+        session = Session(cfg, log=log, world_extensions=world_extensions, brain=brain)
+    except BaseException:
+        if brain is not None:
+            brain.close()
+        raise
     sim, metrics, detector, terrain = session.sim, session.metrics, session.detector, session.terrain
     chunk = max(1, cfg.render.render_every_steps)
     need_frames = (not headless) or record is not None
@@ -477,6 +542,14 @@ def run(
     st = _LoopState(next_print=cfg.stats.print_interval_s, last_print_wall=time.perf_counter(),
                     last_print_rt=0.0)
     try:
+        if brain is not None:
+            t0 = time.perf_counter()
+            info = brain.wait_ready()
+            brain.start_window()
+            print(f"brain: {brain.layout.model_name}, {info['n_neurons']:,} neurons, ready in "
+                  f"{time.perf_counter() - t0:.1f}s (pid {info.get('pid')}), paced to fly "
+                  f"time | steering {'ON' if cfg.brain.steer else 'off (view only)'} | "
+                  f"window {'on' if brain.window is not None else 'off'}", flush=True)
         if need_frames:
             from perpetualfly.rendering import FrameRenderer
 
@@ -494,6 +567,8 @@ def run(
                                     macro_block_size=8)
     except BaseException:
         session.close("startup error")
+        if brain is not None:
+            brain.close()
         raise
 
     ap = cfg.auto_perturb
@@ -520,16 +595,33 @@ def run(
                 f"h={session.height_above_ground():4.2f}mm tilt={sim.tilt_deg():5.1f}deg "
                 f"RTF={rtf:4.2f}")
 
+    pending_keys = list(script_keys or [])
+
     def after_physics() -> bool:
         """Physics side, after each chunk of sim.step: hints / auto reset, terminal
-        line. Returns True once max_seconds is reached. Threaded mode: runs in the
-        worker thread, under the lock."""
+        line, scripted keys. Returns True once max_seconds is reached or a scripted
+        key quit. Threaded mode: runs in the worker thread, under the lock."""
         session.after_physics()
         rt = session.run_time()
+        if pending_keys and pending_keys[0][0] <= rt:
+            keys = []
+            while pending_keys and pending_keys[0][0] <= rt:
+                k = pending_keys.pop(0)[1]
+                if k == "p" and headless:  # nothing would ever unpause a headless run
+                    print("[script] 'p' ignored in headless mode", flush=True)
+                    continue
+                keys.append(k)
+            print(f"[script] t={rt:.2f}s keys {keys}", flush=True)
+            handle_keys(keys)
+            if st.quit_reason != "max-seconds":
+                st.done = True
+                return True
         if rt >= st.next_print:
             while st.next_print <= rt:
                 st.next_print += cfg.stats.print_interval_s
             print(status_line(), flush=True)
+            if brain is not None:
+                print("  " + brain.status_line(), flush=True)
         st.done = max_seconds is not None and rt >= max_seconds
         return st.done
 
@@ -553,6 +645,8 @@ def run(
         down = session.down_for()
         if down is not None and detector.state != FallState.UPRIGHT:
             lines.append(f"DOWN {down:4.1f}s - press X to reset")
+        if brain is not None:
+            lines.extend(brain.hud_lines())
         lines.append("? = key help (terminal)")
         return lines
 
@@ -565,18 +659,26 @@ def run(
             elif k == "p":
                 st.paused = not st.paused
                 msg = "[paused]" if st.paused else "[resumed]"
+                if brain is not None:
+                    brain.on_pause(st.paused)
+                    msg += " (the brain follows fly time and waits too)"
             elif k == "x":
                 session.reset("manual")
-                frame_renderer.camera.reset()
+                if frame_renderer is not None:
+                    frame_renderer.camera.reset()
                 msg = f"[reset] explicit reset #{metrics.n_resets}"
             elif k == "c":
-                msg = f"[camera] {frame_renderer.camera.cycle_mode()}"
+                msg = (f"[camera] {frame_renderer.camera.cycle_mode()}"
+                       if frame_renderer is not None else "[camera] no camera (headless)")
             elif k in SPAWN_KEYS:
                 msg = session.spawn(SPAWN_KEYS[k])
             elif k == "f":
                 msg = session.flatten()
             elif k in ("?", "/"):
                 msg = key_help_text()
+            elif k in BRAIN_KEYS:
+                msg = (brain.handle_key(k) if brain is not None else
+                       f"[brain] {k.upper()} needs the brain: run with --brain")
             else:
                 msg = session.handle_whip_key(k)
             if msg:
@@ -614,6 +716,8 @@ def run(
                             handle_keys(keys)
                         runner.paused = st.paused
                         runner.reset_clock()
+                    elif runner.paused != st.paused:  # paused by a scripted key
+                        runner.paused = st.paused
                     if st.quit_reason != "max-seconds" or st.done:
                         break
                     if not runner.running:  # worker ended (max_seconds or error)
@@ -669,6 +773,8 @@ def run(
                 except Exception as e:  # never mask the real error / skip the summary
                     print(f"warning: closing {type(closer).__name__} failed: {e}", file=sys.stderr)
         session.close(st.quit_reason)
+        if brain is not None:
+            brain.close()
     quit_reason = st.quit_reason
 
     pos = sim.thorax_position()
@@ -692,6 +798,11 @@ def run(
     print(f"  resets={m.n_resets} (auto {session.n_auto_resets})  spawns={terrain.spawn_count}  "
           f"chunks recycled={terrain.recycle_count}  falls/km={_fmt(m.falls_per_km)}  "
           f"recovery%={_fmt(m.recovery_percentage)}", flush=True)
+    if brain is not None:
+        b = brain.summary()
+        print(f"  brain: {b['brain_states']} states ({b['brain_states_dropped']} dropped), "
+              f"{b['brain_stimuli_sent']} stimuli, brain time {b['brain_time_s'] or 0:.2f}s, "
+              f"final lag {b['brain_lag_s'] or 0:.2f}s", flush=True)
     if session.logger is not None:
         print(f"  run dir: {session.logger.run_dir}", flush=True)
     sim.close()
@@ -701,8 +812,14 @@ def run(
 def main(argv: list[str] | None = None) -> int:
     args = build_arg_parser().parse_args(argv)
     cfg = config_from_args(args)
+    if cfg.brain.enabled:
+        problem = missing_requirements(cfg.brain)
+        if problem:
+            print(f"ERROR: {problem}", file=sys.stderr)
+            return 2
     try:
-        run(cfg, headless=args.headless, max_seconds=args.max_seconds, record=args.record)
+        run(cfg, headless=args.headless, max_seconds=args.max_seconds, record=args.record,
+            script_keys=parse_script_keys(args.script_keys))
     except SimulationInstabilityError as e:
         print(f"\nERROR: {e}", file=sys.stderr)
         return 1

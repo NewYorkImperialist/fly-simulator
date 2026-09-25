@@ -344,6 +344,10 @@ class LocomotionController:
         self._adh_ids = None if adh is None or len(adh) == 0 else np.asarray(adh, dtype=np.int64)
         self._target_heading = np.radians(cfg.target_heading_deg)
         self._ones2 = np.ones(2)
+        # Optional ``fn(heading_hold_signal) -> signal`` applied in descending_signal()
+        # (the app's --brain-steer installs the brain's descending drive here; see
+        # perpetualfly/brain_link.py). None = heading hold only.
+        self.signal_filter = None
 
     def initial_action(self) -> LocomotionAction:
         """Neutral standing pose with all tarsi adhering (used during warmup)."""
@@ -368,13 +372,16 @@ class LocomotionController:
         """
         k = self.cfg.heading_gain
         if k <= 0:
-            return self._ones2.copy()
-        fwd = self._sim.mj_data.xmat[self._obs._thorax_body_id]  # row-major 3x3
-        err = np.arctan2(fwd[3], fwd[0]) - self._target_heading  # column 0 = (m00, m10)
-        err = (err + np.pi) % (2 * np.pi) - np.pi  # >0: fly points left of target
-        lim = self.cfg.max_turn_signal
-        delta = min(max(k * err, -lim), lim)  # == np.clip for scalars
-        return np.array([1.0 + delta, 1.0 - delta])
+            hold = self._ones2.copy()
+        else:
+            fwd = self._sim.mj_data.xmat[self._obs._thorax_body_id]  # row-major 3x3
+            err = np.arctan2(fwd[3], fwd[0]) - self._target_heading  # column 0 = (m00, m10)
+            err = (err + np.pi) % (2 * np.pi) - np.pi  # >0: fly points left of target
+            lim = self.cfg.max_turn_signal
+            delta = min(max(k * err, -lim), lim)  # == np.clip for scalars
+            hold = np.array([1.0 + delta, 1.0 - delta])
+        f = self.signal_filter
+        return hold if f is None else f(hold)
 
     def compute_action(self) -> LocomotionAction:
         if self._obs is not None:

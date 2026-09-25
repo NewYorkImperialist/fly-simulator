@@ -9,9 +9,10 @@
 | M3 terrain | Endless chunked procedural terrain from a fixed geom pool (constant model size; recycled, and 2173 chunks were recycled in the 31 min soak). Presets flat / easy / normal / hard / chaos. R B S G D spawn obstacles, F flattens the next chunk. |
 | M4 falls, logging, auto hits | The FallDetector tracks UPRIGHT / DESTABILIZED / FALLEN / RECOVERING. X resets, `--auto-reset-after` resets automatically, `--auto-perturb` gives seeded random hits. Every run writes `runs/<ts>/{config.json, events.csv, metrics.csv, summary.json}`. |
 | RL (phase 10) | A residual Gymnasium env, a curriculum, `scripts/train_ppo.py` and `scripts/eval_policy.py` exist and have been smoke-tested. **No real training run has been done yet** (docs/RL.md). |
+| connectome brain | `--brain` runs the Shiu et al. 2024 LIF model of the whole FlyWire v783 brain (138,639 neurons) in its own process, paced to the fly's *simulated* time (lag ~0.1 s), plus a brain window. Whip hits, shoves, falls and resets become sensory input; O (looming), T (sugar), K (bitter) inject stimuli. `--brain-steer` feeds the descending neurons back into the walking controller: looming (giant fiber 120-150 Hz, MDN 15-45 Hz) stops the fly for ~1 s. Whip hits never reach the walking DNs in this model. See docs/BRAIN.md, *Integration*. |
 | robustness eval | `scripts/eval_robustness.py` runs N headless sessions in parallel, or aggregates existing run folders, and writes `report.md` and `report.json` with the spec's long-horizon metrics. |
 
-Tests: `.venv/bin/python -m pytest -q`: 78 passed, ~2 min.
+Tests: `.venv/bin/python -m pytest -q`: 109 passed, ~2.5 min.
 
 ## How to run
 
@@ -23,6 +24,7 @@ Tests: `.venv/bin/python -m pytest -q`: 78 passed, ~2 min.
 .venv/bin/python scripts/eval_robustness.py --seeds 0,1,2 --jobs 3 --duration 300 \
     --terrain normal --hit-mode whip --auto-levels 1,2 --out runs/robust/normal
 .venv/bin/python scripts/eval_policy.py --baseline --stage normal --sim-seconds 180
+.venv/bin/python scripts/run_sim.py --brain-steer                     # + connectome brain and its window
 ```
 
 ## Soak / robustness results (Apple M1, 3-4 processes at once, `--log-hz 5`)
@@ -83,6 +85,11 @@ are in `runs/soak/report_*/report.md`, `runs/soak/chaos/report.md` and
 - The sim runs slower than real time (0.6-0.7x alone, whip included, which adds ~22 %).
 - Rendering uses float32. Far from the origin (x > ~1 km, about 20 h of walking with no
   reset) the whip shows slight jitter. Physics is float64 and unaffected.
+- Brain: body touch reaches the model only through the few ascending mechanosensory
+  afferents (there is no VNC), so whips and shoves don't change the walk even with
+  `--brain-steer`. Looming is injected into LC4 directly, not seen. The DN -> CPG
+  mapping gains are ours: with the default `backward_ref` of 40 Hz, looming stops the
+  fly; at 20 Hz it walks backward. The brain costs one CPU core.
 - Level-4 hits launch the fly 5-60 cm, off the terrain feature band. Distance and
   speed include that flight.
 - The terrain label depends only on x, and automatic hits keep coming while the fly

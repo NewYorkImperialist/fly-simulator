@@ -12,6 +12,7 @@ from dataclasses import asdict, dataclass, field, fields, is_dataclass
 from pathlib import Path
 from typing import Any
 
+from perpetualfly.brain_link import BrainLinkConfig
 from perpetualfly.interaction.perturbation import AutoPerturbConfig, PerturbationConfig
 from perpetualfly.interaction.whip import WhipConfig
 from perpetualfly.metrics.falls import FallDetectorConfig
@@ -195,6 +196,8 @@ class AppConfig:
     falls: FallDetectorConfig = field(default_factory=FallDetectorConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
     session: SessionConfig = field(default_factory=SessionConfig)
+    # Connectome brain (--brain, --brain-steer; perpetualfly/brain_link.py). Off by default.
+    brain: BrainLinkConfig = field(default_factory=BrainLinkConfig)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

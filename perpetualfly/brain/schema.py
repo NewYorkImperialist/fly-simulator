@@ -102,6 +102,17 @@ class BrainState:
         layout.display_neuron_ids and times (brain_time seconds).
     total_spikes: spikes of all neurons in the window.
     recent_stimuli: kinds/sides of stimuli applied during the window (for labels).
+
+    Optional fields (additive; defaults keep older producers/consumers working):
+    seq: 1, 2, 3, ... per published state (gaps = states dropped by a full queue).
+    sim_time: pace="sim" only: the fly run time the end of this window corresponds
+        to (brain_time + clock offset); ``fly time - sim_time`` is the brain's lag.
+    compute_rtf: brain seconds per wall second spent *computing* (excludes waiting
+        for the fly clock or wall time): how fast the brain could run.
+    probes: {name: rate Hz} of extra single-neuron readouts, e.g. "MN9".
+    drive: filled in by the fly app, not the brain: the walking command derived
+        from ``descending`` ({"left", "right", "forward", "turn", "escape",
+        "applied", "lag_s"}); shown by the brain window (DRIVE panel, header).
     """
 
     brain_time: float
@@ -116,3 +127,8 @@ class BrainState:
     raster_t: np.ndarray
     total_spikes: int
     recent_stimuli: list[str] = field(default_factory=list)
+    seq: int = 0
+    sim_time: float | None = None
+    compute_rtf: float = 0.0
+    probes: dict[str, float] = field(default_factory=dict)
+    drive: dict | None = None

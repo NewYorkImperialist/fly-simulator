@@ -5,8 +5,8 @@ adult *Drosophila* central brain from Shiu et al. (2024, *Nature* 634:210), whic
 built on the FlyWire v783 connectome. It runs in a separate process. Body events
 (whip hits, falls, and so on) become Poisson input to sensory neurons, and the
 process publishes activity snapshots (`BrainState`) a few times per second for the
-brain window and the app. The message contract is `perpetualfly/brain/schema.py`,
-which this work did not change.
+brain window and the app. The message contract is `perpetualfly/brain/schema.py`. The app integration
+added optional fields to it (see *Integration* below).
 
 ## What the model is, and what it is not
 
@@ -96,8 +96,8 @@ dropped.
 These numbers come from `bench_brain.py --brian2 --standalone --validate 10`. The
 engine uses about 400 MB RSS in the worker, of which 180 MB is CSR arrays.
 
-**Realistic publish rate.** The worker paces brain time to wall time
-(`realtime=True`). It publishes one `BrainState` per `window_s` of brain time, 0.1 s
+**Realistic publish rate.** By default the worker paces brain time to wall time
+(`realtime=True`). The fly app uses `pace="sim"` instead (see *Integration*). It publishes one `BrainState` per `window_s` of brain time, 0.1 s
 by default, so **10 states/s** whenever the load is below real time: quiet,
 whip hits, sugar. During heavy transients (fall: body + JO on both sides at
 200 Hz; head hits; LC4 looming), the engine runs at 0.5-0.85x real time. The brain
@@ -201,6 +201,12 @@ states = brain.poll("window")           # all pending states for another subscri
 sub = brain.subscriber("window")        # picklable: pass to the window's own process,
                                         # then sub.layout(timeout) / sub.latest()
 brain.stop()                            # also runs at exit
+
+# pace brain time to an external clock instead of wall time (what the fly app does):
+brain = BrainProcess(BrainConfig(pace="sim", subscribers=("app",)))
+brain.clock(t)                          # the fly has simulated up to t; the brain may run to t
+brain.send(StimulusEvent(..., sim_time=t_hit))   # applied when brain time reaches t_hit
+brain.reset_state(sim_time=t)
 ```
 
 * **Design.** There is one worker (a daemon, spawn context) and one command queue.
@@ -225,6 +231,146 @@ brain.stop()                            # also runs at exit
 * `BrainConfig(synthetic={"n": 50, ...})` runs a tiny random annotated network with
   no data files, for tests and UI work.
 
+## Integration with the fly app (`perpetualfly/brain_link.py`)
+
+`scripts/run_sim.py --brain` (window), `--brain-headless` (no window),
+`--no-brain-window`, `--brain-steer` (implies `--brain`). `BrainLink` owns the brain
+worker (`BrainProcess`, one subscriber `"app"`) and the brain window
+(`BrainWindowProcess`). The app relays every `BrainState` to the window after
+filling in `state.drive`, so the window's DRIVE panel shows the drive the app
+computed, and whether it is applied. The config is `AppConfig.brain`
+(`BrainLinkConfig`), written to `config.json` together with the `BrainConfig` and
+`DriveGains` actually used.
+
+### Schema additions (all optional, at the end of `BrainState`)
+
+`seq` (detect dropped states), `sim_time` (the fly time the state's end corresponds
+to), `compute_rtf` (brain s per wall s spent computing, i.e. the headroom), `probes`
+(`{"MN9": Hz}`), `drive` (filled by the app). Older producers and consumers are
+unaffected.
+
+### Time: the brain follows fly simulation time
+
+`BrainConfig(pace="sim")` (what the app uses) replaces wall-clock pacing with a
+clock from the app. After each physics chunk (5-15 ms of sim time) the app sends
+`clock(run_time)` (at most every 10 ms of sim time), where run time is the fly's
+monotonic time across resets. The worker never simulates past the latest clock
+mark: when it catches up it waits for the next one. So:
+
+* pausing the fly (P) pauses the brain, and the fly's 0.6x real-time speed is the
+  brain's too;
+* stimuli are **scheduled**: each `StimulusEvent.sim_time` (fly run time) is applied
+  when brain time reaches it, or immediately if it is already past. A whip hit's
+  event is emitted when the strike window closes (~30-60 ms after first contact); if
+  the brain has already passed the contact time, the hit is applied up to that much
+  late;
+* `reset_state(sim_time)` is scheduled the same way. A fly reset also resets the
+  brain (the body is teleported, so leftover activity would not belong to it);
+* if the brain can't keep up, it lags. The lag (`fly run time - state.sim_time`,
+  HUD `lag`) is normally 0.02-0.12 s: states cover 0.1 s and arrive ~15 ms after
+  the fly passes their end. Beyond `max_lag_s` (1 s) the
+  worker stops trying to catch up (the clock offset grows), so the lag stays bounded
+  and physics is never blocked.
+
+Measured in 20 s headless runs (flat, `--brain-steer`, whip hits L1-L3, a shove, a
+fall, a reset, two looms, sugar, bitter): the lag stayed at 0.10-0.14 s, including
+during looming, when the engine ran at 0.8x real time against the fly's 0.5-0.64x.
+No state was dropped (199 of 199).
+
+### Body -> brain events
+
+| app event | StimulusEvent |
+|---|---|
+| whip hit (`WhipHitEvent`, hits only) | `whip_hit`, intensity = measured impulse / 1.0 uN*s (mean L4 impulse, docs/WHIP.md), clipped to 1: L1-L4 give ~0.15 / 0.25 / 0.6 / 1.0. Side = the crack's side in the fly's frame (`overhead` -> `top`; `random` cracks are classified from the measured impulse direction). `details.body` = the body with most impulse (head hits -> head bristles). Duration max(50 ms, contact). |
+| shove (`HitEvent`) | `shove`, intensity = impulse / level-4 impulse (2.5 uN*s); side = opposite to the push (push to the fly's right = hit on its left; up -> both sides) |
+| fall (detector) | `fall`, intensity 1, 0.1 s |
+| recovered | `recovered` (no mapping; window chip and events.csv only) |
+| fly reset | `reset_state(sim_time)` |
+| pause / resume | window chip and events.csv only (the brain simply waits) |
+| O | `manual` `LC4` at 200 Hz for 1 s (looming) |
+| T / K | `manual` `sugar` / `bitter` at 200 Hz for 1 s |
+
+Everything sent is logged as `brain_stim` rows in `events.csv` (details: kind,
+side, intensity, duration, stimulus time, body, impulse, level).
+
+### Brain -> body (`--brain-steer`)
+
+1. Each `BrainState` -> `b_target = descending_to_drive(state)` (unchanged mapping).
+   It is held until the next state, and set to `[1, 1]` if the latest state is
+   older than 2 s of fly time or the brain has died.
+2. `b` = first-order low-pass of `b_target` in fly time, tau = 0.1 s. States are
+   0.1 s averages of a few neurons, and without it the drive jumps every 0.1 s.
+3. The heading hold (`LocomotionController.descending_signal`, `[1 + d, 1 - d]`) and
+   `b` are combined by `combine_drive` through `LocomotionController.signal_filter`:
+
+   ```
+   w     = clip(mean(b), 0, 1)
+   final = b + w * d * [+1, -1]         each side clipped to +/-1.5 (DriveGains.max_amp)
+   ```
+
+   Reasoning: the brain sets the speed and direction of stepping and its own turn.
+   The heading hold is a corrective differential on top of it. For a forward-walking
+   brain (`mean(b) >= 1`) this is exactly `hold + (b - [1, 1])`. A quiet brain returns
+   the heading hold unchanged, bit for bit, so `--brain-steer` with a silent brain
+   walks exactly like no brain. As MDN pulls the stepping toward -1, `w` goes to 0:
+   the heading correction is tuned for forward walking, and its sign has no clear
+   meaning for reversed stepping. Without `--brain-steer` no filter is installed, and
+   the drive is only displayed.
+
+FlyGym's `HybridTurningController` handles negative drive (reversed CPG frequency,
+|v| amplitude). Measured on flat ground with a fixed signal: `[1, 1]` gives
++14.6 mm/s, `[0, 0]` stops the fly (0.0 mm/s after 0.2 s), `[-0.5, -0.5]` gives
+-3.9 mm/s and `[-1, -1]` gives -11.7 mm/s. It walks backward.
+
+**Looming with the real brain** (O at 200 Hz for 1 s, flat, `--brain-steer`, two
+trials, forward thorax velocity from `metrics.csv`):
+
+| window after O | GF (DNp01) | MDN L/R | control drive (mean) | forward velocity mean (min) |
+|---|---|---|---|---|
+| 1 s before | 0 | 0 | 1.00 | 14.6 / 13.0 mm/s |
+| 0-0.5 s | 120-140 Hz | 15-45 Hz | 0.51-0.54 | 8.2 / 7.4 mm/s |
+| 0.5-1.2 s | 125-150 Hz | 10-45 Hz | 0.08-0.13 | **0.9 / 1.5 mm/s** (-4.9 / -1.8) |
+| 1.2-2.2 s after | 0-20 Hz | 0 | 0.91-0.95 | 12.6 / 13.2 mm/s |
+
+With the default `backward_ref = 40 Hz`, MDN's ~20 Hz average in this model gives a
+drive near 0, so **looming stops the fly** (with brief backward steps) for about a
+second. With `backward_ref = 20 Hz` (`{"brain": {"gains": {"backward_ref": 20}}}`
+in a `--config` file) the same stimulus makes it **walk backward**: mean -4.3 and
+-0.8 mm/s over 0.5-1.2 s in two trials, with peaks of -22.6 and -15.6 mm/s. The
+default was kept: the in-vivo MDN rate for full backward walking is not known, and
+40 Hz is the conservative choice. Whip hits, shoves, falls and taste produced no
+walk / turn / MDN activity in these runs, so with `--brain-steer` they don't change
+the walk. That is the model's honest limitation (see the honesty note above). The
+giant fiber's escape command is not mapped: the body cannot take off.
+
+### HUD, terminal and logs
+
+* Fly window HUD: `BRAIN t <brain s> lag <s> x<realtime factor> real time (can
+  x<compute_rtf>)`, the drive `L/R` with `(steering)` or `(view only)`, GF / MDN / MN9
+  rates, and the O/T/K hint. The terminal prints the same line after every stat line,
+  plus edge-triggered notes (`giant fiber (DNp01) firing 130 Hz`, `MDN ...`,
+  `MN9 ... Hz`). The brain window shows the stimulus chips (LOOM LC4, SUGAR,
+  WHIP L 0.25, PAUSED, ...) and the DRIVE panel ("from brain, applied to the fly" or
+  "NOT applied").
+* `metrics.csv` extra columns: `brain_time, brain_lag, brain_drive_L/R` (smoothed
+  brain drive), `ctrl_drive_L/R` (the signal actually given to the controller),
+  `dn_walk_L ... dn_escape` (Hz, latest state) and `mn9_hz`. `events.csv`:
+  `brain_stim`, `brain_reset`, `brain_pause` / `brain_resume`. `summary.json`:
+  `brain` (states, dropped, stimuli, brain time, final lag, worker info).
+
+### Lifecycle
+
+The brain worker is spawned before the MuJoCo world is built, so the connectome
+loads in parallel (about 3 s to ready). The window starts once the layout has
+arrived. Both are started once, survive fly resets, and are stopped in `run()`'s
+`finally` (Q / ESC, fly window closed, Ctrl-C, exceptions). Both children ignore
+SIGINT, so Ctrl-C is handled by the app only. Both also exit by themselves when the
+parent dies: the worker within one wait (50 ms) or chunk, the window within 0.5 s.
+This was checked with `ps` after SIGKILL of the app (and in
+`tests/test_brain_app.py`). If the brain window is closed or dies, the fly and the
+brain keep running and the terminal says so once. If the worker dies, the drive
+falls back to `[1, 1]`.
+
 ## Commands
 
 ```bash
@@ -235,6 +381,10 @@ brain.stop()                            # also runs at exit
 .venv/bin/python scripts/bench_brain.py               # engine RTF
 .venv/bin/python scripts/bench_brain.py --brian2 --standalone --validate 10   # needs brian2
 .venv/bin/python -m pytest -q tests/test_brain.py     # data tests skip without data/brain
+.venv/bin/python scripts/run_sim.py --brain             # fly + brain window (keys O / T / K)
+.venv/bin/python scripts/run_sim.py --headless --brain-headless --brain-steer \
+    --max-seconds 20 --terrain flat --script-keys "2:left,6:o,12:t"
+.venv/bin/python -m pytest -q tests/test_brain_app.py # app integration (synthetic brain)
 ```
 
 ## References

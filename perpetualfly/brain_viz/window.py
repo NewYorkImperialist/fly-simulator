@@ -166,6 +166,9 @@ def _panel(img, r: Rect, title: str = "", subtitle: str = "") -> None:
 def short_stimulus(s) -> str:
     """'whip_hit left 0.6' / StimulusEvent -> 'WHIP L 0.60'."""
     if isinstance(s, StimulusEvent):
+        lab = (s.details or {}).get("label") if isinstance(s.details, dict) else None
+        if lab:  # e.g. the app's "LOOM" / "SUGAR" keys
+            return str(lab).upper()[:28]
         s = f"{s.kind} {s.side} {s.intensity}"
     kinds = {"whip_hit": "WHIP", "whip": "WHIP", "shove": "SHOVE", "fall": "FALL",
              "ground_contact": "CONTACT", "reset": "RESET", "manual": "MANUAL"}
@@ -363,6 +366,16 @@ class BrainRenderer:
             if len(idx) >= 3 and np.ptp(rxy[idx], 0).min() > 0:
                 dst = np.array([atlas["regions"][keys[i]]["centroid"] for i in idx])
                 fn, rel = _fit_axes(rxy[idx], dst)
+                if rel >= 0.25 and len(idx) >= 8:
+                    # robust refit: region_xy may be e.g. the median position of each
+                    # region's neurons, which for a few regions (EPA, FLA, GA with the
+                    # real engine) lies far from the neuropil; fit on the best 75 %
+                    src = rxy[idx]
+                    r0 = np.linalg.norm(fn(src) - dst, axis=1)
+                    keep = r0 <= np.quantile(r0, 0.75)
+                    fn2, rel2 = _fit_axes(src[keep], dst[keep])
+                    if rel2 < rel:
+                        fn, rel = fn2, rel2
                 if rel < 0.25:
                     fit = fn
             elif sum(amatch) >= 0.5 * R:
@@ -1063,7 +1076,11 @@ class BrainRenderer:
                     except (TypeError, ValueError):
                         pass
         title = "DRIVE" if ext else "DRIVE PREVIEW"
-        sub = "from brain" if ext else "simple DN mapping, not what the fly uses"
+        if ext:
+            sub = ("from brain, applied to the fly" if ext.get("applied") else
+                   "from brain, NOT applied (run with --brain-steer)")
+        else:
+            sub = "simple DN mapping, not what the fly uses"
         x = put_text(img, title, (d.x + 2, d.y + 14), TEXT, 12, 700)
         put_text(img, sub, (x + 8, d.y + 14), FAINT, 10)
         bw = d.w - 84 - 40 - 52
@@ -1137,6 +1154,15 @@ class BrainRenderer:
             badge, col = "WAITING FOR BRAIN…", (90, 84, 80)
         elif stale:
             badge, col = f"NO BRAIN DATA FOR {wall - self._last_arrival:.0f} s", BAD
+        elif getattr(s, "sim_time", None) is not None:
+            # paced to the fly's simulated time (the app): wall-clock speed is the
+            # fly's; what matters is whether the brain keeps up with the fly
+            lag = (s.drive or {}).get("lag_s") if isinstance(s.drive, dict) else None
+            if lag is not None and lag > 0.3:
+                badge, col = f"BRAIN {lag:.1f} s BEHIND THE FLY", (30, 120, 200)
+            else:
+                badge, col = "IN STEP WITH THE FLY" + (
+                    f"  lag {lag:.2f} s" if lag is not None else ""), (60, 140, 60)
         elif rtf is None or rtf <= 0:
             badge, col = "SPEED UNKNOWN", (90, 84, 80)
         elif rtf >= 0.95:

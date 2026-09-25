@@ -9,6 +9,14 @@ Design (simplest robust one we found):
   BrainState. Brain time is paced to wall time (``realtime=True``): the worker never
   runs ahead of the clock; if the model is slower than real time it simply runs as
   fast as it can and ``BrainState.realtime_factor`` drops below 1.
+* ``pace="sim"`` (what the fly app uses): brain time follows a clock supplied by the
+  parent (``clock(t)``, the fly's simulated run time) instead of wall time. The
+  worker never runs ahead of the latest clock mark, so a paused or slow fly pauses /
+  slows the brain and brain and body stay causally consistent. Stimuli are applied
+  at their ``StimulusEvent.sim_time`` (or immediately if that is already past). If
+  the brain falls more than ``max_lag_s`` behind the clock it stops trying to catch
+  up (the clock offset ``slip`` grows); ``BrainState.sim_time`` is the fly time the
+  end of each state corresponds to, so the parent can show the lag.
 * Commands go parent -> worker through one ``cmd`` queue (``send()`` never blocks).
 * Each *subscriber* (e.g. ``"app"`` and ``"window"``) gets its own bounded state
   queue plus a one-slot layout queue. The worker publishes every state to every
@@ -45,7 +53,9 @@ class BrainConfig:
     data_dir: str | None = None       # default: <repo>/data/brain
     chunk_ms: float = 20.0            # brain time simulated between command polls
     window_s: float = 0.1             # brain time per published BrainState
-    realtime: bool = True             # pace brain time to wall time
+    realtime: bool = True             # pace brain time to wall time (pace="wall")
+    pace: str = "wall"                # "wall" | "sim" (follow clock() marks, see above)
+    max_lag_s: float = 1.0            # pace="sim": max brain lag behind the clock
     seed: int = 0
     subscribers: tuple[str, ...] = ("app", "window")
     queue_size: int = 8               # states kept per subscriber before dropping
@@ -192,9 +202,13 @@ class BrainProcess:
         """Queue a stimulus (non-blocking; applied at the start of the next chunk)."""
         self._cmd.put_nowait(("stim", ev))
 
-    def reset_state(self) -> None:
-        """Clear stimuli and return every neuron to rest."""
-        self._cmd.put_nowait(("reset_state", None))
+    def reset_state(self, sim_time: float | None = None) -> None:
+        """Clear stimuli and return every neuron to rest (pace="sim": at ``sim_time``)."""
+        self._cmd.put_nowait(("reset_state", sim_time))
+
+    def clock(self, sim_time: float) -> None:
+        """pace="sim": the fly has simulated up to ``sim_time``; the brain may run to it."""
+        self._cmd.put_nowait(("clock", float(sim_time)))
 
     # ------------------------------------------------------------------ outputs
     def subscriber(self, name: str = "app") -> BrainSubscriber:
@@ -250,6 +264,11 @@ class _Model:
         self.layout, self.display_idx = build_layout(self.table, cfg.get("n_per_region", 16),
                                                      cfg.get("seed", 0))
         self.dn = descending_indices(self.table)
+        from .mapping import MN9_IDS
+
+        # extra readouts (BrainState.probes, Hz): the proboscis motor neuron MN9
+        # (Shiu et al.'s sugar -> feeding readout)
+        self.probes = {"MN9": self.table.index_of(MN9_IDS)}
         n = self.table.n
         self.disp_lut = np.full(n, -1, dtype=np.int64)
         self.disp_lut[self.display_idx] = np.arange(len(self.display_idx))
@@ -263,7 +282,8 @@ class _Model:
         self.engine.run(1)  # JIT warm-up (numba cache makes this fast after the first time)
 
     def summarize(self, steps: np.ndarray, idx: np.ndarray, window_s: float,
-                  brain_time: float, rtf: float, labels: list[str]) -> BrainState:
+                  brain_time: float, rtf: float, labels: list[str],
+                  **extra) -> BrainState:
         n = self.table.n
         counts = np.bincount(idx, minlength=n).astype(float) if len(idx) else np.zeros(n)
         w = max(window_s, 1e-9)
@@ -276,6 +296,8 @@ class _Model:
             spk_r = np.bincount(self.table.region, weights=counts, minlength=self.n_regions)
             rate_r = np.nan_to_num(spk_r / (self.n_by_region * w))
         desc = {g: (float(counts[i].mean() / w) if len(i) else 0.0) for g, i in self.dn.items()}
+        probes = {k: (float(counts[i].mean() / w) if len(i) else 0.0)
+                  for k, i in self.probes.items()}
         d = self.disp_lut[idx] if len(idx) else np.zeros(0, dtype=np.int64)
         sel = d >= 0
         dt_s = self.engine.p.dt * 1e-3
@@ -285,7 +307,7 @@ class _Model:
             active_frac_by_nt=frac_nt.astype(np.float32), rate_by_region=rate_r.astype(np.float32),
             descending={g: desc[g] for g in DESCENDING_GROUPS},
             raster_idx=d[sel].astype(np.int32), raster_t=(steps[sel] * dt_s).astype(np.float64),
-            total_spikes=int(len(idx)), recent_stimuli=list(labels))
+            total_spikes=int(len(idx)), recent_stimuli=list(labels), probes=probes, **extra)
 
 
 def _synthetic_table(n: int = 50, p_conn: float = 0.1, seed: int = 0, **_):
@@ -322,6 +344,12 @@ def _synthetic_table(n: int = 50, p_conn: float = 0.1, seed: int = 0, **_):
 
 
 def _worker_main(cfg: dict, cmd_q, status_q, pubs: dict) -> None:
+    import signal
+
+    try:  # Ctrl-C in the terminal belongs to the parent (it stops us; we also exit
+        signal.signal(signal.SIGINT, signal.SIG_IGN)  # by ourselves if it dies)
+    except ValueError:
+        pass
     try:
         _worker_loop(cfg, cmd_q, status_q, pubs)
     except Exception:
@@ -343,26 +371,51 @@ def _worker_loop(cfg: dict, cmd_q, status_q, pubs: dict) -> None:
     dt_s = eng.p.dt * 1e-3
     chunk_steps = max(1, int(round(cfg.get("chunk_ms", 20.0) * 1e-3 / dt_s)))
     win_steps = max(1, int(round(cfg.get("window_s", 0.1) / dt_s)))
-    realtime = bool(cfg.get("realtime", True))
+    sim_paced = cfg.get("pace", "wall") == "sim"
+    realtime = bool(cfg.get("realtime", True)) and not sim_paced
+    max_lag = float(cfg.get("max_lag_s", 1.0))
     buf_steps: list[np.ndarray] = []
     buf_idx: list[np.ndarray] = []
     labels: list[str] = []
     rtf_hist: deque = deque(maxlen=50)  # (wall, brain) samples
+    busy_hist: deque = deque(maxlen=50)  # (busy wall s, brain steps) per engine call
     step0 = eng.step_count
     wall0 = time.perf_counter()
     next_pub = eng.step_count + win_steps
     running = True
+    seq = 0
+    # pace="sim": latest clock mark (fly run time), clock offset, scheduled commands
+    clock = eng.t
+    slip = 0.0  # fly time - brain time (grows only when the brain gives up catching up)
+    pending: list[tuple[float, int, tuple]] = []  # (fly time, order, cmd), sorted
+    order = [0]
 
-    def handle(cmd) -> bool:
+    def apply(cmd) -> None:
+        nonlocal labels
         kind, payload = cmd
-        if kind == "stop":
-            return False
         if kind == "stim":
             labels.extend(mapper.add(payload, eng.t))
         elif kind == "reset_state":
             mapper.add(StimulusEvent(kind="reset"), eng.t)
             eng.reset_state()
             labels.append("reset_state")
+
+    def handle(cmd) -> bool:
+        nonlocal clock
+        kind, payload = cmd
+        if kind == "stop":
+            return False
+        if kind == "clock":
+            clock = max(clock, float(payload))
+            return True
+        if sim_paced and kind in ("stim", "reset_state"):
+            t = payload.sim_time if kind == "stim" else payload
+            if t is not None and float(t) - slip > eng.t + 0.5 * dt_s:
+                order[0] += 1
+                pending.append((float(t), order[0], cmd))
+                pending.sort(key=lambda x: (x[0], x[1]))
+                return True
+        apply(cmd)
         return True
 
     while running:
@@ -377,6 +430,9 @@ def _worker_loop(cfg: dict, cmd_q, status_q, pubs: dict) -> None:
                 break
         if not running or (parent is not None and not parent.is_alive()):
             break
+        # 1b) scheduled commands that are due
+        while pending and pending[0][0] - slip <= eng.t + 0.5 * dt_s:
+            apply(pending.pop(0)[2])
         # 2) stimulus bookkeeping
         if mapper.expire(eng.t):
             idx, rates = mapper.drive()
@@ -386,11 +442,29 @@ def _worker_loop(cfg: dict, cmd_q, status_q, pubs: dict) -> None:
         t_change = mapper.next_change()
         if np.isfinite(t_change):
             n = min(n, max(1, int(np.ceil((t_change - eng.t) / dt_s - 1e-9))))
+        if sim_paced:
+            lag = clock - slip - eng.t
+            if lag > max_lag:  # can't keep up: give up the excess instead of racing
+                slip += lag - max_lag
+            budget = int(np.floor((clock - slip - eng.t) / dt_s + 1e-6))
+            if budget < 1:  # caught up with the fly: wait for the next clock mark
+                try:
+                    cmd = cmd_q.get(timeout=0.05)
+                    if not handle(cmd):
+                        break
+                except queue.Empty:
+                    pass
+                continue
+            n = min(n, budget)
+            if pending:
+                n = min(n, max(1, int(np.ceil((pending[0][0] - slip - eng.t) / dt_s - 1e-9))))
+        t_run = time.perf_counter()
         s, i = eng.run(max(1, n))
+        now = time.perf_counter()
+        busy_hist.append((now - t_run, max(1, n)))
         if len(s):
             buf_steps.append(s)
             buf_idx.append(i)
-        now = time.perf_counter()
         rtf_hist.append((now, eng.step_count))
         # 4) publish
         if eng.step_count >= next_pub:
@@ -400,7 +474,12 @@ def _worker_loop(cfg: dict, cmd_q, status_q, pubs: dict) -> None:
             buf_idx.clear()
             (w0, b0), (w1, b1) = rtf_hist[0], rtf_hist[-1]
             rtf = (b1 - b0) * dt_s / (w1 - w0) if w1 > w0 else 0.0
-            st = model.summarize(steps, idx, win_steps * dt_s, eng.t, rtf, labels)
+            busy = sum(b for b, _ in busy_hist)
+            crtf = sum(k for _, k in busy_hist) * dt_s / busy if busy > 0 else 0.0
+            seq += 1
+            st = model.summarize(steps, idx, win_steps * dt_s, eng.t, rtf, labels,
+                                 seq=seq, compute_rtf=float(crtf),
+                                 sim_time=float(eng.t + slip) if sim_paced else None)
             labels = []
             for states_q, _ in pubs.values():
                 _publish(states_q, st)

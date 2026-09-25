@@ -130,8 +130,15 @@ class RunLogger:
         terrain_type_fn: Callable[[float], str] | None = None,
         ground_height_fn: Callable[[float, float], float] | None = None,
         run_name: str | None = None,
+        extra_metric_columns: list[str] | tuple[str, ...] = (),
+        extra_metric_fn: Callable[[], tuple | list] | None = None,
     ) -> None:
+        """``extra_metric_columns`` are appended to metrics.csv; ``extra_metric_fn()``
+        returns their values for each row (called in the sampling hook, e.g. the
+        brain columns of perpetualfly.brain_link)."""
         self.cfg = cfg or LoggingConfig()
+        self.extra_metric_columns = list(extra_metric_columns)
+        self.extra_metric_fn = extra_metric_fn
         self.terrain_type_fn = terrain_type_fn
         self.ground_height_fn = ground_height_fn
         self.metrics: RunMetrics | None = None
@@ -163,7 +170,7 @@ class RunLogger:
         self._ev.writerow(EVENT_COLUMNS)
         self._m_f = open(run_dir / "metrics.csv", "w", newline="")
         self._m = csv.writer(self._m_f)
-        self._m.writerow(METRIC_COLUMNS)
+        self._m.writerow(METRIC_COLUMNS + self.extra_metric_columns)
         self._flush(force=True)
         self._next_flush = time.monotonic() + self.cfg.flush_every_s
         self._next_summary = time.monotonic() + self.cfg.summary_every_s
@@ -338,6 +345,13 @@ class RunLogger:
             met.n_falls if met else "", met.n_recoveries if met else "",
             met.n_hits if met else "",
         )
+        if self.extra_metric_columns:
+            try:
+                extra = tuple(self.extra_metric_fn()) if self.extra_metric_fn else ()
+            except Exception as e:  # logging must never kill the sim
+                extra = (f"error:{type(e).__name__}",)
+            n = len(self.extra_metric_columns)
+            row = row + (extra + ("",) * n)[:n]
         self._m.writerow([self._fmt(v, i in _METRIC_ABS) for i, v in enumerate(row)])
         self.n_samples += 1
         self._maybe_flush()
