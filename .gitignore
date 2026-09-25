@@ -9,3 +9,4 @@ runs/
 demo_output/
 MUJOCO_LOG.TXT
 data/
+.ruff_cache/

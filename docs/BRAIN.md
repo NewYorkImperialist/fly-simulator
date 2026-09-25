@@ -1,0 +1,248 @@
+# Brain engine: Shiu et al. 2024 whole-brain LIF model of FlyWire, in its own process
+
+`perpetualfly/brain/` runs the leaky integrate-and-fire (LIF) model of the whole
+adult *Drosophila* central brain from Shiu et al. (2024, *Nature* 634:210), which is
+built on the FlyWire v783 connectome. It runs in a separate process. Body events
+(whip hits, falls, and so on) become Poisson input to sensory neurons, and the
+process publishes activity snapshots (`BrainState`) a few times per second for the
+brain window and the app. The message contract is `perpetualfly/brain/schema.py`,
+which this work did not change.
+
+## What the model is, and what it is not
+
+* **It is** Shiu et al.'s model with their equations and parameters. There are
+  138,639 neurons and 15,091,983 connections (signed synapse counts), with
+  `dt = 0.1 ms`:
+  ```
+  dv/dt = (v_0 - v + g) / t_mbr        (unless refractory)
+  dg/dt = -g / tau                     (unless refractory)
+  v > v_th  ->  spike;  v = v_rst, g = 0;  refractory 2.2 ms
+  pre spike ->  after 1.8 ms: g_post += 0.275 mV * sign * n_synapses
+  Poisson input (sensory drive): v += 0.275 mV * 250 per event (targets: no refractory period)
+  v_0 = v_rst = -52 mV, v_th = -45 mV, t_mbr = 20 ms, tau = 5 ms
+  ```
+  The sign of each connection comes from the predicted transmitter of the
+  presynaptic neuron (Eckstein et al. 2024). ACh, DA, 5-HT and OA count as
+  excitatory; GABA and Glu count as inhibitory.
+* **It is not** a model of neuromodulation. Dopamine, serotonin and octopamine
+  neurons act only as fast excitatory synapses, as in Shiu et al. The window colours
+  neurons by predicted transmitter, but the dynamics do not distinguish them.
+* There is **no VNC.** FlyWire covers the brain only, and most body mechanosensors
+  and all leg motor circuits live in the ventral nerve cord. The descending neurons
+  are therefore the output of the model, and they drive nothing downstream.
+* All neurons share **uniform parameters**. There are no gap junctions, no
+  plasticity, no spontaneous activity (the brain is silent until driven) and no
+  morphology. Synapse counts are the weights.
+* Shiu et al. validated the model on *specific* sensorimotor pathways (sugar and
+  water to MN9 feeding, bitter inhibition, antennal grooming), at about 90 %
+  accuracy for the predicted activations tested. Beyond those pathways, treat it as
+  a plausible, connectome-constrained activity pattern, not a prediction.
+
+## Engine: why a numba port, and how it was checked
+
+`perpetualfly/brain/engine.py` is a from-scratch, event-driven reimplementation of
+those equations, compiled with numba. It keeps state between calls, so it can
+advance in arbitrary chunks, with stimuli changed between chunks.
+
+* It integrates only neurons away from rest (an "active set"). A resting neuron
+  (`v = v_0`, `g = 0`) is an exact fixed point, so skipping it is exact. A neuron
+  whose `|v - v_0|` and `|g|` both fall below 1e-6 mV is snapped to rest. Spikes are
+  delivered by walking the presynaptic CSR row. The cost per step is therefore
+  proportional to active neurons plus spikes times out-degree, not to N.
+* The per-step order follows Brian2's default schedule: state update, threshold,
+  synaptic delivery and Poisson input, then reset. The integration is the exact
+  solution of the linear ODE, which is what Brian2's `method='linear'` computes
+  (checked against `scipy.linalg.expm` in the tests).
+* **Brian2 subtlety, reproduced:** variables flagged `(unless refractory)` are
+  *conditionally written* in Brian2. Any synaptic `g += w` or Poisson `v += ...`
+  that reaches a refractory neuron is discarded, including in the step the neuron
+  spikes. The first version of the port missed this, and its downstream rates came
+  out 30-80 % too high; MN9 fired at 113 Hz where Brian2 gives 89 Hz. The engine now
+  implements it.
+* **Checks:**
+  1. On a 40-neuron recurrent network, the engine produces the same spikes as
+     Brian2 (numpy target), spike for spike
+     (`tests/test_brain.py::test_engine_matches_brian2_spike_for_spike`). It also
+     matches a dense numpy reference implementation.
+  2. **Sanity check on the full connectome:** the Shiu et al. sugar GRNs (20 of
+     their 21 v630 root ids still exist in v783) were driven at 200 Hz, 10 trials of
+     1 s each, in both Brian2 (runtime, cython) and the engine. Results are in
+     `scripts/bench_brain.py --validate 10`:
+
+     | | Brian2 2.10.1 | numba engine |
+     |---|---|---|
+     | MN9 (720575940660219265) rate | 88.6 ± 6.3 Hz | 92.7 ± 4.2 Hz (88.0 ± 3.2 in an earlier run with another RNG stream) |
+     | neurons active | 432 | 436 |
+     | per-neuron mean rates | | Pearson r = 0.9996; 99.8 % of active neurons agree within 3 SEM |
+
+     Shiu et al.'s own published run of this experiment (their `results/example/sugarR.parquet`,
+     FlyWire v630, 30 trials at 200 Hz) has MN9 at 93 Hz and about 450 active
+     neurons. That matches, so the model is wired correctly: sugar GRN input reaches
+     the proboscis motor neuron MN9 through the GNG / PRW feeding circuit.
+
+## Benchmark (Apple M1, 4 P-cores, single thread; `scripts/bench_brain.py`)
+
+RTF means simulated brain seconds per wall second. The engine is single-threaded:
+a 4-thread numba `prange` version of the update step reached only 0.64 against 0.69
+serial on the heaviest case, because spike delivery dominates the cost, so it was
+dropped.
+
+| engine / mode | load | chunked stepping? | RTF (sugar 200 Hz) | notes |
+|---|---|---|---|---|
+| **numba port (chosen)** | 1.0 s load + 0.2 s JIT (cached) | yes, any chunk size, no overhead | **~4** (10/20/50 ms chunks alike) | quiet brain: >1000x real time; left whip (body + JO): ~2.5-5; heavy (sugar+bitter+all body mech+LC4 at 200 Hz): ~0.7 |
+| Brian2 runtime (cython) | 1.5-4 s build + 46 s first compile | yes (`net.run()` repeatedly) | 0.31 in 1 s chunks, 0.16 in 50 ms chunks, 0.09 in 20 ms chunks | about 0.3 s fixed overhead per `run()`; RSS 1.6 GB |
+| Brian2 cpp_standalone | 7 s compile | **no**: each `device.run()` restarts the binary, reloads 15 M synapses and starts from the initial state (run_args can only set initial values) | 0.25 (1 s run takes 4-5 s including start-up) | chunking would mean relaunching and restoring state every chunk; not viable |
+
+These numbers come from `bench_brain.py --brian2 --standalone --validate 10`. The
+engine uses about 400 MB RSS in the worker, of which 180 MB is CSR arrays.
+
+**Realistic publish rate.** The worker paces brain time to wall time
+(`realtime=True`). It publishes one `BrainState` per `window_s` of brain time, 0.1 s
+by default, so **10 states/s** whenever the load is below real time: quiet,
+whip hits, sugar. During heavy transients (fall: body + JO on both sides at
+200 Hz; head hits; LC4 looming), the engine runs at 0.5-0.85x real time. The brain
+then lags wall time and publishes at 5-8 states/s until the transient passes. It
+does not try to catch up afterwards, and `BrainState.realtime_factor` shows the lag.
+States tile brain time: every spike appears in exactly one state. A state pickles to
+roughly 5-40 KB and the layout to about 110 KB.
+
+## Data (`scripts/fetch_brain_data.py` -> `data/brain/`, 149 MB, gitignored)
+
+| file | source | size | licence |
+|---|---|---|---|
+| `Completeness_783.csv`, `Connectivity_783.parquet` | [philshiu/Drosophila_brain_model](https://github.com/philshiu/Drosophila_brain_model) @ `91bdd1e` | 3.3 + 100.8 MB | code MIT; data derived from FlyWire |
+| `flywire_neuron_annotations.tsv` (Supplemental file 1) | [flyconnectome/flywire_annotations](https://github.com/flyconnectome/flywire_annotations) v3.1.0 (`8587524`); Schlegel et al. 2024, Berg et al. 2025 | 31.7 MB | FlyWire data, CC BY-NC 4.0 |
+| `per_neuron_neuropil_count_pre_783.feather` | Zenodo [10.5281/zenodo.10676866](https://zenodo.org/records/10676866) (Dorkenwald et al. 2024) | 16.9 MB | the record states CC BY 4.0; FlyWire terms are CC BY-NC 4.0 |
+| `neurons_783.npz` | built locally from the files above (model order: transmitter, sign, primary neuropil, positions, annotation columns) | 3.5 MB | derived |
+
+Downloads are pinned to commits or the Zenodo record and checked against SHA-256
+values. Nothing requires a login; the FlyWire Codex bulk downloads, which do need
+one, were not used. **FlyWire data are for non-commercial use (CC BY-NC 4.0).**
+Cite Dorkenwald et al. 2024 and Schlegel et al. 2024 (Nature 634), Eckstein et al.
+2024 (Cell 187) for transmitters, and Shiu et al. 2024 (Nature 634) for the model.
+The code here is original. `brian2_ref.py` restates Shiu's MIT-licensed `model.py`
+for cross-checking. The GPL eonsystemspbc/fly-brain port was read for ideas only;
+no code was copied from it.
+
+Python dependencies: the `brain` extra (numba, pyarrow, scipy; 137 MB installed,
+mostly pyarrow) and optionally `brain-ref` (brian2 plus cython, for the
+cross-check). Total disk use for data plus new packages is about 290 MB.
+
+## Stimulus mapping (`mapping.StimulusMapper`)
+
+Sets are chosen from FlyWire annotations. "Side" is always the *fly's* side
+(FlyWire `side` column: soma side, or nerve-entry side for sensory neurons).
+Shiu et al.'s "right" sugar GRNs are annotated `left` in v783, because older FlyWire
+views were mirrored.
+
+| event | neurons driven | rate |
+|---|---|---|
+| `whip_hit` / `shove` on the body (default) | **body mechanosensory afferents** that ascend from the VNC directly into the brain: `super_class == sensory_ascending`, sub-classes `SA_DMT_DMetaN`, `SA_DMT_ADMN`, `SA_DLV`, `SA_MDA`, `SA_VTV_DProN`, `SA_VTV_PDMN` (495 neurons, 193 L / 302 R), on the hit side. Notum, wing and haltere nerves; Schlegel et al. 2024. | `max(30, 200 * intensity)` Hz for `duration_s` |
+| … plus for `whip_hit` | Johnston's-organ wind/gravity neurons (`wind_gravity`, JO-C/E; Kamikouchi et al. 2009), on the hit side, for the air the lash moves | 0.5x |
+| hit whose `details["body"]` names the head, eye, antenna or proboscis | head bristle mechanosensory neurons (`head bristle`, 305), on that side, plus the body set at 0.5x | 1x |
+| side `front` / `rear` / `top` / `none` | both sides | 0.7x |
+| `fall` | body set on both sides plus all JO wind/gravity neurons | 1x |
+| `ground_contact` | **off by default**. FlyWire's brain has no identified leg proprioceptors. With `enable_ground_contact=True` it drives the leg afferents ascending in the VTV tract (`SA_VTV_pro_meso_meta`, mostly tarsal gustatory). | 20 Hz * intensity |
+| `manual` | `details={"set": name}` with name one of `sugar`, `bitter` (Shiu et al. GRN ids), `body_mech`, `head_bristle`, `jo_wind_gravity`, `jo_auditory`, `jo_grooming`, `leg_sa`, `LC4`, `LPLC2`; or `{"cell_type": "..."}`; or `{"root_ids": [...]}`. Optional `side` and `rate_hz`. | |
+| `reset` | clears active stimuli. `BrainProcess.reset_state()` also returns every neuron to rest. | |
+
+**Honesty note.** Most body mechanosensation (leg, wing and body bristles, chordotonal
+organs) enters the VNC, which the model does not contain. Only the afferents above
+reach the brain directly, and they are an approximation. In the model the body set
+has a low out-degree (about 20 connections each) and on its own recruits only about
+80 downstream neurons. The JO wind component gives a whip hit its visible
+AMMC/SAD/WED activity. No whip hit, at any intensity, produced walking-relevant
+descending-neuron activity in our tests. In this model a whip shows up as
+mechanosensory and auditory processing, not as an escape command. Looming input
+(LC4/LPLC2) does drive the giant fiber at 100-190 Hz, together with MDN at about
+20 Hz; this matches von Reyn et al. 2014 and Ache et al. 2019.
+
+## Descending readout (`mapping.DESCENDING_TYPES`, `descending_to_drive`)
+
+Groups are split by soma side. Each value in `BrainState.descending` is the group's
+mean rate (Hz) over the window.
+
+| group | FlyWire cell types (count) | source for the behavioural role |
+|---|---|---|
+| `walk_L` / `walk_R` | DNg100 = BDN2, DNg97 = oDN1, DNp09 = P9 (1 each per side) | BDN2 and oDN1 drive forward walking (Sapkal et al. 2024); P9 (Bidaye et al. 2020). The DNg97 = oDN1 identification follows Sapkal et al. 2024 and matches the "P9_oDN1" ids in the eonsystemspbc/fly-brain notebook. |
+| `turn_L` / `turn_R` | DNa01, DNa02 (1 each per side) | ipsilateral steering (Rayshubskiy et al. 2020; Yang et al. 2023). FlyWire also has `DNae001` with hemibrain type "DNa01"; we use the FlyWire `cell_type == DNa01`. |
+| `backward_L` / `backward_R` | MDN (2 per side) | moonwalker DNs, backward walking (Bidaye et al. 2014) |
+| `escape` | DNp01 = giant fiber (1 per side) | take-off escape (von Reyn et al. 2014) |
+
+Every group was found in the annotations.
+
+`descending_to_drive(state) -> np.ndarray[2]` maps these rates onto the hybrid CPG
+drive `[left, right]`, where |v| is the per-side amplitude and the sign is the
+stepping direction. The mapping is deliberately conservative. The app decides
+whether to use it; `DriveGains` holds the gains.
+
+* A quiet brain gives `[1, 1]`, so walking simply continues.
+* Walk groups raise both amplitudes by up to +0.2, using `tanh(rate / 30 Hz)`.
+* `turn_L - turn_R` lowers the left amplitude and raises the right by up to 0.4. The
+  hybrid controller turns toward the smaller-amplitude side, so DNa01/02 activity on
+  the left turns the fly left. Amplitudes are clipped to [0.3, 1.5].
+* The mean MDN rate blends both sides toward -1 (backward stepping). Stepping is
+  fully reversed at 40 Hz and stops at about 20 Hz.
+* `escape` is not mapped, because the body cannot take off; the app could use it
+  for a flinch.
+
+## Process API (`perpetualfly/brain/process.py`)
+
+```python
+from perpetualfly.brain import BrainConfig, BrainProcess, StimulusEvent, descending_to_drive
+
+brain = BrainProcess(BrainConfig(subscribers=("app", "window")))  # spawn-context worker
+brain.wait_ready()                      # ~2 s (load 1 s + layout + cached JIT)
+layout = brain.layout()                 # BrainLayout, once
+brain.send(StimulusEvent("whip_hit", side="left", intensity=0.8, duration_s=0.05,
+                         details={"body": "Thorax"}))           # never blocks
+st = brain.latest("app")                # newest BrainState or None; drops older ones
+states = brain.poll("window")           # all pending states for another subscriber
+sub = brain.subscriber("window")        # picklable: pass to the window's own process,
+                                        # then sub.layout(timeout) / sub.latest()
+brain.stop()                            # also runs at exit
+```
+
+* **Design.** There is one worker (a daemon, spawn context) and one command queue.
+  Each subscriber gets its own bounded state queue (8 states by default) and a
+  one-slot layout queue. The worker publishes every state to every subscriber and
+  drops the oldest when a queue is full. A slow or absent reader therefore never
+  blocks the worker or the fly app.
+* **Stimulus timing.** A stimulus takes effect at the start of the next chunk
+  (20 ms of brain time by default). Chunks are also cut exactly where a stimulus
+  ends and at every publish boundary.
+* **No orphans.** `stop()` sends a stop command, then terminates, then kills the
+  worker. The worker also exits within one chunk when its parent process
+  disappears, which is tested with a parent that calls `os._exit` without stopping.
+* **Layout.** Coordinates are FlyWire µm projected frontally (`u = x_nm/1000`,
+  `v = y_nm/1000`), the same convention as `brain_viz/atlas.py`: the fly's left is
+  on the image left, and v increases ventrally. There are 79 regions: every
+  neuropil that is some neuron's primary output neuropil (most presynapses), plus
+  `OTHER`. `region_xy` is the median anchor position of each region's neurons. The
+  3,513 display neurons are all 1,303 DNs, MN9, the stimulus sets (capped) and 16
+  per region stratified by transmitter. Their positions are FlyWire anchor points.
+  `region_outline_xy` is empty; the window has its own atlas.
+* `BrainConfig(synthetic={"n": 50, ...})` runs a tiny random annotated network with
+  no data files, for tests and UI work.
+
+## Commands
+
+```bash
+.venv/bin/python -m pip install -e ".[brain]"        # or: uv pip install numba pyarrow scipy
+.venv/bin/python scripts/fetch_brain_data.py          # ~153 MB download, checksums, builds neurons_783.npz
+.venv/bin/python scripts/demo_brain.py                # headless: whip, sugar, LC4; prints BrainState summaries
+.venv/bin/python scripts/demo_brain.py --synthetic    # same without data
+.venv/bin/python scripts/bench_brain.py               # engine RTF
+.venv/bin/python scripts/bench_brain.py --brian2 --standalone --validate 10   # needs brian2
+.venv/bin/python -m pytest -q tests/test_brain.py     # data tests skip without data/brain
+```
+
+## References
+
+Shiu et al. 2024 Nature 634:210 · Dorkenwald et al. 2024 Nature 634:124 ·
+Schlegel et al. 2024 Nature 634:139 · Eckstein et al. 2024 Cell 187:2574 ·
+Berg et al. 2025 bioRxiv 10.1101/2025.10.09.680999 · Kamikouchi et al. 2009 Nature
+458:165 · Bidaye et al. 2014 Science 344:97 · Bidaye et al. 2020 Neuron 108:469 ·
+Sapkal et al. 2024 bioRxiv (steering / BDN2, oDN1) · Rayshubskiy et al. 2020 bioRxiv
+(DNa02) · Yang et al. 2023 bioRxiv (DNa01/DNa02) · von Reyn et al. 2014 Nat Neurosci
+17:962 · Ache et al. 2019 Curr Biol 29:1073 · Namiki et al. 2018 eLife 7:e34272.

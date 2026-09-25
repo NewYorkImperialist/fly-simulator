@@ -22,6 +22,17 @@ rl = [
     "stable-baselines3>=2.4",
     "tensorboard>=2.15",
 ]
+# Whole-brain connectome model (perpetualfly.brain, docs/BRAIN.md). numba runs the
+# engine; pyarrow reads the FlyWire parquet/feather files; brian2 is only needed for
+# the reference cross-check in scripts/bench_brain.py and tests.
+brain = [
+    "numba>=0.60",
+    "pyarrow>=15",
+    "scipy>=1.11",
+]
+brain-ref = [
+    "brian2>=2.7",
+]
 
 [project.scripts]
 perpetualfly = "perpetualfly.app:main"
