@@ -425,7 +425,7 @@ class PlaygroundUI:
                     tx = int(bx0 + np.clip(tv / m.vmax, 0, 1) * span)
                     cv2.line(img, (tx, yc - 9), (tx, yc + 9), (230, 230, 230), 1)
                     if tl:
-                        put_text(img, f"{tl} {tv:g}" if m.key != "arousal" else tl,
+                        put_text(img, f"{tl} {tv:.0f}" if m.key != "arousal" else tl,
                                  (tx, yc - 10), FAINT, 8, 400, "center")
             unit = "" if m.key == "arousal" else " Hz"
             val = f"{m.value:+.0f}{unit}" if m.bipolar else (
