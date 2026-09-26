@@ -147,3 +147,28 @@ class BrainState:
     drive: dict | None = None
     neuromod: dict = field(default_factory=dict)
     playground: dict = field(default_factory=dict)
+
+
+@dataclass
+class FastEvent:
+    """Low-latency message of the brain worker's event-driven fast path
+    (``BrainConfig.fast_triggers``; docs/BRAIN.md, "Latency"). Not a BrainState:
+    it carries no activity snapshot and does not tile brain time.
+
+    kind: "trigger" (``group``'s rate over the trailing ``window_s`` first exceeded
+        ``threshold_hz``, computed from real spikes like ``BrainState.descending``)
+        or "progress" (pace="sim": the brain has simulated up to ``sim_time``).
+    brain_time: brain time of the spike that crossed the threshold (trigger) or of
+        the brain's current time (progress).
+    sim_time: the same instant in fly run time (pace="sim"; None otherwise).
+    rate_hz: the trailing-window rate at the crossing (trigger only).
+    """
+
+    kind: str
+    brain_time: float
+    sim_time: float | None = None
+    group: str = ""
+    rate_hz: float = 0.0
+    threshold_hz: float = 0.0
+    window_s: float = 0.0
+    wall_time: float = 0.0

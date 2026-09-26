@@ -248,6 +248,31 @@ Findings:
   first real loom
   event comes when θ is ~50–60° and dθ/dt is at its largest, which is at the late
   end of the 20–60° range where GF-driven take-offs start (von Reyn et al. 2017).
+* **Where the latency is (latency work, measured later).** The brain → body part is
+  now small: with the brain fast path (`BrainLinkConfig.fast_path`, default on;
+  BRAIN.md "Latency"), GF crossing → jump trigger fell from a 14 ms median
+  (9–35 ms) to 3 ms (0–5 ms) for real vision, and from 21 to 2 ms for the
+  geometric sense. Loom sphere l/v 40 ms, real vision: jump at +1.150 → +1.140 s;
+  geometric: +1.105 → +1.085 s. What remains of the real-vs-geometric gap is on
+  the visual side (first loom event +1.110 vs +1.037 s). Loom → GF crossing is
+  ~20–30 ms for real vision and 20–90 ms for geometric. Options evaluated without
+  the brain (raw LPLC2 / LC4 activations over time):
+  * **Eyes at 200 Hz: no gain.** The first loom event was unchanged for l/v 10 / 40 ms
+    (+0.310 / +1.110 s) and 10 ms *later* for l/v 80 ms (+2.210 vs +2.200 s): the
+    ~5 ms saved in sampling is lost to slightly lower peak activations at dt =
+    5 ms (loom l/v 40 ms: LPLC2 0.27 vs 0.29). It also doubles the eye + flyvis
+    cost. Not adopted.
+  * **Lower bridge thresholds: would gain 10–80 ms, but not adopted.** LPLC2 ≥ 0.08
+    comes 10–20 ms earlier than the current event for l/v 10 / 40 ms, 20 ms for
+    l/v 80 ms, and 200 ms earlier (during the slam) for the swatter from the left.
+    Rendered walking, a lateral pass, a slow approach and a receding sphere stay at
+    ≤ 0.036. But the synthetic calibration's negative stimuli reach 0.074 (slow
+    expansion), 0.082 (disc translating at 400°/s) and 0.098 (receding disc). A
+    lower `lplc2_on` would break the documented rejection of those, so the
+    defaults stay. It is available as an opt-in: `--bridge '{"lplc2_on": 0.08}'` in
+    the demo, or `real_vision.vision.bridge`. It is not validated in closed loop.
+  * flyvis's own temporal lag is part of the trained model (its time constants).
+    Shrinking dt does not remove it (see the 200 Hz result).
 * **Swatter: real vision is too late to dodge.** From behind, the paddle only enters
   FlyGym's eye field of view (no rear/dorsal-rear coverage beyond ~130° azimuth)
   near the end of the slam. Its plate is also semi-transparent (alpha 0.55), which

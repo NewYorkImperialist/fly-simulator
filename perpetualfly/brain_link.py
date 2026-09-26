@@ -98,6 +98,18 @@ class BrainLinkConfig:
     # Pair with a short window_s (0.01-0.02 s; the GF rate is read per window).
     sync_wait_s: float = 0.0
     sync_loom_only: bool = True
+    # Event-driven fast path (docs/BRAIN.md, "Latency"; needs actions). The worker
+    # watches the giant fiber (DNp01) and MN9 spike by spike and sends a small
+    # trigger the moment their rate over the trailing fast_window_s exceeds the
+    # body thresholds (jump_escape_hz / proboscis_mn9_hz, kept in sync live, e.g.
+    # when --stress lowers the jump threshold), instead of waiting for the
+    # BrainState window to end. While syncing (sync_wait_s, loom active) update()
+    # also waits for the brain to reach the clock mark just sent, and sends a clock
+    # mark every update. Same spikes, same threshold; only the reading is earlier.
+    # Measured (docs/BRAIN.md "Latency"): GF crossing -> jump trigger 14-21 ms ->
+    # 2-3 ms median at 5 ms physics chunks, no extra wall time. False = old path.
+    fast_path: bool = True
+    fast_window_s: float = 0.02
     # ---- brain -> actions (--brain-actions; docs/ACTIONS.md) ----------------------
     actions: bool = False  # descending readouts trigger body actions
     jump_escape_hz: float = 60.0  # giant fiber (DNp01) rate that fires a Jump
@@ -246,9 +258,12 @@ class BrainLink:
         self.show_window = bool(cfg.window and not headless)
         from perpetualfly.brain.process import BrainConfig
 
+        self.fast = bool(cfg.fast_path and cfg.actions)
+        self._fast_thr: dict | None = self._fast_thresholds() if self.fast else None
         self.brain_cfg = BrainConfig(
             data_dir=cfg.data_dir, window_s=cfg.window_s, pace="sim",
-            max_lag_s=cfg.max_lag_s, subscribers=("app",), synthetic=cfg.synthetic)
+            max_lag_s=cfg.max_lag_s, subscribers=("app",), synthetic=cfg.synthetic,
+            fast_triggers=self._fast_thr, fast_window_s=cfg.fast_window_s)
         self.brain = None
         self.window = None
         self.layout = None
@@ -275,6 +290,9 @@ class BrainLink:
         self._loom_until = -1e9  # run time the last visual loom stimulus ends
         self.n_sync_waits = 0
         self.sync_wait_wall_s = 0.0
+        self._progress = -1e9  # fast path: fly time the brain has simulated up to
+        self.fast_events: deque = deque(maxlen=200)  # recent trigger FastEvents
+        self.n_fast = 0
         # brain playground (docs/PLAYGROUND.md)
         from perpetualfly.brain_viz.playground import (PRESETS, parse_lesion_specs,
                                                        parse_stim_specs)
@@ -634,16 +652,25 @@ class BrainLink:
         if self.brain is None:
             return
         rt = self._run_time()
-        if rt - self._last_clock >= self.cfg.clock_every_s:
+        syncing = self.cfg.sync_wait_s > 0 and (not self.cfg.sync_loom_only
+                                                or rt <= self._loom_until)
+        if (rt - self._last_clock >= self.cfg.clock_every_s
+                or (self.fast and syncing and rt > self._last_clock)):
             self._last_clock = rt
             try:
                 self.brain.clock(rt)
             except Exception:
                 pass
         self._playground_tick(rt)
+        fast_evs: list = []
+        if self.fast:
+            self._update_fast_thresholds()
+            fast_evs = self._poll_fast()
         states = self.brain.poll("app")
-        if self.cfg.sync_wait_s > 0 and (not self.cfg.sync_loom_only or rt <= self._loom_until):
-            states += self._sync_wait(rt, states)
+        if syncing:
+            states += self._sync_wait(rt, states, fast_evs)
+        for fe in fast_evs:
+            self._on_fast(fe, rt)
         for st in states:
             if self._last_seq and st.seq > self._last_seq + 1:
                 self.n_dropped += st.seq - self._last_seq - 1
@@ -700,9 +727,55 @@ class BrainLink:
                 self._window_closed_reported = True
                 self.say("[brain] brain window closed (the fly and the brain keep running)")
 
-    def _sync_wait(self, rt: float, states: list) -> list:
+    # ------------------------------------------------------------- fast path
+    def _fast_thresholds(self) -> dict:
+        trig = getattr(self, "triggers", None)
+        tp = trig.p if trig is not None else self.cfg
+        return {"escape": float(tp.jump_escape_hz), "MN9": float(tp.proboscis_mn9_hz)}
+
+    def _update_fast_thresholds(self) -> None:
+        """Keep the worker's thresholds equal to the body's (e.g. --stress lowers
+        the jump threshold at run time)."""
+        thr = self._fast_thresholds()
+        if thr != self._fast_thr:
+            self._fast_thr = thr
+            try:
+                self.brain.set_fast_triggers(thr)
+            except Exception:
+                pass
+
+    def _poll_fast(self) -> list:
+        """Pending trigger FastEvents (progress marks are consumed here)."""
+        out = []
+        for fe in self.brain.poll_fast():
+            if fe.kind == "progress":
+                if fe.sim_time is not None:
+                    self._progress = max(self._progress, float(fe.sim_time))
+            else:
+                out.append(fe)
+        return out
+
+    def _on_fast(self, fe, rt: float) -> None:
+        """A fast-path trigger: the same threshold check as for a BrainState,
+        applied as soon as the crossing spike is simulated."""
+        self.n_fast += 1
+        self.fast_events.append(fe)
+        if self.triggers is None:
+            return
+        n0 = len(self.triggers.fired)
+        self.triggers.on_fast(fe, rt)
+        s = self.session
+        for t_fired, name, rate in self.triggers.fired[n0:]:
+            if s is not None and s.logger is not None:
+                s.logger.log_event("brain_action", details={
+                    "action": name, "rate_hz": round(rate, 2), "brain_time": fe.brain_time,
+                    "stim_time": t_fired, "fast_path": True, "crossing_time": fe.sim_time})
+
+    def _sync_wait(self, rt: float, states: list, fast_evs: list | None = None) -> list:
         """Wait (<= sync_wait_s wall) until the brain has published the state whose
-        window ends within the last window_s of fly time; returns the extra states."""
+        window ends within the last window_s of fly time; returns the extra states.
+        With the fast path, also until the brain has simulated up to the last clock
+        mark (or a trigger arrived); new triggers are appended to ``fast_evs``."""
         import time
 
         def newest(sts):
@@ -715,19 +788,32 @@ class BrainLink:
         t_new = newest(states)
         if t_new is None and self.latest is not None and self.latest.sim_time is not None:
             t_new = float(self.latest.sim_time)
-        if t_new is not None and t_new >= target:
+        fast = self.fast and fast_evs is not None
+
+        def fast_done() -> bool:
+            return (not fast or bool(fast_evs)
+                    or self._progress >= self._last_clock - 1e-9)
+
+        state_ok = t_new is not None and t_new >= target
+        if state_ok and fast_done():
             return []
         extra: list = []
         t0 = time.perf_counter()
         deadline = t0 + self.cfg.sync_wait_s
         while time.perf_counter() < deadline and self.brain.is_alive():
             time.sleep(0.0003)
+            if fast:
+                fast_evs += self._poll_fast()
             more = self.brain.poll("app")
             if more:
                 extra += more
                 t = newest(more)
                 if t is not None and t >= target:
-                    break
+                    state_ok = True
+            if state_ok and fast_done():
+                break
+            if fast and fast_evs:
+                break
         self.n_sync_waits += 1
         self.sync_wait_wall_s += time.perf_counter() - t0
         return extra

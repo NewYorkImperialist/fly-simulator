@@ -165,11 +165,34 @@ Changes (all through existing / new `BrainLinkConfig` fields; defaults unchanged
   (measured: state arrival 20 ms → 10 ms after the window end at 10 ms chunks). It only
   waits while a visual `loom` stimulus is active, so normal running costs nothing.
   Measured wall cost: the demo trials ran as fast as before (~7 s per swat).
-* No change was needed in `brain/process.py`. If the stress agent wants to go further,
-  the next step would be an **early publish**: the worker publishes a state as soon as
-  an escape DN spikes, instead of at the window end (worth ≤ `window_s`, i.e. ≤20 ms at
-  0.02 s). Another option is a dedicated fast "escape" readout channel. Both are
-  documented here, not done (process.py belongs to the stress work).
+* **Early publish (done since): the brain fast path** (`BrainLinkConfig.fast_path`,
+  default on; docs/BRAIN.md "Latency"). The worker sends a trigger the moment the
+  GF's trailing 20 ms rate crosses the jump threshold, instead of at the window
+  end. While a loom is active, the link waits until the brain has reached the
+  clock mark it just sent. Measured over 42 trials (below): GF crossing → jump
+  trigger went from 14–21 ms median (8–35 ms) to **2–3 ms (0–5 ms)**. The jump is
+  still caused by the same real GF spikes over the same threshold.
+
+  Real brain, `demo_real_vision.py --sim` (5 ms chunks), swatter L1–L3 from behind
+  and from the left, 3 repeats each (the same start phase, so the repeats differ
+  only by brain noise). Times are medians relative to slam start. GF crossing is
+  the same in both runs up to noise; 18 swats per sense and configuration:
+
+  | sense | configuration | GF crossing → jump | dodged | grazed | hit |
+  |---|---|---|---|---|---|
+  | geometric | window readout | 21 ms | 2 | 7 | 9 |
+  | geometric | **fast path** | **2 ms** | **8** | 3 | 7 |
+  | real vision | window readout | 14 ms | 0 | 1 | 17 |
+  | real vision | fast path | 3 ms | 0 | 1 | 17 |
+
+  Per level (geometric, window → fast): L1 rear 3 hits → 3 hits; L2 rear 1 dodge →
+  2 dodges; L3 rear 2 grazes + 1 hit → **3 dodges**; L1 left 1 dodge + 2 grazes →
+  3 hits; L2 left 3 grazes → **3 dodges**; L3 left 3 hits → 3 grazes. Earlier is
+  not always better. At L1 the plate lands ~200 ms after the jump, and the short
+  hop (no escape-flight emulation in this demo) can land the fly back under it.
+  Real vision is not helped, because its loom events arrive at or after the plate
+  lands from behind (the rear blind field, VISION.md §6). The fast path cannot fix
+  that.
 
 **(c) The telegraph.** Raise (0.3 s) + pause (0.08–0.4 s) + an accelerating slam gives
 the fly its warning in the last part of the slam, like a real swatter. With the handle

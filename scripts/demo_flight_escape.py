@@ -25,6 +25,8 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument("--flight", action="store_true")
     p.add_argument("--real-vision", action="store_true")
+    p.add_argument("--no-fast", action="store_true",
+                   help="old window-only readout (BrainLinkConfig.fast_path=False)")
     p.add_argument("--levels", default="1,2")
     p.add_argument("--sides", default="rear,left")
     p.add_argument("--phases", type=int, default=2)
@@ -42,9 +44,13 @@ def main():
     if a.real_vision:
         cfg.real_vision.enabled = True
     cfg.brain = BrainLinkConfig(enabled=True, window=False, steer=True, actions=True,
-                                window_s=0.02, sync_wait_s=0.05, sync_loom_only=True)
+                                window_s=0.02, sync_wait_s=0.05, sync_loom_only=True,
+                                fast_path=not a.no_fast)
     quiet = lambda m: None
-    link = BrainLink(cfg.brain, headless=True, say=quiet)
+    link = BrainLink(cfg.brain, headless=True, say=quiet, start=False)
+    if a.no_fast:  # observe the GF crossings (fast detector) without acting on them
+        link.brain_cfg.fast_triggers = {"escape": cfg.brain.jump_escape_hz}
+    link.start()
     args = argparse.Namespace(walk=1.0, post=a.post, chunk=0)
     try:
         sw = Swatter(SwatterConfig())

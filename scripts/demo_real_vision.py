@@ -159,8 +159,12 @@ class Rig:
         self.link = None
         if not args.no_brain:
             cfg.brain = BrainLinkConfig(enabled=True, window=False, steer=True, actions=True,
-                                        window_s=0.02, sync_wait_s=0.05)
-            self.link = BrainLink(cfg.brain, headless=True, say=quiet)
+                                        window_s=0.02, sync_wait_s=0.05,
+                                        fast_path=not args.no_fast)
+            self.link = BrainLink(cfg.brain, headless=True, say=quiet, start=False)
+            if args.no_fast:  # observe the GF crossings (fast detector) without acting
+                self.link.brain_cfg.fast_triggers = {"escape": cfg.brain.jump_escape_hz}
+            self.link.start()
         self.obj = LoomingObject()
         self.sw = Swatter(SwatterConfig())
         t0 = time.time()
@@ -209,6 +213,10 @@ class Rig:
         acts = []
         s.actions.listeners.append(acts.append)
         wall0 = time.time()
+        cross = []  # GF trailing-window threshold crossings (FastEvents)
+        nfe0 = link.n_fast if link is not None else 0
+        if link is not None and not link.fast:
+            link.brain.poll_fast()
 
         def advance(sec, until=None):
             n = int(round(sec / sim.timestep / chunk))
@@ -218,6 +226,8 @@ class Rig:
                 s.after_physics()
                 k += 1
                 if link is not None:
+                    if not link.fast:
+                        cross.extend(e for e in link.brain.poll_fast() if e.kind == "trigger")
                     for st in list(link.recent):
                         if st.seq not in states:
                             states[st.seq] = (st.sim_time, dict(st.descending))
@@ -252,6 +262,14 @@ class Rig:
             advance(0.2)
             self.obj.cfg.stop_mm = 2.0
         s.actions.listeners.remove(acts.append)
+        if link is not None and link.fast and link.n_fast > nfe0:
+            cross = list(link.fast_events)[-min(link.n_fast - nfe0, len(link.fast_events)):]
+        cross = [e for e in cross if e.group == "escape" and e.sim_time is not None
+                 and e.sim_time >= t_req]
+        jst = [a for a in acts if a.name == "jump" and a.kind == "start"]
+        jen = [a for a in acts if a.name == "jump" and a.kind in ("end", "cancel")]
+        takeoff = (self.rt(jst[0].time + jen[0].info["takeoff_after_s"])
+                   if jst and jen and "takeoff_after_s" in (jen[0].info or {}) else None)
         sent = (rv.sent[ns_rv:] if real else geo.sent[ns_geo:])
         sent = [e for e in sent if e.kind == "loom" and e.sim_time >= t_req]
         win = sorted((v for v in states.values() if v[0] is not None and v[0] > t_req), key=lambda v: v[0])
@@ -277,6 +295,8 @@ class Rig:
             "gf_thr_rel": rel(gf_thr),
             "jump_rel": rel(fired[0][0]) if fired else None,
             "jumped": bool(fired),
+            "gf_cross_rel": rel(cross[0].sim_time) if cross else None,
+            "takeoff_rel": rel(takeoff),
             "turn_asym_pre": None if asym(pre) is None else round(asym(pre), 1),
             "turn_asym_post": None if asym(post) is None else round(asym(post), 1),
             "max_turnL_post": round(max((d.get("turn_L", 0) for d in post), default=0), 0),
@@ -295,7 +315,7 @@ def run_sim(args) -> int:
     try:
         print(f"session built in {rig.build_s:.1f}s; backend {rig.rv.backend}; "
               f"flyvis init {getattr(rig.rv.net, 'init_s', 0):.1f}s", flush=True)
-        for name in args.trials.split(","):
+        for name in [t for t in args.trials.split(",") for _ in range(args.repeat)]:
             for sense in args.sense.split(","):
                 r = rig.run(name, sense)
                 rows.append(r)
@@ -402,6 +422,9 @@ def main(argv=None) -> int:
     p.add_argument("--chunk", type=int, default=50, help="physics steps per brain update")
     p.add_argument("--steer", action="store_true", help="LC10a steering population on")
     p.add_argument("--no-brain", action="store_true", help="vision only (no brain process)")
+    p.add_argument("--no-fast", action="store_true",
+                   help="old window-only readout (BrainLinkConfig.fast_path=False)")
+    p.add_argument("--repeat", type=int, default=1, help="run each trial N times")
     p.add_argument("--json", type=Path, default=None)
     p.add_argument("--figure", type=Path, default=None)
     args = p.parse_args(argv)

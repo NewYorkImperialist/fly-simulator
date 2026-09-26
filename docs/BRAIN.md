@@ -399,6 +399,56 @@ BrainState. Real brain, flat, headless, full body:
 * Freeze is not mapped: DNp09 is linked to freezing (Zacarias et al. 2018) but is
   also in our walk group.
 
+### Latency: the event-driven fast path (`BrainLinkConfig.fast_path`, default on)
+
+Before this path existed, the body read the giant fiber only from `BrainState`s. A
+GF burst was seen when its tiled window ended (up to `window_s` later), and the
+state reached the body one poll later. With `fast_path` (it needs `actions`) the
+readout works like this:
+
+* **Worker** (`BrainConfig.fast_triggers = {"escape": jump_escape_hz, "MN9":
+  proboscis_mn9_hz}`, `fast_window_s` 0.02). After every engine run,
+  `process.FastDetector` counts each group's spikes in the trailing 20 ms. This is
+  the same rate definition as `BrainState.descending` (spikes / neurons / window),
+  checked at every spike instead of once per tiled window. The moment the rate
+  first exceeds the threshold, the worker puts a small `schema.FastEvent("trigger",
+  group, rate_hz, brain_time/sim_time of the crossing spike)` on a dedicated queue
+  (`BrainProcess.poll_fast()`). The detector re-arms once the rate drops back.
+  With pace="sim" the worker also sends a `"progress"` mark each time it catches up
+  with a clock mark. The crossing is never later than the first tiled window above
+  threshold, and it catches bursts that a window boundary splits (tested).
+* **Link**. `update()` handles triggers first (`BrainActionTriggers.on_fast`: the
+  same GF → jump / MN9 → proboscis checks and refractories as `on_state`; the later
+  window state then falls in the refractory period). While syncing
+  (`sync_wait_s`, loom active), it sends a clock mark every update and also waits
+  for the brain's progress to reach that mark, or for a trigger. The body therefore
+  learns about a crossing in the same physics chunk that contains it. Thresholds
+  follow the body's live values (`--stress` lowers the jump threshold), and
+  `set_fast_triggers` updates the worker.
+* **Honesty**. The jump is still caused by real DNp01 spikes crossing the same 60 Hz
+  threshold over a 20 ms window. Only the moment at which the body reads the
+  count changes. MDN (continuous drive with a 0.1 s low-pass) and DNg12 (a 0.1 s
+  sustain rule) are not on the fast path, because it would gain nothing there.
+
+**Measured** with the real brain, headless (`scripts/demo_real_vision.py --sim`,
+5 ms physics chunks, window 0.02 s, sync 0.05 s). There were 7 trials (loom l/v
+40 ms + swatter L1–L3 from behind and from the left) × 2 senses × 3 repeats, with
+and without the fast path (`--no-fast` keeps the detector as an observer only):
+
+| | GF crossing → jump trigger, median (range) | trigger → take-off |
+|---|---|---|
+| window readout (old) | geometric 21 ms (8–32), real vision 14 ms (9–35) | 6–13 ms |
+| fast path | geometric **2.4 ms (1–5)**, real vision **2.8 ms (0–5)** | 6–13 ms (unchanged) |
+
+The remaining 0–5 ms is the physics chunk: the body acts at the next chunk
+boundary. Wall time per trial did not change (geometric ~6.5 s, real vision
+~13 s). Loom → GF crossing, the neural part, is unchanged (20–90 ms). See
+SWATTER.md §3b for the outcomes.
+
+A smaller engine chunk while a loom is active would gain nothing with pace="sim":
+engine runs are already cut at every clock mark, and the crossing spike's time is
+exact within a run.
+
 ### HUD, terminal and logs
 
 * Fly window HUD: `BRAIN t <brain s> lag <s> x<realtime factor> real time (can

@@ -104,6 +104,43 @@ class BrainActionTriggers:
         groom = float(st.descending.get("groom", 0.0) or 0.0)
         tag = f"t_brain={st.brain_time:.2f}s" if getattr(st, "brain_time", None) is not None else ""
 
+        msgs += self._check_gf(gf, now, run_time, tag)
+        msgs += self._check_mn9(mn9, now, run_time, tag)
+
+        win = float(getattr(st, "window_s", 0.1) or 0.1)
+        self._groom_run = self._groom_run + win if groom > p.groom_hz else 0.0
+        if (self._groom_run >= p.groom_sustain_s - 1e-9 and now >= self._next_groom
+                and mgr.trigger(Groom(duration=p.groom_duration_s), replace=False,
+                                source="brain")):
+            self._next_groom = now + p.groom_duration_s + p.groom_refractory_s
+            self._groom_run = 0.0
+            self._record(run_time, "groom", groom)
+            msgs.append(f"[brain-action] {tag} DNg12 {groom:.0f} Hz > {p.groom_hz:g} for "
+                        f">= {p.groom_sustain_s * 1e3:.0f} ms -> GROOM")
+        for m in msgs:
+            self.say(m)
+        return msgs
+
+    def on_fast(self, fe, run_time: float | None = None) -> list[str]:
+        """A fast-path trigger (``perpetualfly.brain.schema.FastEvent`` from
+        ``BrainConfig.fast_triggers``): the group's trailing-window rate crossed the
+        threshold at spike time ``fe.brain_time``. Applies the same checks as
+        ``on_state`` for that readout (giant fiber -> jump, MN9 -> proboscis)."""
+        now = self._now()
+        tag = f"t_brain={fe.brain_time:.3f}s fast"
+        if fe.group == "escape":
+            msgs = self._check_gf(float(fe.rate_hz), now, run_time, tag)
+        elif fe.group == "MN9":
+            msgs = self._check_mn9(float(fe.rate_hz), now, run_time, tag)
+        else:
+            msgs = []
+        for m in msgs:
+            self.say(m)
+        return msgs
+
+    def _check_gf(self, gf: float, now: float, run_time, tag: str) -> list[str]:
+        p, mgr = self.p, self.mgr
+        msgs = []
         flight = self.flight
         if (gf > p.jump_escape_hz and flight is not None and flight.airborne
                 and now >= self._next_jump):
@@ -125,7 +162,11 @@ class BrainActionTriggers:
                 extra += " -> wings at take-off, escape flight"
             msgs.append(f"[brain-action] {tag} giant fiber {gf:.0f} Hz > {p.jump_escape_hz:g} "
                         f"-> JUMP{extra}")
+        return msgs
 
+    def _check_mn9(self, mn9: float, now: float, run_time, tag: str) -> list[str]:
+        p, mgr = self.p, self.mgr
+        msgs = []
         if self.can_proboscis and mn9 > p.proboscis_mn9_hz:
             a = mgr.action if mgr.action is not None else mgr._pending
             if a is not None and a.name == "proboscis":
@@ -137,19 +178,6 @@ class BrainActionTriggers:
                 self._record(run_time, "proboscis", mn9)
                 msgs.append(f"[brain-action] {tag} MN9 {mn9:.0f} Hz > {p.proboscis_mn9_hz:g} "
                             "-> PROBOSCIS EXTENSION")
-
-        win = float(getattr(st, "window_s", 0.1) or 0.1)
-        self._groom_run = self._groom_run + win if groom > p.groom_hz else 0.0
-        if (self._groom_run >= p.groom_sustain_s - 1e-9 and now >= self._next_groom
-                and mgr.trigger(Groom(duration=p.groom_duration_s), replace=False,
-                                source="brain")):
-            self._next_groom = now + p.groom_duration_s + p.groom_refractory_s
-            self._groom_run = 0.0
-            self._record(run_time, "groom", groom)
-            msgs.append(f"[brain-action] {tag} DNg12 {groom:.0f} Hz > {p.groom_hz:g} for "
-                        f">= {p.groom_sustain_s * 1e3:.0f} ms -> GROOM")
-        for m in msgs:
-            self.say(m)
         return msgs
 
     def escape_direction(self) -> tuple[float, float] | None:

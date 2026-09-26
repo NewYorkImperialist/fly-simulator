@@ -45,7 +45,8 @@ from pathlib import Path
 
 import numpy as np
 
-from .schema import DESCENDING_GROUPS, NEUROTRANSMITTERS, BrainLayout, BrainState, StimulusEvent
+from .schema import (DESCENDING_GROUPS, NEUROTRANSMITTERS, BrainLayout, BrainState, FastEvent,
+                     StimulusEvent)
 
 
 @dataclass
@@ -69,6 +70,18 @@ class BrainConfig:
     # NeuromodConfig fields); None = off, engine untouched. Also settable at run
     # time with BrainProcess.set_neuromod().
     neuromod: dict | None = None
+    # Event-driven fast path (docs/BRAIN.md, "Latency"). {group: threshold Hz} for
+    # descending groups (DESCENDING_GROUPS) or probes ("MN9"). After every engine
+    # run the worker counts each group's spikes in the trailing ``fast_window_s``
+    # (the same rate definition as BrainState.descending, just evaluated at every
+    # spike instead of once per tiled window) and puts a small ``FastEvent`` on the
+    # fast queue the moment the rate first exceeds the threshold (re-armed once it
+    # drops back). pace="sim" also gets a ``"progress"`` FastEvent each time the
+    # brain catches up with the latest clock mark, so the parent can tell "no
+    # trigger yet" from "not simulated yet". None / {} = off (worker unchanged).
+    # Thresholds can be changed at run time (BrainProcess.set_fast_triggers).
+    fast_triggers: dict | None = None
+    fast_window_s: float = 0.02
 
 
 class BrainSubscriber:
@@ -123,6 +136,7 @@ class BrainProcess:
         self._status = ctx.Queue()
         self._subs = {name: BrainSubscriber(name, ctx.Queue(self.cfg.queue_size), ctx.Queue(1))
                       for name in self.cfg.subscribers}
+        self._fast = ctx.Queue(256)  # FastEvents (fast_triggers; one reader: the app)
         self._proc: mp.process.BaseProcess | None = None
         self._info: dict | None = None
         self.error: str | None = None
@@ -136,7 +150,7 @@ class BrainProcess:
         pubs = {n: (s._states, s._layout_q) for n, s in self._subs.items()}
         self._proc = self._ctx.Process(
             target=_worker_main, name="perpetualfly-brain", daemon=True,
-            args=(asdict(self.cfg), self._cmd, self._status, pubs))
+            args=(asdict(self.cfg), self._cmd, self._status, pubs, self._fast))
         self._proc.start()
         atexit.register(self.stop)
 
@@ -182,7 +196,7 @@ class BrainProcess:
         if p.is_alive():
             p.kill()
             p.join(1.0)
-        for q in [self._cmd, self._status] + [x for s in self._subs.values()
+        for q in [self._cmd, self._status, self._fast] + [x for s in self._subs.values()
                                              for x in (s._states, s._layout_q)]:
             try:
                 q.cancel_join_thread()
@@ -224,6 +238,20 @@ class BrainProcess:
     def clock(self, sim_time: float) -> None:
         """pace="sim": the fly has simulated up to ``sim_time``; the brain may run to it."""
         self._cmd.put_nowait(("clock", float(sim_time)))
+
+    def set_fast_triggers(self, triggers: dict | None) -> None:
+        """Replace the fast-path thresholds ({group: Hz}; None / {} = off)."""
+        self._cmd.put_nowait(("fast", None if not triggers else
+                              {str(k): float(v) for k, v in triggers.items()}))
+
+    def poll_fast(self) -> list:
+        """Pending ``FastEvent``s (triggers and progress marks), oldest first."""
+        out = []
+        while True:
+            try:
+                out.append(self._fast.get_nowait())
+            except (queue.Empty, OSError, EOFError, ValueError):
+                return out
 
     # ------------------------------------------------------------------ outputs
     def subscriber(self, name: str = "app") -> BrainSubscriber:
@@ -398,6 +426,71 @@ class _Model:
             **extra)
 
 
+class FastDetector:
+    """Trailing-window threshold detector of the fast path (``BrainConfig.
+    fast_triggers``). ``groups``: {name: neuron indices}. ``update(steps, idx,
+    step_now)`` takes one engine run's spikes (absolute step, neuron; in step order)
+    and returns ``[(group, step, rate_hz, threshold_hz)]`` for every group whose
+    rate over the trailing ``win_steps`` (spikes in (s - W, s], divided by the
+    group size and W, i.e. ``BrainState.descending``'s definition) first exceeds
+    its threshold at spike step s. A group re-arms when its trailing rate at the end
+    of a run is back at or below the threshold."""
+
+    def __init__(self, groups: dict[str, np.ndarray], win_steps: int, dt_s: float) -> None:
+        self.groups = {k: np.asarray(v, dtype=np.int64) for k, v in groups.items()}
+        self.win = max(1, int(win_steps))
+        self.win_s = self.win * dt_s
+        self.thr: dict[str, float] = {}
+        self.hist: dict[str, deque] = {}
+        self.armed: dict[str, bool] = {}
+        self.unknown: list[str] = []
+
+    @property
+    def enabled(self) -> bool:
+        return bool(self.thr)
+
+    def set_thresholds(self, thr: dict | None) -> None:
+        self.thr = {}
+        self.unknown = []
+        for k, v in (thr or {}).items():
+            if k in self.groups and len(self.groups[k]):
+                self.thr[k] = float(v)
+            else:
+                self.unknown.append(k)
+        # keep the trailing spikes of groups that stay (a live threshold change,
+        # e.g. --stress, must not blind the detector for a window)
+        self.hist = {k: self.hist.get(k, deque()) for k in self.thr}
+        self.armed = {k: self.armed.get(k, True) for k in self.thr}
+
+    def reset(self) -> None:
+        self.hist = {k: deque() for k in self.thr}
+        self.armed = {k: True for k in self.thr}
+
+    def rate(self, group: str) -> float:
+        return len(self.hist[group]) / (len(self.groups[group]) * self.win_s)
+
+    def update(self, steps: np.ndarray, idx: np.ndarray, step_now: int) -> list:
+        out = []
+        for g, thr in self.thr.items():
+            h = self.hist[g]
+            n_g = len(self.groups[g])
+            if len(idx):
+                sel = steps[np.isin(idx, self.groups[g])]
+                for s in sel.tolist():
+                    h.append(s)
+                    while h[0] <= s - self.win:
+                        h.popleft()
+                    r = len(h) / (n_g * self.win_s)
+                    if self.armed[g] and r > thr:
+                        self.armed[g] = False
+                        out.append((g, int(s), r, thr))
+            while h and h[0] <= step_now - self.win:
+                h.popleft()
+            if not self.armed[g] and len(h) / (n_g * self.win_s) <= thr:
+                self.armed[g] = True
+        return out
+
+
 def _synthetic_table(n: int = 50, p_conn: float = 0.1, seed: int = 0, **_):
     """Tiny annotated random network for tests (every NT, both sides, all DN groups)."""
     from .data import NeuronTable
@@ -431,7 +524,7 @@ def _synthetic_table(n: int = 50, p_conn: float = 0.1, seed: int = 0, **_):
     return table, (indptr, indices, w)
 
 
-def _worker_main(cfg: dict, cmd_q, status_q, pubs: dict) -> None:
+def _worker_main(cfg: dict, cmd_q, status_q, pubs: dict, fast_q=None) -> None:
     import signal
 
     try:  # Ctrl-C in the terminal belongs to the parent (it stops us; we also exit
@@ -439,7 +532,7 @@ def _worker_main(cfg: dict, cmd_q, status_q, pubs: dict) -> None:
     except ValueError:
         pass
     try:
-        _worker_loop(cfg, cmd_q, status_q, pubs)
+        _worker_loop(cfg, cmd_q, status_q, pubs, fast_q)
     except Exception:
         try:
             status_q.put(("error", traceback.format_exc()))
@@ -447,7 +540,7 @@ def _worker_main(cfg: dict, cmd_q, status_q, pubs: dict) -> None:
             pass
 
 
-def _worker_loop(cfg: dict, cmd_q, status_q, pubs: dict) -> None:
+def _worker_loop(cfg: dict, cmd_q, status_q, pubs: dict, fast_q=None) -> None:
     parent = mp.parent_process()
     model = _Model(cfg)
     eng, mapper = model.engine, model.mapper
@@ -477,6 +570,12 @@ def _worker_loop(cfg: dict, cmd_q, status_q, pubs: dict) -> None:
     slip = 0.0  # fly time - brain time (grows only when the brain gives up catching up)
     pending: list[tuple[float, int, tuple]] = []  # (fly time, order, cmd), sorted
     order = [0]
+    # event-driven fast path (BrainConfig.fast_triggers)
+    fast = FastDetector({**model.dn, **model.probes},
+                        int(round(cfg.get("fast_window_s", 0.02) / dt_s)), dt_s)
+    if fast_q is not None:
+        fast.set_thresholds(cfg.get("fast_triggers"))
+    progress_sent = -1e9
 
     def apply(cmd) -> None:
         nonlocal labels
@@ -492,6 +591,7 @@ def _worker_loop(cfg: dict, cmd_q, status_q, pubs: dict) -> None:
         elif kind == "reset_state":
             mapper.add(StimulusEvent(kind="reset"), eng.t)
             eng.reset_state()
+            fast.reset()
             labels.append("reset_state")
             if model.neuromod is not None:
                 model.neuromod.on_reset()
@@ -511,6 +611,10 @@ def _worker_loop(cfg: dict, cmd_q, status_q, pubs: dict) -> None:
             return True
         if kind in ("neuromod", "lesion"):
             apply(cmd)
+            return True
+        if kind == "fast":
+            if fast_q is not None:
+                fast.set_thresholds(payload)
             return True
         if sim_paced and kind in ("stim", "reset_state"):
             t = payload.sim_time if kind == "stim" else payload
@@ -571,6 +675,17 @@ def _worker_loop(cfg: dict, cmd_q, status_q, pubs: dict) -> None:
         if len(s):
             buf_steps.append(s)
             buf_idx.append(i)
+        if fast.enabled:
+            off = slip if sim_paced else None
+            for g, step, rate, thr in fast.update(s, i, eng.step_count):
+                bt = step * dt_s
+                _publish(fast_q, FastEvent("trigger", bt, None if off is None else bt + off,
+                                           group=g, rate_hz=float(rate), threshold_hz=thr,
+                                           window_s=fast.win_s, wall_time=time.time()))
+            if sim_paced and eng.t + slip >= clock - 0.5 * dt_s and clock > progress_sent:
+                progress_sent = clock
+                _publish(fast_q, FastEvent("progress", eng.t, eng.t + slip,
+                                           wall_time=time.time()))
         rtf_hist.append((now, eng.step_count))
         # 4) publish
         if eng.step_count >= next_pub:

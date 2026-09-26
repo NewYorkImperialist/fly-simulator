@@ -55,6 +55,8 @@ def parse_args(argv=None):
     p.add_argument("--frames", type=Path, default=None,
                    help="save PNGs around the first dodge and the first hit")
     p.add_argument("--json", type=Path, default=None)
+    p.add_argument("--no-fast", action="store_true",
+                   help="old window-only readout (BrainLinkConfig.fast_path=False)")
     return p.parse_args(argv)
 
 
@@ -80,6 +82,10 @@ class Trial:
         s.actions.listeners.append(acts.append)
         trig = link.triggers
         n_fired0, n_modes0 = len(trig.fired), len(trig.jump_modes)
+        cross: list = []  # GF trailing-window threshold crossings (FastEvents)
+        nfe0 = link.n_fast
+        if not link.fast:
+            link.brain.poll_fast()
         shots: list[tuple[float, np.ndarray]] = []
 
         def advance(sec, until_idle=False):
@@ -91,6 +97,8 @@ class Trial:
                 k += 1
                 if frames and sw.phase in ("slam", "press", "lift", "back"):
                     shots.append((sim.time, self._render()))
+                if not link.fast:
+                    cross.extend(e for e in link.brain.poll_fast() if e.kind == "trigger")
                 for st in list(link.recent):
                     if st.seq not in states:
                         states[st.seq] = (st.sim_time, st.descending.get("escape", 0.0), self.rt())
@@ -102,6 +110,10 @@ class Trial:
         advance(0.0, until_idle=True)
         advance(self.args.post)
         s.actions.listeners.remove(acts.append)
+        if link.fast and link.n_fast > nfe0:
+            cross = list(link.fast_events)[-min(link.n_fast - nfe0, len(link.fast_events)):]
+        cross = [e for e in cross if e.group == "escape" and e.sim_time is not None
+                 and e.sim_time > t_req]
         ev = sw.events[n_ev0]
         t_land = ev.t_fly_contact if ev.hit else (ev.t_ground if ev.t_ground is not None
                                                   else ev.sim_time)
@@ -133,6 +145,7 @@ class Trial:
             "gf_first_window_end_rel_land": rel(gf_first[0]) if gf_first else None,
             "gf_thr_window_end_rel_land": rel(gf_thr[0]) if gf_thr else None,
             "gf_thr_arrival_rel_land": rel(gf_thr[2]) if gf_thr else None,
+            "gf_cross_rel_land": rel(cross[0].sim_time) if cross else None,
             "gf_peak_hz": round(gf_peak, 0),
             "jump_trigger_rel_land": rel(fired[0][0]) if fired else None,
             "jump_mode": modes[0] if modes else None,
@@ -230,11 +243,15 @@ def main(argv=None) -> int:
     cfg.whip.enabled = False
     cfg.auto_perturb.enabled = False
     extra = {} if args.clock is None else {"clock_every_s": args.clock}
-    extra.update(sync_wait_s=args.sync, sync_loom_only=not args.sync_always)
+    extra.update(sync_wait_s=args.sync, sync_loom_only=not args.sync_always,
+                 fast_path=not args.no_fast)
     cfg.brain = BrainLinkConfig(enabled=True, window=False, steer=True, actions=True,
                                 window_s=args.window, **extra)
     quiet = lambda msg: None  # noqa: E731
-    link = BrainLink(cfg.brain, headless=True, say=quiet)
+    link = BrainLink(cfg.brain, headless=True, say=quiet, start=False)
+    if args.no_fast:  # observe the GF crossings (fast detector) without acting on them
+        link.brain_cfg.fast_triggers = {"escape": cfg.brain.jump_escape_hz}
+    link.start()
     try:
         sw = Swatter(SwatterConfig.from_dict(json.loads(args.swatter)))
         session = Session(cfg, log=False, brain=link, say=quiet, world_extensions=[sw.extension])
@@ -262,7 +279,8 @@ def main(argv=None) -> int:
                               f"{r['outcome']:7s}imp={r['impulse_uNs']:.1f} "
                               f"loom={fmt(r['loom_rel_land'])} "
                               f"GF>thr={fmt(r['gf_thr_window_end_rel_land'])}/"
-                              f"{fmt(r['gf_thr_arrival_rel_land'])} GFpk={r['gf_peak_hz']:.0f} "
+                              f"{fmt(r['gf_thr_arrival_rel_land'])} cross={fmt(r['gf_cross_rel_land'])} "
+                              f"GFpk={r['gf_peak_hz']:.0f} "
                               f"jump={fmt(r['jump_trigger_rel_land'])} {r['jump_mode'] or ''} {r['jump_gf_hz']} "
                               f"takeoff={fmt(r['takeoff_rel_land'])} aim={r['fly_from_aim_mm']} "
                               f"lag={r['max_lag_s']} ({time.time() - t1:.1f}s)", flush=True)
