@@ -1,0 +1,18 @@
+{
+  "name": "tutorial",
+  "description": "Gentle introduction: low bumps, a mild ramp, two low steps and light rubble. Two checkpoints, generous timeout.",
+  "timeout_s": 90,
+  "fall_penalty_s": 2.0,
+  "sections": [
+    {"type": "flat", "length": 4},
+    {"type": "bumps", "length": 12, "params": {"count": 3, "height": 0.08, "radius": 1.8}},
+    {"type": "checkpoint"},
+    {"type": "ramp", "params": {"height": 0.2, "angle_deg": 6}},
+    {"type": "flat", "length": 3},
+    {"type": "stairs", "params": {"steps_up": 2, "steps_down": 2, "step_height": 0.06}},
+    {"type": "checkpoint"},
+    {"type": "rubble", "length": 12, "params": {"rocks": 2, "lumps": 10, "rock_height": 0.1, "lump_height": 0.04}},
+    {"type": "flat", "length": 3},
+    {"type": "finish"}
+  ]
+}

@@ -76,7 +76,21 @@ KIND_COLORS: dict[str, tuple[float, float, float, float]] = {
     "slope": (0.36, 0.55, 0.32, 1.0),   # green hills
     "gap": (0.72, 0.44, 0.22, 1.0),     # orange plateau around a gap
     "dip": (0.60, 0.40, 0.55, 1.0),     # mauve plateau around a dip
+    # Obstacle-course pieces (perpetualfly/course); never produced by endless mode.
+    "stairs": (0.42, 0.46, 0.66, 1.0),  # slate-blue steps
+    "pillar": (0.80, 0.52, 0.16, 1.0),  # orange slalom pillars
+    "ceiling": (0.55, 0.75, 0.90, 0.35),  # translucent tunnel roof (camera sees through)
+    "tunnel_wall": (0.50, 0.68, 0.82, 0.55),
+    "start": (0.20, 0.75, 0.30, 1.0),  # green start gate / line
+    "checkpoint": (0.95, 0.80, 0.15, 1.0),  # yellow checkpoint gates
+    "finish": (0.90, 0.18, 0.18, 1.0),  # red finish gate
+    "gate_bar": (0.95, 0.95, 0.95, 1.0),  # crossbar over a gate
+    "whip_zone": (0.78, 0.30, 0.30, 1.0),  # carpet marking a whip gauntlet
+    "loom_zone": (0.48, 0.30, 0.72, 1.0),  # carpet marking a looming zone
 }
+# Geoms above the walking surface (a tunnel roof, gate crossbars): ignored by
+# ground_height_at(), so the fall detector never takes a roof for the floor.
+OVERHEAD_KINDS = frozenset({"ceiling", "gate_bar"})
 SPAWN_TINT = 1.2  # interactively spawned features are drawn slightly brighter
 
 SPAWN_KINDS = ("rock", "bump", "slope", "gap", "dip")
@@ -201,6 +215,9 @@ class ProceduralTerrain:
         self._geom_specs: dict[int, GeomSpec] = {}  # current layout of chunk geoms
         self._spawn_free: dict[str, list[int]] = {"box": [], "ellipsoid": []}
         self._dirty = False
+        # Pool geoms currently placed with an OVERHEAD_KINDS kind (course mode only;
+        # always empty in endless mode, so ground_height_at is unchanged there).
+        self._overhead: set[int] = set()
 
     # ------------------------------------------------------------ construction
     def pool_names(self) -> tuple[list[str], list[str]]:
@@ -300,6 +317,8 @@ class ProceduralTerrain:
         pos = m.geom_pos[ids]
         d2 = (pos[:, 0] - x) ** 2 + (pos[:, 1] - y) ** 2
         cand = ids[(d2 <= m.geom_rbound[ids] ** 2) & (pos[:, 2] > -50.0)]
+        if self._overhead:
+            cand = np.array([g for g in cand if g not in self._overhead], dtype=int)
         if cand.size == 0:
             return 0.0
         top = 10.0  # mm; well above any feature (features are < 1.5 mm tall)
@@ -450,6 +469,10 @@ class ProceduralTerrain:
     def _place(self, gid: int, g: GeomSpec, tint: float = 1.0) -> None:
         m, d = self.sim.model, self.sim.data
         self._dirty = True
+        if g.kind in OVERHEAD_KINDS:
+            self._overhead.add(gid)
+        elif self._overhead:
+            self._overhead.discard(gid)
         size = np.asarray(g.size, dtype=float)
         m.geom_pos[gid] = g.pos
         m.geom_quat[gid] = g.quat
@@ -472,6 +495,8 @@ class ProceduralTerrain:
     def _park(self, gid: int) -> None:
         m, d = self.sim.model, self.sim.data
         self._dirty = True
+        if self._overhead:
+            self._overhead.discard(gid)
         m.geom_pos[gid] = PARK_POS
         m.geom_quat[gid] = (1.0, 0.0, 0.0, 0.0)
         m.geom_size[gid] = PARK_SIZE

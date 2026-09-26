@@ -75,3 +75,10 @@ Everything discussed so far, compared. Effort assumes agents doing the work on t
 4. **Session 3 (few days):** B6 stress state, B5 grooming, C1/C2 optogenetics + lesions.
 5. **Bigger projects:** B8 real vision → B9 visual steering; B7 feeding.
 6. **Research track:** B10 nerve cord → B11 full brain-to-muscle.
+
+## Queue (agreed next, in order)
+1. **B8 Real vision** — enable FlyGym compound eyes, install flyvis (~233 MB; needs free disk first), bridge flyvis output → LC4/LPLC2 in the FlyWire brain, replacing the geometric whip-looming sense while keeping everything downstream. Blocked on: free disk space.
+2. **(deprioritised by user) Fast dodge** — cut brain lag + short-mode giant-fibre escape so the fly can leave the ground before a hard crack lands.
+3. **Eternal jobs** — a fly doing an absurd job forever (`perpetualfly/jobs/`): Sisyphus boulder, hamster wheel (in progress), then mowing a lawn, raking leaves, carving a doner kebab.
+4. **Fly Brain Plays…** — brain-as-controller game mode (plane through rings / asteroid dodge / Pong).
+5. **Whip → pain → speed-up (user's top priority for whip reactions)** — whip hits feel like pain via the nervous system and the fly runs faster for a while, then calms down. Built from: sensory screen (find nociceptive/strong mechanosensory inputs that reach walk DNs or octopamine neurons) + stress/octopamine system (arousal → gait speed).

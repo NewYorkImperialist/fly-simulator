@@ -11,6 +11,7 @@
 from perpetualfly.terrain.chunks import (
     FLY_BIT,
     KIND_COLORS,
+    OVERHEAD_KINDS,
     SPAWN_KINDS,
     ProceduralTerrain,
     SpawnResult,
@@ -25,6 +26,7 @@ from perpetualfly.terrain.config import (
 )
 from perpetualfly.terrain.flat import GroundRecentering, build_flat_world
 from perpetualfly.terrain.generator import ChunkSpec, GeomSpec, TerrainGenerator
+from perpetualfly.terrain.sectioned import SectionedGenerator
 
 __all__ = [
     "ChunkSpec",
@@ -34,9 +36,11 @@ __all__ = [
     "GeomSpec",
     "GroundRecentering",
     "KIND_COLORS",
+    "OVERHEAD_KINDS",
     "ProceduralTerrain",
     "ProceduralTerrainConfig",
     "SPAWN_KINDS",
+    "SectionedGenerator",
     "SpawnResult",
     "TERRAIN_BIT",
     "TERRAIN_KINDS",

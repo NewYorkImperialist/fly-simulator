@@ -1,0 +1,23 @@
+{
+  "name": "gauntlet",
+  "description": "Rubble, stairs, a gap, a whip gauntlet, a ramp, a low tunnel, a dip and blocks. Three checkpoints.",
+  "timeout_s": 150,
+  "sections": [
+    {"type": "flat", "length": 3},
+    {"type": "rubble", "length": 14},
+    {"type": "checkpoint"},
+    {"type": "stairs", "params": {"steps_up": 3, "steps_down": 3, "step_height": 0.1}},
+    {"type": "flat", "length": 2},
+    {"type": "gap", "params": {"depth": 0.25, "width": 0.25}},
+    {"type": "checkpoint"},
+    {"type": "whip_gauntlet", "length": 18, "params": {"cracks": 3, "level": 2, "sides": ["left", "right", "front"]}},
+    {"type": "ramp", "params": {"height": 0.35, "angle_deg": 8}},
+    {"type": "checkpoint"},
+    {"type": "tunnel", "length": 12, "params": {"ceiling_z": 1.9}},
+    {"type": "flat", "length": 2},
+    {"type": "dip", "params": {"depth": 0.15, "width": 2.0}},
+    {"type": "blocks", "length": 12, "params": {"count": 5}},
+    {"type": "flat", "length": 3},
+    {"type": "finish"}
+  ]
+}

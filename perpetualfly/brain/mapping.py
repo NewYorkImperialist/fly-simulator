@@ -29,6 +29,9 @@ Stimulus mapping (``StimulusMapper``)
 * ``ground_contact``: off by default (no identified leg proprioceptors in the brain
   dataset). With ``enable_ground_contact=True`` it drives the leg sensory
   afferents that ascend via the VTV tract (``SA_VTV_pro_meso_meta``) at a low rate.
+* ``loom``: visual looming seen by one eye (``perpetualfly.vision``): LC4 and
+  LPLC2 on that side at ``details["lc4_hz"]`` / ``details["lplc2_hz"]``
+  (docs/VISION.md).
 * ``manual``: ``details`` = {"set": name} (see ``NAMED_SETS``), or
   {"cell_type": "LC4"}, or {"root_ids": [...]}; optional "side", "rate_hz".
 * ``reset``: clears all active stimuli.
@@ -79,6 +82,9 @@ MN9_IDS = (720575940660219265, 720575940618238523)
 
 BODY_MECH_SUBCLASSES = ("SA_DMT_DMetaN", "SA_DMT_ADMN", "SA_DLV", "SA_MDA",
                         "SA_VTV_DProN", "SA_VTV_PDMN")
+# looming-sensitive visual projection neurons that drive the giant fiber (von Reyn
+# et al. 2017; Ache et al. 2019); driven per eye by ``loom`` events
+LOOM_SETS = ("LC4", "LPLC2")
 HEAD_WORDS = ("head", "eye", "antenna", "arista", "proboscis", "rostrum", "haustellum")
 
 # descending group -> FlyWire cell types (split by soma side where lateralised)
@@ -129,6 +135,15 @@ def named_sets(table: NeuronTable) -> dict[str, np.ndarray]:
         "leg_sa": np.nonzero(sub == "SA_VTV_pro_meso_meta")[0],
         "LC4": np.nonzero(ct == "LC4")[0],      # looming detectors -> giant fiber
         "LPLC2": np.nonzero(ct == "LPLC2")[0],  # looming detectors -> giant fiber
+        # Ascending neurons (VNC -> brain, modality unknown) that the sensory screen
+        # (docs/SENSORY_SCREEN.md) found to drive the walk DNs BDN2/oDN1 (speed-up):
+        # AN_AVLP_PVLP (10 per side), AN_AVLP (~95 per side; one side -> contralateral
+        # DNa01/02 turn = away from that side), AN_IPS_GNG_7 (6 per side; ipsilateral
+        # DNa02 turn, strongest octopamine (OA-VUMa1) recruitment). NOT identified
+        # nociceptors; a speed-up proxy only.
+        "an_walk": np.nonzero(sub == "AN_AVLP_PVLP")[0],
+        "an_avlp": np.nonzero(sub == "AN_AVLP")[0],
+        "an_arousal": np.nonzero(ct == "AN_IPS_GNG_7")[0],
     }
     return sets
 
@@ -199,6 +214,18 @@ class StimulusMapper:
             if self.enable_ground_contact:
                 out.append((f"ground_contact:{side}", self._sided(self.sets["leg_sa"], side),
                             self.ground_contact_rate_hz * float(np.clip(ev.intensity, 0, 1))))
+        elif kind == "loom":
+            # Visual looming (perpetualfly/vision/looming.py, docs/VISION.md): the
+            # looming-detector visual projection neurons of the eye on ``side``
+            # (FlyWire soma side = optic lobe = eye). details["lc4_hz"] /
+            # details["lplc2_hz"] give each set's rate; without them both run at the
+            # event's intensity rate. Non-lateral sides drive both eyes.
+            d = ev.details or {}
+            for name in LOOM_SETS:
+                key = f"{name.lower()}_hz"
+                rate = float(d[key]) if key in d else self._rate(ev)
+                out.append((f"loom:{name}:{side}", self._sided(self.sets[name], side),
+                            min(rate, self.max_rate_hz)))
         elif kind == "manual":
             d = ev.details or {}
             if "root_ids" in d:

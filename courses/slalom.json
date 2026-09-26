@@ -1,0 +1,14 @@
+{
+  "name": "slalom",
+  "description": "Pillar slalom: pass each orange pillar on the side of the racing line (left, right, ...). The hybrid controller steers by moving its heading-hold target along the route waypoints; missed gates cost 2 s.",
+  "timeout_s": 90,
+  "steer_lookahead": 4.0,
+  "sections": [
+    {"type": "flat", "length": 3},
+    {"type": "pillars", "params": {"count": 5, "spacing": 10, "offset": 2.6, "first_side": "left"}},
+    {"type": "checkpoint"},
+    {"type": "pillars", "params": {"count": 4, "spacing": 9, "offset": 2.6, "first_side": "right"}},
+    {"type": "flat", "length": 2},
+    {"type": "finish"}
+  ]
+}

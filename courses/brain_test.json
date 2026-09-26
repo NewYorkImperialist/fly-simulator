@@ -1,0 +1,15 @@
+{
+  "name": "brain_test",
+  "description": "Looming zones: entering a purple zone sends LC4 looming stimuli to the connectome brain (if --brain is on; with --brain-steer the fly stops / escapes). Without a brain the stimuli are only logged.",
+  "timeout_s": 90,
+  "sections": [
+    {"type": "flat", "length": 6},
+    {"type": "loom_zone", "length": 10, "params": {"set": "LC4", "duration_s": 0.5, "repeats": 2, "interval_s": 1.0}},
+    {"type": "flat", "length": 4},
+    {"type": "checkpoint"},
+    {"type": "bumps", "length": 10, "params": {"count": 3, "height": 0.08}},
+    {"type": "loom_zone", "length": 10, "params": {"set": "LC4", "duration_s": 0.3, "repeats": 3, "interval_s": 0.5}},
+    {"type": "flat", "length": 3},
+    {"type": "finish"}
+  ]
+}
