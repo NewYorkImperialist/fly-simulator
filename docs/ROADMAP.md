@@ -76,10 +76,18 @@ Everything discussed so far, compared. Effort assumes agents doing the work on t
 5. **Bigger projects:** B8 real vision → B9 visual steering; B7 feeding.
 6. **Research track:** B10 nerve cord → B11 full brain-to-muscle.
 
-## Queue (agreed next, in order)
-1. **B8 Real vision** — enable FlyGym compound eyes, install flyvis (~233 MB; needs free disk first), bridge flyvis output → LC4/LPLC2 in the FlyWire brain, replacing the geometric whip-looming sense while keeping everything downstream. Blocked on: free disk space.
-2. **(deprioritised by user) Fast dodge** — cut brain lag + short-mode giant-fibre escape so the fly can leave the ground before a hard crack lands.
-3. **Eternal jobs** — a fly doing an absurd job forever (`perpetualfly/jobs/`): Sisyphus boulder, hamster wheel (in progress), then mowing a lawn, raking leaves, carving a doner kebab.
-4. **Fly Brain Plays…** — brain-as-controller game mode (plane through rings / asteroid dodge / Pong).
-5. **Whip → pain → speed-up (user's top priority for whip reactions)** — whip hits feel like pain via the nervous system and the fly runs faster for a while, then calms down. Built from: sensory screen (find nociceptive/strong mechanosensory inputs that reach walk DNs or octopamine neurons) + stress/octopamine system (arousal → gait speed).
-6. **(Pinned) Kebab brain reactions** — each cut sends a leg-touch stimulus (visible blip per slice), taste only when a shaving lands near / proboscis touches meat instead of a 4 s timer, hunger/satiety state slowing carving, stress wired into jobs.
+## Done since the roadmap was written (2026-09-26)
+- **Real vision** (`--real-vision`): compound eyes → flyvis → LC4/LPLC2 bridge (docs/VISION.md).
+- **Eternal jobs**: Sisyphus, hamster wheel, mowing, raking, doner kebab (`--job NAME`, docs/JOBS.md).
+- **Fly Brain Plays: asteroids** (`scripts/play.py`, docs/GAMES.md).
+- **Whip → pain → speed-up** (`--stress`, docs/STRESS.md) and **flyswatter dodging** (`--swatter`, docs/SWATTER.md).
+- **Obstacle courses** (`--course NAME`, docs/COURSE.md), **sensory screen** (docs/SENSORY_SCREEN.md).
+- **Real flight** (`--flight`, key L; brain escape flights; docs/FLIGHT.md).
+- **Brain playground**: virtual optogenetics, lesions, decision meters (docs/PLAYGROUND.md).
+
+## Queue (next)
+1. **(Pinned) Kebab brain reactions**: each cut sends a leg-touch stimulus (a visible blip per slice); taste when a shaving lands near or the proboscis touches meat, instead of a 4 s timer; a hunger/satiety state that slows carving; stress wired into jobs.
+2. **Faster brain → body latency**: publish as soon as the giant fibre spikes, and use smaller chunks while looming. Real vision is 40–80 ms too slow to dodge the swatter. (Fast dodge was deprioritised by the user.)
+3. **RL training run** (D1): recovery and righting. Needs several GB of free disk and a night of CPU.
+4. **More games** (plane through rings, Pong) and **more senses** (taste patches, odour: note the model's runaway state with olfactory input).
+5. **Research track**: BANC brain + nerve-cord connectome, and motor neurons → muscles.
