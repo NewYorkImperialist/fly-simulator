@@ -126,6 +126,10 @@ class BrainState:
         indices of silenced / stimulated neurons), "errors": [str]}; the app adds
         "log" (recent experiment log lines), "thresholds" (decision meters),
         "selected" (palette target of keys 9 / 0 / -) and "active_lesions".
+    habituation: looming-escape habituation (perpetualfly/brain/habituation.py),
+        empty when off: {"enabled", "label", "efficacy" (efficacy 0..1 of the most
+        depressed pre type, LC4 or LPLC2 mean; a *model* quantity), "by_type", "u",
+        "tau_rec_s", "n_pre", "n_post", "dishabituations"}.
     """
 
     brain_time: float
@@ -147,6 +151,7 @@ class BrainState:
     drive: dict | None = None
     neuromod: dict = field(default_factory=dict)
     playground: dict = field(default_factory=dict)
+    habituation: dict = field(default_factory=dict)
 
 
 @dataclass

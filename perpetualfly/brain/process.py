@@ -70,6 +70,10 @@ class BrainConfig:
     # NeuromodConfig fields); None = off, engine untouched. Also settable at run
     # time with BrainProcess.set_neuromod().
     neuromod: dict | None = None
+    # looming-escape habituation (perpetualfly/brain/habituation.py,
+    # HabituationConfig fields): short-term depression of the LC4 / LPLC2 -> giant
+    # fibre synapses. None = off, engine untouched (bit-identical).
+    habituation: dict | None = None
     # Event-driven fast path (docs/BRAIN.md, "Latency"). {group: threshold Hz} for
     # descending groups (DESCENDING_GROUPS) or probes ("MN9"). After every engine
     # run the worker counts each group's spikes in the trailing ``fast_window_s``
@@ -229,6 +233,11 @@ class BrainProcess:
         (None) the octopamine layer in the worker (applied at the next chunk)."""
         self._cmd.put_nowait(("neuromod", None if cfg is None else dict(cfg)))
 
+    def set_habituation(self, cfg: dict | None) -> None:
+        """Enable / reconfigure (``HabituationConfig`` fields) or disable (None) the
+        looming-habituation synaptic depression (applied at the next chunk)."""
+        self._cmd.put_nowait(("habituation", None if cfg is None else dict(cfg)))
+
     def set_lesions(self, targets) -> None:
         """Virtual lesions (docs/PLAYGROUND.md): silence exactly these targets
         (names for ``mapping.resolve_target``; empty = no lesion). Applied at the
@@ -326,8 +335,11 @@ class _Model:
         self.lesions: list = []
         self.pg_errors: list[str] = []
         self._pg_used = False
+        self.habituation = None  # LoomHabituation (habituation.py) when configured
         if cfg.get("neuromod"):
             self.configure_neuromod(cfg["neuromod"])
+        if cfg.get("habituation"):
+            self.configure_habituation(cfg["habituation"])
         self.load_s = time.time() - t0
         self.engine.run(1)  # JIT warm-up (numba cache makes this fast after the first time)
 
@@ -346,6 +358,20 @@ class _Model:
             self.neuromod = OctopamineModel(self.table, self.engine, d)
         else:
             self.neuromod.configure(d)
+
+    def configure_habituation(self, d: dict | None) -> None:
+        """None: off (engine back to static synapses); else HabituationConfig fields."""
+        from .habituation import LoomHabituation
+
+        if d is None:
+            if self.habituation is not None:
+                self.habituation.configure({**self.habituation.cfg.to_dict(), "enabled": False})
+            return
+        d = {"enabled": True, **dict(d)}  # a config dict means "on" unless it says otherwise
+        if self.habituation is None:
+            self.habituation = LoomHabituation(self.table, self.engine, d)
+        else:
+            self.habituation.configure(d)
 
     def set_lesions(self, names: list[str]) -> None:
         from .mapping import resolve_target
@@ -422,6 +448,8 @@ class _Model:
             raster_idx=d[sel].astype(np.int32), raster_t=(steps[sel] * dt_s).astype(np.float64),
             total_spikes=int(len(idx)), recent_stimuli=list(labels), probes=probes,
             **({"neuromod": self.neuromod.readout()} if self.neuromod is not None else {}),
+            **({"habituation": self.habituation.readout()} if self.habituation is not None
+               else {}),
             **({"playground": pg} if (pg := self.playground_readout()) else {}),
             **extra)
 
@@ -588,6 +616,8 @@ def _worker_loop(cfg: dict, cmd_q, status_q, pubs: dict, fast_q=None) -> None:
                 for rev in model.neuromod.relay_events(payload):
                     labels.extend(lab.replace("manual:", "hit_relay:", 1)
                                   for lab in mapper.add(rev, eng.t))
+            if model.habituation is not None and model.habituation.on_stimulus(payload):
+                labels.append("dishabituate")
         elif kind == "reset_state":
             mapper.add(StimulusEvent(kind="reset"), eng.t)
             eng.reset_state()
@@ -595,8 +625,12 @@ def _worker_loop(cfg: dict, cmd_q, status_q, pubs: dict, fast_q=None) -> None:
             labels.append("reset_state")
             if model.neuromod is not None:
                 model.neuromod.on_reset()
+            if model.habituation is not None:
+                model.habituation.on_reset()
         elif kind == "neuromod":
             model.configure_neuromod(payload)
+        elif kind == "habituation":
+            model.configure_habituation(payload)
         elif kind == "lesion":
             model.set_lesions(list(payload))
             labels.append("lesion:" + (", ".join(t.label for t in model.lesions) or "none"))
@@ -609,7 +643,7 @@ def _worker_loop(cfg: dict, cmd_q, status_q, pubs: dict, fast_q=None) -> None:
         if kind == "clock":
             clock = max(clock, float(payload))
             return True
-        if kind in ("neuromod", "lesion"):
+        if kind in ("neuromod", "lesion", "habituation"):
             apply(cmd)
             return True
         if kind == "fast":

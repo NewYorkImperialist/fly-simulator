@@ -131,6 +131,19 @@ class BrainLinkConfig:
     lesion: str | None = None
     stim_rate_hz: float = 120.0  # default rate / duration (CLI, keys 9 0 -)
     stim_duration_s: float = 1.0
+    # ---- looming habituation (--habituation; docs/HABITUATION.md) ------------------
+    # short-term depression of the LC4 / LPLC2 -> giant fibre synapses in the brain
+    # worker (perpetualfly/brain/habituation.py; HabituationConfig overrides in
+    # habituation_config, e.g. {"u": 0.006, "tau_rec_s": 20, "dishabituate_frac": 0.8})
+    habituation: bool = False
+    habituation_config: dict = field(default_factory=dict)
+    # ---- brain recording (--brain-record; docs/BRAIN_REPLAY.md) --------------------
+    # BrainStates + stimuli / actions -> <run dir>/brain_rec/ (compressed chunks);
+    # replay with scripts/brain_replay.py RUN_DIR
+    record: bool = False
+    record_window_s: float = 0.1  # states merged to at least this much brain time
+    record_max_mb: float = 50.0  # recording stops beyond this size
+    record_chunk_states: int = 100
 
     @classmethod
     def from_dict(cls, d: dict) -> "BrainLinkConfig":
@@ -263,7 +276,8 @@ class BrainLink:
         self.brain_cfg = BrainConfig(
             data_dir=cfg.data_dir, window_s=cfg.window_s, pace="sim",
             max_lag_s=cfg.max_lag_s, subscribers=("app",), synthetic=cfg.synthetic,
-            fast_triggers=self._fast_thr, fast_window_s=cfg.fast_window_s)
+            fast_triggers=self._fast_thr, fast_window_s=cfg.fast_window_s,
+            habituation=self.habituation_dict())
         self.brain = None
         self.window = None
         self.layout = None
@@ -306,8 +320,15 @@ class BrainLink:
         self._stim_plan = parse_stim_specs(cfg.stim, cfg.stim_rate_hz, cfg.stim_duration_s)
         self._lesion_plan = parse_lesion_specs(cfg.lesion)
         self._pg_errors_seen: set[str] = set()
+        self.recorder = None  # BrainRecorder (--brain-record), created in attach()
         if start:
             self.start()
+
+    def habituation_dict(self) -> dict | None:
+        """BrainConfig.habituation (None = off)."""
+        if not self.cfg.habituation:
+            return None
+        return {**dict(self.cfg.habituation_config), "enabled": True}
 
     # ------------------------------------------------------------- lifecycle
     def start(self) -> None:
@@ -319,6 +340,8 @@ class BrainLink:
     def wait_ready(self, timeout: float = 120.0) -> dict:
         self.info = self.brain.wait_ready(timeout)
         self.layout = self.brain.layout(timeout)
+        if self.recorder is not None and self.layout is not None:
+            self.recorder.set_layout(self.layout)
         return self.info
 
     def start_window(self) -> None:
@@ -338,6 +361,17 @@ class BrainLink:
         return out
 
     def close(self) -> None:
+        if self.recorder is not None:
+            try:
+                r = self.recorder.close()
+                self.say(f"[brain-record] {r['states']} states, {r['events']} events, "
+                         f"{r['duration_s']:.1f} s, {r['mb']:.2f} MB"
+                         + (f" ({r['mb_per_min']:.2f} MB/min)" if r['mb_per_min'] else "")
+                         + f" -> {r['dir']}  (replay: .venv/bin/python scripts/brain_replay.py "
+                           f"{Path(r['dir']).parent})")
+            except Exception as e:
+                print(f"warning: closing the brain recording failed: {e}", file=sys.stderr)
+            self.recorder = None
         if self.session is not None and self.cfg.steer:
             self.session.sim.controller.signal_filter = None
         if self.window is not None:
@@ -360,6 +394,8 @@ class BrainLink:
             session.whip.listeners.append(self.on_whip)
         session.detector.add_listener(self.on_fall_event)
         session.sim.reset_hooks.append(self._on_sim_reset)
+        if self.cfg.record and self.recorder is None:
+            self._start_recorder(session)
         self.triggers = None
         if self.cfg.actions and getattr(session, "actions", None) is not None:
             from perpetualfly.actions.brain_triggers import BrainActionTriggers, TriggerParams
@@ -377,6 +413,23 @@ class BrainLink:
                 session.sim.controller.signal_filter = self._steer_filter
         return self
 
+    def _start_recorder(self, session) -> None:
+        from perpetualfly.brain_viz.replay import BrainRecorder
+
+        lg = getattr(session, "logger", None)
+        if lg is None or getattr(lg, "run_dir", None) is None:
+            self.say("[brain-record] needs a run directory (logging is off); not recording")
+            return
+        self.recorder = BrainRecorder(lg.run_dir, self.layout, window_s=self.cfg.record_window_s,
+                                      chunk_states=self.cfg.record_chunk_states,
+                                      max_mb=self.cfg.record_max_mb, say=self.say)
+        self.say(f"[brain-record] recording brain states to {self.recorder.dir}")
+
+    def _record_actions(self, fired: list) -> None:
+        if self.recorder is not None:
+            for t_fired, name, rate in fired:
+                self.recorder.add_event("action", t_fired, str(name), rate_hz=float(rate))
+
     def _run_time(self, sim_time: float | None = None) -> float:
         s = self.session
         if s is None:
@@ -388,6 +441,8 @@ class BrainLink:
         """Brain + window + events.csv. ``ev.sim_time`` must be the fly run time."""
         self.stim_log.append(ev)
         self.n_sent += 1
+        if self.recorder is not None:
+            self.recorder.add_stimulus(ev, source)
         if ev.kind == "loom" and ev.sim_time is not None:
             self._loom_until = max(self._loom_until, float(ev.sim_time) + float(ev.duration_s))
         if self.brain is not None and self.brain.is_alive():
@@ -453,6 +508,8 @@ class BrainLink:
         """Fly reset -> brain reset too (all neurons to rest, stimuli cleared): the
         reset teleports the body, so leftover activity would not belong to it."""
         rt = self._run_time()
+        if self.recorder is not None:
+            self.recorder.add_event("stim", rt, "RESET", stim_kind="reset")
         if self.brain is not None and self.brain.is_alive():
             self.brain.reset_state(sim_time=rt)
         if self.window is not None:
@@ -683,6 +740,7 @@ class BrainLink:
                 n0 = len(self.triggers.fired)
                 self.triggers.on_state(st, rt)
                 s = self.session
+                self._record_actions(self.triggers.fired[n0:])
                 for t_fired, name, rate in self.triggers.fired[n0:]:
                     if s is not None and s.logger is not None:
                         s.logger.log_event("brain_action", details={
@@ -720,6 +778,8 @@ class BrainLink:
                         self.say(f"[playground] warning: {e}")
                 s.playground = {**pg, **pgi}
                 self.recent.append(s)
+                if self.recorder is not None:
+                    self.recorder.add_state(s)
                 if self.window is not None:
                     self.window.send(s)
         if self.window is not None:
@@ -765,6 +825,7 @@ class BrainLink:
         n0 = len(self.triggers.fired)
         self.triggers.on_fast(fe, rt)
         s = self.session
+        self._record_actions(self.triggers.fired[n0:])
         for t_fired, name, rate in self.triggers.fired[n0:]:
             if s is not None and s.logger is not None:
                 s.logger.log_event("brain_action", details={
@@ -875,7 +936,19 @@ class BrainLink:
             f"MDN {mdn:.0f} MN9 {st.probes.get('MN9', 0.0):.0f} DNg12 {d.get('groom', 0):.0f} Hz",
             "O loom  T sugar  K bitter" + ("   brain actions ON" if self.triggers is not None
                                            else ""),
-        ] + ([self.playground_hud()] if self.pg_used or self.lesions else [])
+        ] + ([self.playground_hud()] if self.pg_used or self.lesions else []) \
+          + ([self.habituation_hud()] if self.cfg.habituation else []) \
+          + (["REC brain -> brain_rec/" + (" (size limit: stopped)" if self.recorder.stopped
+                                            else "")] if self.recorder is not None else [])
+
+    def habituation_hud(self) -> str:
+        st = self.latest
+        h = (getattr(st, "habituation", None) or {}) if st is not None else {}
+        if not h.get("enabled"):
+            return "HABITUATION (model) waiting for the brain"
+        by = "  ".join(f"{k} {v:.2f}" for k, v in (h.get("by_type") or {}).items())
+        return (f"HABITUATION (model) GF-input efficacy {by}  "
+                f"(U {h.get('u', 0):g}, recovery {h.get('tau_rec_s', 0):g} s)")
 
     def playground_hud(self) -> str:
         p = self.presets[self.pg_selected % len(self.presets)]
@@ -920,6 +993,9 @@ class BrainLink:
                 "brain_lag_s": self.lag(), "brain_info": self.info,
                 "brain_actions": (dict(self.triggers.counts) if self.triggers is not None
                                   else None),
+                "habituation": (dict(getattr(st, "habituation", None) or {})
+                                if self.cfg.habituation and st is not None else None),
+                "brain_record": self.recorder.summary() if self.recorder is not None else None,
                 "playground": ({"lesions": list(self.lesions),
                                 "log": [[round(t, 3), txt] for t, txt in self.pg_log]}
                                if self.pg_used else None)}

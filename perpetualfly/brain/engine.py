@@ -85,7 +85,8 @@ def _run_steps(n_steps, step0, S,
                pois_idx, pois_p, pois_w,
                e11, e12, e22, v_0, v_th, v_rst, eps,
                active, is_active, n_active,
-               out_step, out_idx, counts, rng, vth, use_vth):
+               out_step, out_idx, counts, rng, vth, use_vth,
+               use_std, std_pre, std_post, std_x, std_last, std_u, std_tau_steps):
     """Advance the network. Only neurons in the *active set* (state differs from
     rest by more than ``eps`` mV) are integrated; a neuron at exact rest
     (v = v_0, g = 0) is a fixed point of the dynamics, so skipping it is exact.
@@ -104,7 +105,17 @@ def _run_steps(n_steps, step0, S,
 
     ``use_vth``: per-neuron thresholds ``vth[i]`` instead of the scalar ``v_th``
     (neuromodulation, perpetualfly/brain/neuromod.py). With ``use_vth`` False the
-    arithmetic is exactly the unmodulated model's."""
+    arithmetic is exactly the unmodulated model's.
+
+    ``use_std``: phenomenological short-term synaptic depression (habituation,
+    perpetualfly/brain/habituation.py). Each presynaptic neuron j with
+    ``std_pre[j]`` has an efficacy ``std_x[j]`` in (0, 1] (resource-depletion model,
+    Tsodyks & Markram 1997; Abbott et al. 1997): at delivery of each of its spikes
+    it first recovers exactly from its last update (``std_last[j]``, a step) as
+    ``x = 1 - (1 - x) exp(-(t - last) / std_tau_steps)``, its synapses onto
+    targets with ``std_post[post]`` are delivered scaled by x, then
+    ``x -= std_u * x``. With ``use_std`` False the arithmetic is exactly the
+    undepressed model's."""
     n_slots = ring.shape[0]
     cap = out_step.shape[0]
     n_out = 0
@@ -141,11 +152,22 @@ def _run_steps(n_steps, step0, S,
         ds = (t - delay) % n_slots
         for k in range(ring_cnt[ds]):
             j = ring[ds, k]
+            dep = False
+            xj = 1.0
+            if use_std:
+                if std_pre[j]:
+                    dep = True
+                    xj = 1.0 - (1.0 - std_x[j]) * math.exp(-(t - std_last[j]) / std_tau_steps)
+                    std_x[j] = xj - std_u * xj
+                    std_last[j] = t
             for p in range(indptr[j], indptr[j + 1]):
                 post = indices[p]
                 if t < S[post, 2]:
                     continue  # refractory target: write discarded (as in Brian2)
-                S[post, 1] += weights[p]
+                if dep and std_post[post]:
+                    S[post, 1] += weights[p] * xj
+                else:
+                    S[post, 1] += weights[p]
                 if is_active[post] == 0:
                     is_active[post] = 1
                     active[n_active] = post
@@ -231,6 +253,15 @@ class LIFEngine:
         # no output. None = none silenced (the exact unlesioned code path).
         self.silenced: np.ndarray | None = None
         self._vth_eff: np.ndarray | None = None
+        # short-term synaptic depression (habituation, perpetualfly/brain/habituation.py);
+        # None = off (the exact undepressed code path). See set_depression().
+        self.std_pre: np.ndarray | None = None
+        self.std_post: np.ndarray | None = None
+        self.std_x = np.ones(1, dtype=np.float64)
+        self.std_last = np.zeros(1, dtype=np.float64)
+        self.std_u = 0.0
+        self.std_tau_s = 1.0
+        self._std_dummy = np.zeros(1, dtype=np.uint8)
 
     # ------------------------------------------------------------------ inputs
     @property
@@ -297,6 +328,51 @@ class LIFEngine:
         buf[self.silenced] = np.inf
         return buf, True
 
+    # ------------------------------------------------------------------ depression
+    def set_depression(self, pre_idx, post_idx=None, u: float = 0.0,
+                       tau_rec_s: float = 10.0) -> None:
+        """Short-term depression of the synapses from ``pre_idx`` onto ``post_idx``
+        (None = onto every target): each presynaptic spike scales that neuron's
+        depressed synapses by its efficacy x, then x -= u x; x recovers to 1 with
+        ``tau_rec_s``. ``pre_idx`` None / empty = off (exact undepressed path).
+        Efficacies are kept when only ``u`` / ``tau_rec_s`` change (same sets)."""
+        if pre_idx is None or len(pre_idx) == 0:
+            self.std_pre = None
+            self.std_post = None
+            return
+        pre = np.zeros(self.n, dtype=np.uint8)
+        pre[np.asarray(pre_idx, dtype=np.int64)] = 1
+        post = np.ones(self.n, dtype=np.uint8) if post_idx is None else np.zeros(self.n, np.uint8)
+        if post_idx is not None:
+            post[np.asarray(post_idx, dtype=np.int64)] = 1
+        same = (self.std_pre is not None and np.array_equal(pre, self.std_pre)
+                and np.array_equal(post, self.std_post))
+        if not same:
+            self.std_pre, self.std_post = pre, post
+            self.std_x = np.ones(self.n, dtype=np.float64)
+            self.std_last = np.full(self.n, float(self.step_count), dtype=np.float64)
+        self.std_u = float(min(max(u, 0.0), 1.0))
+        self.std_tau_s = float(max(tau_rec_s, 1e-6))
+
+    def efficacy(self, idx=None) -> np.ndarray:
+        """Current efficacies (recovered to now) of presynaptic neurons ``idx``
+        (all when None); 1 where depression is off."""
+        idx = np.arange(self.n) if idx is None else np.asarray(idx, dtype=np.int64)
+        if self.std_pre is None:
+            return np.ones(len(idx))
+        tau_steps = self.std_tau_s * 1e3 / self.p.dt
+        x, last = self.std_x[idx], self.std_last[idx]
+        return 1.0 - (1.0 - x) * np.exp(-(self.step_count - last) / tau_steps)
+
+    def scale_depression(self, frac: float, idx=None) -> None:
+        """Move efficacies a fraction ``frac`` of the way back to 1 (dishabituation)."""
+        if self.std_pre is None:
+            return
+        idx = np.nonzero(self.std_pre)[0] if idx is None else np.asarray(idx, dtype=np.int64)
+        x = self.efficacy(idx)
+        self.std_x[idx] = x + float(np.clip(frac, 0.0, 1.0)) * (1.0 - x)
+        self.std_last[idx] = float(self.step_count)
+
     # ------------------------------------------------------------------ running
     def run(self, n_steps: int) -> tuple[np.ndarray, np.ndarray]:
         """Advance ``n_steps`` of dt. Returns (spike_step, spike_neuron) arrays
@@ -310,10 +386,17 @@ class LIFEngine:
             e11, e12, e22, p.v_0, p.v_th, p.v_rst, self.eps,
             self._active, self._is_active, self.n_active,
             self._out_step, self._out_idx, self.counts, self._rng,
-            vth, use_vth)
+            vth, use_vth, *self._std_args())
         self.step_count += int(n_steps)
         self.dropped_spikes += int(dropped)
         return self._out_step[:n_out].copy(), self._out_idx[:n_out].copy()
+
+    def _std_args(self):
+        if self.std_pre is None:
+            d = self._std_dummy
+            return False, d, d, self.std_x, self.std_last, 0.0, 1.0
+        return (True, self.std_pre, self.std_post, self.std_x, self.std_last, self.std_u,
+                self.std_tau_s * 1e3 / self.p.dt)
 
     def run_seconds(self, seconds: float) -> tuple[np.ndarray, np.ndarray]:
         return self.run(int(round(seconds * 1e3 / self.p.dt)))

@@ -1302,6 +1302,9 @@ class BrainRenderer:
         info = f"{L.model_name}  ·  {int(L.n_neurons_total):,} neurons simulated  ·  " \
                f"{self.n_neurons:,} displayed"
         put_text(img, info, (14, 50), DIM, 12)
+        # looming habituation (perpetualfly/brain/habituation.py), when on
+        hab = getattr(s, "habituation", None) if s is not None else None
+        sps_x = self.W // 2 + 60
         # right: realtime badge
         stale = self._last_arrival is None or \
             wall - self._last_arrival > max(3.0, 3.0 * (self._interval or 1.0))
@@ -1341,10 +1344,24 @@ class BrainRenderer:
             if self._interval:
                 sub += f"  ·  update every {self._interval:.2g} s"
             put_text(img, sub, (self.W - 14, 52), DIM, 12, 400, "right")
+            right_x = self.W - 14 - text_width(sub, 12) - 12
+            if isinstance(hab, dict) and hab.get("enabled"):
+                by = hab.get("by_type") or {}
+                hx = 14 + text_width(info, 12) + 16
+                for txt in (f"habituation (model): " + " · ".join(
+                                f"{k} {float(v):.2f}" for k, v in by.items()),
+                            f"habituation {float(hab.get('efficacy', 1.0)):.2f}"):
+                    if hx + text_width(txt, 12, 600) < right_x:
+                        put_text(img, txt, (hx, 50), WARN, 12, 600)
+                        sps_x = max(sps_x, hx + text_width(txt, 12, 600) + 16)
+                        break
             if s.window_s and s.window_s > 0 and s.total_spikes:
                 sps = s.total_spikes / s.window_s
-                put_text(img, f"{sps / 1e6:.2f} M spikes / brain-s" if sps >= 1e5 else
-                         f"{sps:,.0f} spikes / brain-s", (self.W // 2 + 60, 52), DIM, 12)
+                txt = (f"{sps / 1e6:.2f} M spikes / brain-s" if sps >= 1e5 else
+                       f"{sps:,.0f} spikes / brain-s")
+                # skip when it would run into the right-aligned line (habituation shown)
+                if sps_x + text_width(txt, 12) < right_x:
+                    put_text(img, txt, (sps_x, 52), DIM, 12)
         # stimulus chips (fade after 6 s)
         x = int(self.W * 0.40)
         put_text(img, "stimuli", (x, 27), FAINT, 11)

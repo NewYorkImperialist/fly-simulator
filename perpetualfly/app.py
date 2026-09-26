@@ -900,6 +900,16 @@ def build_arg_parser() -> argparse.ArgumentParser:
     g.add_argument("--lesion", metavar="TARGETS", default=None,
                    help="brain playground (implies --brain): silence these targets, e.g. "
                         "\"DNp01,MDN\" (from the start) or \"MDN@4\" (from run time 4 s)")
+    # --- habituation / brain recording (docs/HABITUATION.md, docs/BRAIN_REPLAY.md) ---
+    g.add_argument("--habituation", action="store_true",
+                   help="looming habituation (implies --brain): short-term depression of the "
+                        "LC4 / LPLC2 -> giant fibre synapses, so repeated harmless looms stop "
+                        "triggering escape jumps (with --brain-actions) and recover after rest")
+    g.add_argument("--brain-record", action="store_true",
+                   help="record brain states + stimuli / actions to <run dir>/brain_rec/ "
+                        "(implies --brain; compressed, size-capped); replay with "
+                        "scripts/brain_replay.py RUN_DIR")
+    # --- end habituation / brain recording ---
     g.add_argument("--no-playground", action="store_true",
                    help="classic brain window panels (spike raster + transmitters) instead of "
                         "the playground palette + decision meters")
@@ -1061,6 +1071,10 @@ def config_from_args(args: argparse.Namespace) -> AppConfig:
             b.stim = stim
         if lesion:
             b.lesion = lesion
+    if getattr(args, "habituation", False):  # --- habituation / brain recording
+        b.enabled = b.habituation = True
+    if getattr(args, "brain_record", False):
+        b.enabled = b.record = True
     if getattr(args, "no_playground", False):
         b.playground = False
     if args.brain_headless or args.no_brain_window:
@@ -1282,6 +1296,9 @@ def run(
                      f"{cfg.real_vision.rate_hz:.0f} Hz)")
     elif cfg.whip_vision.enabled:
         feats.append("whip vision (LC4 / LPLC2 looming)")
+    if session.brain is not None and cfg.brain.habituation:
+        feats.append("looming habituation (model: LC4 / LPLC2 -> GF depression" + (
+            ")" if cfg.brain.actions else "; add --brain-actions for its effect on jumps)"))
     if session.stress is not None:
         feats.append("stress / octopamine (model)" + (
             "" if cfg.brain.steer or cfg.brain.actions else
