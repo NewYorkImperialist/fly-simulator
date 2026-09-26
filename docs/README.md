@@ -5,7 +5,9 @@ One line per document. Files derived from FlyWire data are CC BY-NC 4.0; see
 
 ## Getting started
 
-* [README](../README.md): what the project is, installation, running the app, keys.
+* [README](../README.md): what the project is, feature tour, quickstart, main keys.
+* [USAGE.md](USAGE.md): full reference for the app: install, run examples, every key and flag, outputs, robustness evaluation.
+* [ARCHITECTURE.md](ARCHITECTURE.md): code layout, how the physical whip works, performance and known limitations.
 * [CONTRIBUTING](../CONTRIBUTING.md): development setup, tests, style and the honesty rule.
 * [NOTICE](../NOTICE.md): third-party credits, data licences and the reference list.
 

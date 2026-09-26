@@ -5,7 +5,7 @@ welcome. Please open an issue first for larger changes.
 
 ## Setup
 
-Python 3.12 (FlyGym 2.1 supports 3.12-3.14).
+Python 3.12 (the tested version; FlyGym 2.1 allows 3.12-3.14).
 
 ```bash
 uv venv --python 3.12 .venv
@@ -15,7 +15,8 @@ uv pip install --python .venv/bin/python -e ".[dev,brain]"
 ```
 
 Other extras: `rl` (PPO), `vision` (flyvis real vision), `brain-ref` (Brian2
-cross-check). See the [README](README.md) and [docs/README.md](docs/README.md).
+cross-check). See the [README](README.md), [docs/USAGE.md](docs/USAGE.md) and
+[docs/README.md](docs/README.md).
 
 ## Tests
 

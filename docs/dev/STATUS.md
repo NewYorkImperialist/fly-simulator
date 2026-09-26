@@ -178,7 +178,7 @@ are in `runs/soak/report_*/report.md`, `runs/soak/chaos/report.md` and
   fly; at 20 Hz it walks backward. The brain costs one CPU core.
 - Level-4 hits launch the fly 5-60 cm, off the terrain feature band. `distance_mm`
   includes that flight; `walked_distance_mm` and the average speed don't.
-- The terrain label depends only on x. See the README's notes for the rest.
+- The terrain label depends only on x. See the notes in [ARCHITECTURE.md](../ARCHITECTURE.md#notes-and-known-limitations) for the rest.
 - Actions: jumps go mostly straight up (~1 mm backward drift), and boosted jumps tumble
   (no wing aerodynamics). Groom is one 3 s recorded bout of the front legs only.
   Brain grooming doesn't fire from natural input (DNg12 ≤ 13 Hz vs the 20 Hz

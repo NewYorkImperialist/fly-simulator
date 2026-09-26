@@ -8,6 +8,9 @@ A second live window, next to the fly, that shows what the connectome model
 
 ![brain window after a left whip (mock brain)](../fly_simulator/brain_viz/assets/preview_whip.jpg)
 
+The image is the last frame of `scripts/demo_brain_window.py --record p.png --seconds 1.85`
+(mock brain, 1280×800), saved as JPEG quality 92.
+
 ## Panels
 
 ```
