@@ -54,6 +54,10 @@ KEY_GROUPS: list[tuple[str, list[tuple[str, str]]]] = [
         ("O", "looming (LC4 -> giant fiber + MDN; --brain-steer: stop; --brain-actions: jump)"),
         ("T", "sugar taste (sugar GRNs -> MN9; --brain-actions: proboscis extension)"),
         ("K", "bitter taste (bitter GRNs; display only)"),
+        # brain playground (docs/PLAYGROUND.md); the brain window's palette is clickable
+        ("9", "playground: select the next target (GF, MDN, BDN2, DNa02 L/R, ...; HUD)"),
+        ("0", "playground: optogenetic stimulation of the selected target (120 Hz, 1 s)"),
+        ("-", "playground: lesion / un-lesion (silence) the selected target"),
     ]),
     ("actions", [
         ("J", "jump (escape: crouch, mid-leg push, flight, landing)"),
@@ -85,7 +89,7 @@ KEY_GROUPS: list[tuple[str, list[tuple[str, str]]]] = [
 KEY_TABLE: list[tuple[str, str]] = [row for _, rows in KEY_GROUPS for row in rows]
 KEY_HELP = ("SPACE/arrows/U hit | 1-4 strength | H whip/shove | A auto | R B S G D spawn | "
             "F flatten | [ ] terrain | J Z Y E , . W N actions | P X C | I shot | M rec | "
-            "O T K brain | V swat | L fly | ? help | Q quit")
+            "O T K brain | 9 0 - playground | V swat | L fly | ? help | Q quit")
 # app key -> (action name, parameters); see perpetualfly/actions (docs/ACTIONS.md)
 ACTION_KEY_MAP: dict[str, tuple[str, dict]] = {
     "j": ("jump", {}),
@@ -101,6 +105,7 @@ ACTION_KEY_MAP: dict[str, tuple[str, dict]] = {
 SCRIPT_KEY_ALIASES = {"comma": ",", "period": ".", "dot": ".", "colon": ":"}
 UNAVAILABLE_MARK = "~"  # help rows starting with this are drawn greyed out
 SWAT_KEYS = ("v", "shift+v")
+PLAYGROUND_KEYS = ("9", "0", "-")  # brain playground (BrainLink.handle_playground_key)
 # keys with their own Shift binding; any other "shift+<k>" (Shift / Caps Lock held)
 # is handled as plain <k>
 SHIFT_BOUND = {"shift+v"}
@@ -860,6 +865,16 @@ def build_arg_parser() -> argparse.ArgumentParser:
                    help="descending neurons trigger body actions: giant fiber > 60 Hz -> jump, "
                         "MN9 > 30 Hz -> proboscis (full body), DNg12 > 20 Hz -> groom "
                         "(implies --brain-steer)")
+    g.add_argument("--stim", metavar="SPECS", default=None,
+                   help="brain playground (docs/PLAYGROUND.md; implies --brain): scripted "
+                        "optogenetic stimulation, TARGET[:RATE_HZ[:DURATION_S]][@RUN_TIME_S], "
+                        "comma separated, e.g. \"DNa02_L:120:1.0@3,MDN@6,GF:200:0.3@9\"")
+    g.add_argument("--lesion", metavar="TARGETS", default=None,
+                   help="brain playground (implies --brain): silence these targets, e.g. "
+                        "\"DNp01,MDN\" (from the start) or \"MDN@4\" (from run time 4 s)")
+    g.add_argument("--no-playground", action="store_true",
+                   help="classic brain window panels (spike raster + transmitters) instead of "
+                        "the playground palette + decision meters")
     g = p.add_argument_group("features (compose freely; --course and --job exclude each other)")
     g.add_argument("--swatter", action="store_true",
                    help="flyswatter (docs/SWATTER.md): V swats from behind, Shift+V from a "
@@ -994,8 +1009,24 @@ def config_from_args(args: argparse.Namespace) -> AppConfig:
     # brain
     b = cfg.brain
     brain_actions = getattr(args, "brain_actions", False)
-    if args.brain or args.brain_headless or args.brain_steer or args.brain_backup or brain_actions:
+    stim, lesion = getattr(args, "stim", None), getattr(args, "lesion", None)
+    if (args.brain or args.brain_headless or args.brain_steer or args.brain_backup
+            or brain_actions or stim or lesion):
         b.enabled = True
+    if stim or lesion:  # fail early on a malformed spec
+        from perpetualfly.brain_viz.playground import parse_lesion_specs, parse_stim_specs
+
+        try:
+            parse_stim_specs(stim)
+            parse_lesion_specs(lesion)
+        except ValueError as e:
+            raise ConfigError(str(e)) from None
+        if stim:
+            b.stim = stim
+        if lesion:
+            b.lesion = lesion
+    if getattr(args, "no_playground", False):
+        b.playground = False
     if args.brain_headless or args.no_brain_window:
         b.window = False
     if args.brain_steer or args.brain_backup or brain_actions:
@@ -1348,7 +1379,8 @@ def run(
                 from perpetualfly.brain_link import render_brain_frame
 
                 t0 = time.perf_counter()
-                brain_img = render_brain_frame(brain.layout, states, cfg.brain.window_s)
+                brain_img = render_brain_frame(brain.layout, states, cfg.brain.window_s,
+                                               playground=cfg.brain.playground)
                 brain_ms = (time.perf_counter() - t0) * 1e3
             paths = media.save_screenshot(frame, rt_shot, hud_img, brain_img)
             print(f"[screenshot] {', '.join(str(p) for p in paths)}"
@@ -1442,6 +1474,9 @@ def run(
             elif k in BRAIN_KEYS:
                 msg = (brain.handle_key(k) if brain is not None else
                        f"[brain] {k.upper()} needs the brain: run with --brain")
+            elif k in PLAYGROUND_KEYS:
+                msg = (brain.handle_playground_key(k) if brain is not None else
+                       f"[playground] {k} needs the brain: run with --brain")
             else:
                 msg = session.handle_whip_key(k)
             if msg:

@@ -68,6 +68,16 @@ the newest state (τ ≈ 0.35 × update interval). If the playhead falls > 3 win
 behind it jumps. Everything shown is therefore up to one update interval behind the
 engine; the badge states the slowdown explicitly.
 
+### Playground mode (the app's default)
+
+`BrainRenderer(..., playground=True)` (what the app uses; `--no-playground` turns it
+off) replaces the spike raster with the clickable **palette** (optogenetic
+stimulation / lesions) and the transmitter panel with the **decision meters**. It
+also draws lesion / stimulation markers on the map. Key **P** in the window toggles
+between the playground and classic panels. Mouse clicks become command dicts on
+`BrainWindowProcess.cmd_queue` (`poll_commands()`), which the app executes. See
+[PLAYGROUND.md](PLAYGROUND.md).
+
 ## Running
 
 ```bash

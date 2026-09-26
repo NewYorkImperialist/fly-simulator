@@ -215,6 +215,12 @@ class BrainProcess:
         (None) the octopamine layer in the worker (applied at the next chunk)."""
         self._cmd.put_nowait(("neuromod", None if cfg is None else dict(cfg)))
 
+    def set_lesions(self, targets) -> None:
+        """Virtual lesions (docs/PLAYGROUND.md): silence exactly these targets
+        (names for ``mapping.resolve_target``; empty = no lesion). Applied at the
+        next chunk, not scheduled; survives ``reset_state``."""
+        self._cmd.put_nowait(("lesion", [str(t) for t in (targets or [])]))
+
     def clock(self, sim_time: float) -> None:
         """pace="sim": the fly has simulated up to ``sim_time``; the brain may run to it."""
         self._cmd.put_nowait(("clock", float(sim_time)))
@@ -288,6 +294,10 @@ class _Model:
         self.n_regions = len(self.table.regions)
         self.n_by_region = np.bincount(self.table.region, minlength=self.n_regions).astype(float)
         self.neuromod = None  # OctopamineModel (neuromod.py) when configured
+        # brain playground (docs/PLAYGROUND.md): active lesions [(Target)], errors
+        self.lesions: list = []
+        self.pg_errors: list[str] = []
+        self._pg_used = False
         if cfg.get("neuromod"):
             self.configure_neuromod(cfg["neuromod"])
         self.load_s = time.time() - t0
@@ -308,6 +318,53 @@ class _Model:
             self.neuromod = OctopamineModel(self.table, self.engine, d)
         else:
             self.neuromod.configure(d)
+
+    def set_lesions(self, names: list[str]) -> None:
+        from .mapping import resolve_target
+
+        self.lesions = []
+        for nm in names:
+            tg = resolve_target(self.table, nm, self.mapper.sets)
+            if not len(tg.idx):
+                self.pg_errors.append(f"lesion {nm!r}: no neurons match")
+                continue
+            self.lesions.append(tg)
+        self._pg_used = self._pg_used or bool(names)
+        idx = np.concatenate([t.idx for t in self.lesions]) if self.lesions else None
+        self.engine.set_silenced(idx)
+
+    def note_stim(self, ev: StimulusEvent, labels: list[str]) -> None:
+        if ev.kind == "opto":
+            self._pg_used = True
+            if not labels:
+                self.pg_errors.append(
+                    f"stim {(ev.details or {}).get('target')!r}: no neurons match")
+
+    def playground_readout(self) -> dict:
+        if not self._pg_used:
+            return {}
+        now = self.engine.t
+        opto = [s for s in self.mapper.active if s.label.startswith("opto:")]
+        sil = self.engine.silenced
+        lut = self.disp_lut
+
+        def disp(idx):
+            d = lut[idx] if idx is not None and len(idx) else np.zeros(0, np.int64)
+            return d[d >= 0].astype(np.int32)
+
+        out = {
+            "lesions": [{"target": t.name, "label": t.label, "n": int(len(t.idx))}
+                        for t in self.lesions],
+            "n_silenced": int(0 if sil is None else len(sil)),
+            "opto": [{"label": s.label[5:], "rate_hz": float(s.rate_hz),
+                      "n": int(len(s.idx)), "t_left": float(max(s.t_end - now, 0.0))}
+                     for s in opto],
+            "lesion_disp": disp(sil),
+            "opto_disp": disp(np.concatenate([s.idx for s in opto]) if opto else None),
+            "errors": list(self.pg_errors),
+        }
+        self.pg_errors = []
+        return out
 
     def summarize(self, steps: np.ndarray, idx: np.ndarray, window_s: float,
                   brain_time: float, rtf: float, labels: list[str],
@@ -337,6 +394,7 @@ class _Model:
             raster_idx=d[sel].astype(np.int32), raster_t=(steps[sel] * dt_s).astype(np.float64),
             total_spikes=int(len(idx)), recent_stimuli=list(labels), probes=probes,
             **({"neuromod": self.neuromod.readout()} if self.neuromod is not None else {}),
+            **({"playground": pg} if (pg := self.playground_readout()) else {}),
             **extra)
 
 
@@ -424,7 +482,9 @@ def _worker_loop(cfg: dict, cmd_q, status_q, pubs: dict) -> None:
         nonlocal labels
         kind, payload = cmd
         if kind == "stim":
-            labels.extend(mapper.add(payload, eng.t))
+            new = mapper.add(payload, eng.t)
+            labels.extend(new)
+            model.note_stim(payload, new)
             if model.neuromod is not None:  # nociceptive relay (neuromod.py), if on
                 for rev in model.neuromod.relay_events(payload):
                     labels.extend(lab.replace("manual:", "hit_relay:", 1)
@@ -437,6 +497,9 @@ def _worker_loop(cfg: dict, cmd_q, status_q, pubs: dict) -> None:
                 model.neuromod.on_reset()
         elif kind == "neuromod":
             model.configure_neuromod(payload)
+        elif kind == "lesion":
+            model.set_lesions(list(payload))
+            labels.append("lesion:" + (", ".join(t.label for t in model.lesions) or "none"))
 
     def handle(cmd) -> bool:
         nonlocal clock
@@ -446,7 +509,7 @@ def _worker_loop(cfg: dict, cmd_q, status_q, pubs: dict) -> None:
         if kind == "clock":
             clock = max(clock, float(payload))
             return True
-        if kind == "neuromod":
+        if kind in ("neuromod", "lesion"):
             apply(cmd)
             return True
         if sim_paced and kind in ("stim", "reset_state"):

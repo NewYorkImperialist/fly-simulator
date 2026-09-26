@@ -226,6 +226,11 @@ class LIFEngine:
         # optional per-neuron thresholds (neuromodulation); None = scalar v_th
         self.v_th_arr: np.ndarray | None = None
         self._vth_dummy = np.zeros(1, dtype=np.float64)
+        # virtual lesions (brain playground, docs/PLAYGROUND.md): silenced neurons
+        # get an infinite spike threshold for the run, so they never fire and send
+        # no output. None = none silenced (the exact unlesioned code path).
+        self.silenced: np.ndarray | None = None
+        self._vth_eff: np.ndarray | None = None
 
     # ------------------------------------------------------------------ inputs
     @property
@@ -264,20 +269,48 @@ class LIFEngine:
     def clear_threshold(self) -> None:
         self.v_th_arr = None
 
+    def set_silenced(self, idx) -> None:
+        """Virtual lesion: neurons ``idx`` can no longer spike (their threshold is
+        +inf during ``run``; membrane / synaptic state still integrates, so they
+        simply produce no output). ``None`` or empty = no lesion; the engine then
+        runs the exact unlesioned code path. Independent of ``threshold_array()``
+        (neuromodulation), which may be set or cleared at any time."""
+        if idx is None or len(idx) == 0:
+            self.silenced = None
+            self._vth_eff = None
+            return
+        self.silenced = np.unique(np.asarray(idx, dtype=np.int64))
+        if self._vth_eff is None:
+            self._vth_eff = np.empty(self.n, dtype=np.float64)
+
+    def _thresholds(self):
+        """(array, use_array) for the kernel: modulated thresholds and lesions."""
+        if self.silenced is None:
+            if self.v_th_arr is None:
+                return self._vth_dummy, False
+            return self.v_th_arr, True
+        buf = self._vth_eff
+        if self.v_th_arr is None:
+            buf.fill(self.p.v_th)
+        else:
+            np.copyto(buf, self.v_th_arr)
+        buf[self.silenced] = np.inf
+        return buf, True
+
     # ------------------------------------------------------------------ running
     def run(self, n_steps: int) -> tuple[np.ndarray, np.ndarray]:
         """Advance ``n_steps`` of dt. Returns (spike_step, spike_neuron) arrays
         (copies) of all spikes in the chunk; steps are absolute step numbers."""
         e11, e12, e22 = self._e
         p = self.p
+        vth, use_vth = self._thresholds()
         n_out, dropped, self.n_active = _run_steps(
             int(n_steps), int(self.step_count), self._S, self.indptr, self.indices, self.weights, self.ring,
             self.ring_cnt, self.delay, self._pois_idx, self._pois_p, self.pois_w,
             e11, e12, e22, p.v_0, p.v_th, p.v_rst, self.eps,
             self._active, self._is_active, self.n_active,
             self._out_step, self._out_idx, self.counts, self._rng,
-            self._vth_dummy if self.v_th_arr is None else self.v_th_arr,
-            self.v_th_arr is not None)
+            vth, use_vth)
         self.step_count += int(n_steps)
         self.dropped_spikes += int(dropped)
         return self._out_step[:n_out].copy(), self._out_idx[:n_out].copy()

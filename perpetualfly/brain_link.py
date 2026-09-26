@@ -38,6 +38,7 @@ import numpy as np
 
 from perpetualfly.brain.mapping import DriveGains, descending_to_drive
 from perpetualfly.brain.schema import DESCENDING_GROUPS, BrainState, StimulusEvent
+from perpetualfly.brain_viz.playground import canonical_label
 
 if TYPE_CHECKING:
     from perpetualfly.app import Session
@@ -108,6 +109,16 @@ class BrainLinkConfig:
     groom_duration_s: float = 2.0
     groom_refractory_s: float = 1.0
     synthetic: dict | None = None  # tests: tiny random network, no data needed
+    # ---- brain playground (docs/PLAYGROUND.md) -------------------------------------
+    # virtual optogenetics / lesions / decision meters. The brain window shows the
+    # palette + meters (key P in the brain window toggles the classic panels).
+    playground: bool = True
+    # --stim "DNa02_L:120:1.0@3,MDN@6": TARGET[:RATE_HZ[:DURATION_S]][@RUN_TIME_S]
+    stim: str | None = None
+    # --lesion "DNp01,MDN" (silenced from the start) / "MDN@4" (from run time 4 s)
+    lesion: str | None = None
+    stim_rate_hz: float = 120.0  # default rate / duration (CLI, keys 9 0 -)
+    stim_duration_s: float = 1.0
 
     @classmethod
     def from_dict(cls, d: dict) -> "BrainLinkConfig":
@@ -198,14 +209,15 @@ def drive_display(brain: np.ndarray, escape_hz: float, applied: bool,
 
 
 def render_brain_frame(layout, states: list, window_s: float = 0.1,
-                       size: tuple[int, int] | None = None):
+                       size: tuple[int, int] | None = None, playground: bool = False):
     """BGR brain-window frame for ``states`` (oldest first) via the brain window's
     headless ``render_frame``; None without layout / states."""
     if layout is None or not states:
         return None
     from perpetualfly.brain_viz.window import DEFAULT_SIZE, render_frame
 
-    return render_frame(layout, list(states), size=size or DEFAULT_SIZE, interval=window_s)
+    return render_frame(layout, list(states), size=size or DEFAULT_SIZE, interval=window_s,
+                        playground=playground)
 
 
 # ---------------------------------------------------------------------------
@@ -263,6 +275,19 @@ class BrainLink:
         self._loom_until = -1e9  # run time the last visual loom stimulus ends
         self.n_sync_waits = 0
         self.sync_wait_wall_s = 0.0
+        # brain playground (docs/PLAYGROUND.md)
+        from perpetualfly.brain_viz.playground import (PRESETS, parse_lesion_specs,
+                                                       parse_stim_specs)
+
+        self.presets = PRESETS
+        self.lesions: list[str] = []  # active lesion targets (names), in order
+        self.pg_log: deque[tuple[float, str]] = deque(maxlen=200)  # (run time, text)
+        self.pg_selected = 0  # palette index for keys 9 / 0 / -
+        self._pg_key_used = False
+        self.pg_used = False
+        self._stim_plan = parse_stim_specs(cfg.stim, cfg.stim_rate_hz, cfg.stim_duration_s)
+        self._lesion_plan = parse_lesion_specs(cfg.lesion)
+        self._pg_errors_seen: set[str] = set()
         if start:
             self.start()
 
@@ -283,7 +308,7 @@ class BrainLink:
             return
         from perpetualfly.brain_viz import BrainWindowProcess
 
-        self.window = BrainWindowProcess(self.layout).start()
+        self.window = BrainWindowProcess(self.layout, playground=self.cfg.playground).start()
 
     @property
     def pids(self) -> list[int]:
@@ -341,7 +366,7 @@ class BrainLink:
         return float(s.metrics.run_time_at(s.sim.time if sim_time is None else sim_time))
 
     # ------------------------------------------------------------- body -> brain
-    def send(self, ev: StimulusEvent, source: str = "") -> None:
+    def send(self, ev: StimulusEvent, source: str = "", event_type: str = "brain_stim") -> None:
         """Brain + window + events.csv. ``ev.sim_time`` must be the fly run time."""
         self.stim_log.append(ev)
         self.n_sent += 1
@@ -356,7 +381,7 @@ class BrainLink:
             self.window.send(ev)
         s = self.session
         if s is not None and s.logger is not None:
-            s.logger.log_event("brain_stim", force_direction=ev.side, details={
+            s.logger.log_event(event_type, force_direction=ev.side, details={
                 "kind": ev.kind, "side": ev.side, "intensity": round(ev.intensity, 4),
                 "duration_s": ev.duration_s, "stim_time": ev.sim_time, "source": source,
                 **{k: v for k, v in (ev.details or {}).items()}})
@@ -465,6 +490,137 @@ class BrainLink:
         return (f"[brain] {what}: {'+'.join(self.cfg.loom_sets) if what == 'loom' else what} "
                 f"neurons at 200 Hz for {ev.duration_s:g} s from t={ev.sim_time:.2f}s; {extra}")
 
+    # ------------------------------------------------------------- playground
+    def _pg_note(self, text: str, rt: float | None = None) -> str:
+        rt = self._run_time() if rt is None else rt
+        self.pg_log.append((rt, text))
+        self.pg_used = True
+        return f"[playground] t={rt:.2f}s {text}"
+
+    def opto(self, target: str, rate_hz: float | None = None, duration_s: float | None = None,
+             source: str = "key") -> str:
+        """Virtual optogenetics: drive every neuron of ``target`` (see
+        ``mapping.resolve_target``) at ``rate_hz`` for ``duration_s`` from now
+        (direct stimulation, not a natural sense)."""
+        rt = self._run_time()
+        rate = float(rate_hz if rate_hz is not None else self.cfg.stim_rate_hz)
+        dur = float(duration_s if duration_s is not None else self.cfg.stim_duration_s)
+        ev = StimulusEvent("opto", "none", 1.0, dur, rt,
+                           details={"target": str(target), "rate_hz": rate,
+                                    "label": f"OPTO {canonical_label(target)}"})
+        self.send(ev, source=source, event_type="brain_opto")
+        return self._pg_note(f"STIM {target} {rate:g} Hz {dur:g} s ({source})", rt)
+
+    def stop_stim(self, source: str = "key") -> str:
+        rt = self._run_time()
+        self.send(StimulusEvent("opto_stop", "none", 0.0, 0.0, rt,
+                                details={"label": "OPTO STOP"}), source=source,
+                  event_type="brain_opto")
+        return self._pg_note(f"STOP all stimulation ({source})", rt)
+
+    def set_lesion(self, target: str, on: bool | None = None, source: str = "key") -> str:
+        """Virtual lesion on / off (``on=None`` toggles): the target's neurons can
+        no longer spike. Lesions persist across fly / brain resets."""
+        target = str(target).strip()
+        cur = target in self.lesions
+        on = (not cur) if on is None else bool(on)
+        if on and not cur:
+            self.lesions.append(target)
+        elif not on and cur:
+            self.lesions.remove(target)
+        return self._apply_lesions(f"{'LESION' if on else 'UNLESION'} {target}", source,
+                                   target, on)
+
+    def clear_lesions(self, source: str = "key") -> str:
+        self.lesions.clear()
+        return self._apply_lesions("CLEAR LESIONS", source, "", False)
+
+    def _apply_lesions(self, what: str, source: str, target: str, on: bool) -> str:
+        rt = self._run_time()
+        if self.brain is not None and self.brain.is_alive():
+            try:
+                self.brain.set_lesions(list(self.lesions))
+            except Exception:
+                pass
+        if self.window is not None:
+            self.window.send(StimulusEvent("lesion", "none", 0.0, 0.0, rt,
+                                           details={"label": what[:28]}))
+        s = self.session
+        if s is not None and s.logger is not None:
+            s.logger.log_event("brain_lesion", details={
+                "target": target, "on": on, "active": "+".join(self.lesions),
+                "stim_time": rt, "source": source})
+        return self._pg_note(f"{what} ({source}); silenced: "
+                             f"{', '.join(self.lesions) or 'none'}", rt)
+
+    def execute(self, cmd: dict, source: str = "window") -> str | None:
+        """A playground command dict (brain-window clicks; see brain_viz.playground)."""
+        op = cmd.get("op") if isinstance(cmd, dict) else None
+        try:
+            if op == "stim":
+                return self.opto(str(cmd["target"]), cmd.get("rate_hz"), cmd.get("duration_s"),
+                                 source)
+            if op == "lesion":
+                return self.set_lesion(str(cmd["target"]), cmd.get("on"), source)
+            if op == "clear_lesions":
+                return self.clear_lesions(source)
+            if op == "stop_stim":
+                return self.stop_stim(source)
+        except (KeyError, TypeError, ValueError) as e:
+            return f"[playground] bad command {cmd!r}: {e}"
+        return None
+
+    def handle_playground_key(self, key: str) -> str | None:
+        """9: select the next palette target, 0: stimulate it, -: (un)lesion it."""
+        p = self.presets[self.pg_selected % len(self.presets)]
+        if key in ("9", "0", "-"):
+            self._pg_key_used = True
+        if key == "9":
+            self.pg_selected = (self.pg_selected + 1) % len(self.presets)
+            p = self.presets[self.pg_selected]
+            self.pg_used = True
+            return (f"[playground] selected {p.label} ({p.role}); 0 = stimulate "
+                    f"{self.cfg.stim_rate_hz:g} Hz {self.cfg.stim_duration_s:g} s, - = lesion")
+        if key == "0":
+            return self.opto(p.target, source="key")
+        if key == "-":
+            return self.set_lesion(p.target, source="key")
+        return None
+
+    def _playground_tick(self, rt: float) -> None:
+        """Scheduled --stim / --lesion entries and window clicks (in update())."""
+        while self._lesion_plan and (self._lesion_plan[0][1] is None
+                                     or self._lesion_plan[0][1] <= rt):
+            name, _ = self._lesion_plan.pop(0)
+            if name not in self.lesions:
+                self.say(self.set_lesion(name, True, source="cli"))
+        while self._stim_plan and (self._stim_plan[0].at_s is None
+                                   or self._stim_plan[0].at_s <= rt):
+            sp = self._stim_plan.pop(0)
+            self.say(self.opto(sp.target, sp.rate_hz, sp.duration_s, source="cli"))
+        if self.window is not None:
+            for cmd in self.window.poll_commands():
+                msg = self.execute(cmd, source="window")
+                if msg:
+                    self.say(msg)
+
+    def thresholds(self) -> dict:
+        """Body thresholds for the decision meters (live: --stress lowers the jump one)."""
+        tp = self.triggers.p if self.triggers is not None else self.cfg
+        return {"jump_hz": float(tp.jump_escape_hz), "groom_hz": float(tp.groom_hz),
+                "mn9_hz": float(tp.proboscis_mn9_hz),
+                "backward_ref_hz": float(self.gains.backward_ref),
+                "r_ref_hz": float(self.gains.r_ref),
+                "actions": self.triggers is not None, "steer": bool(self.cfg.steer)}
+
+    def playground_info(self) -> dict:
+        """App-side part of ``BrainState.playground`` (log, thresholds, selection)."""
+        return {"log": [f"t={t:6.2f}  {txt}" for t, txt in list(self.pg_log)[-6:]],
+                "thresholds": self.thresholds(),
+                "selected": (self.presets[self.pg_selected % len(self.presets)].target
+                             if self._pg_key_used else None),
+                "active_lesions": list(self.lesions)}
+
     # ------------------------------------------------------------- brain -> body
     def _steer_filter(self, hold: np.ndarray) -> np.ndarray:
         # per physics step: keep it cheap (cached drive / weight)
@@ -484,6 +640,7 @@ class BrainLink:
                 self.brain.clock(rt)
             except Exception:
                 pass
+        self._playground_tick(rt)
         states = self.brain.poll("app")
         if self.cfg.sync_wait_s > 0 and (not self.cfg.sync_loom_only or rt <= self._loom_until):
             states += self._sync_wait(rt, states)
@@ -523,9 +680,18 @@ class BrainLink:
         if states:
             esc = float(states[-1].descending.get("escape", 0.0))
             dd = drive_display(self.drive, esc, self.cfg.steer, self.gains)
+            pgi = self.playground_info()
             for s in states:
                 s.drive = dict(dd, lag_s=max(0.0, rt - s.sim_time)
                                if s.sim_time is not None else None)
+                pg = getattr(s, "playground", None)
+                if not isinstance(pg, dict):
+                    pg = {}
+                for e in pg.get("errors", []) or []:
+                    if e not in self._pg_errors_seen:
+                        self._pg_errors_seen.add(e)
+                        self.say(f"[playground] warning: {e}")
+                s.playground = {**pg, **pgi}
                 self.recent.append(s)
                 if self.window is not None:
                     self.window.send(s)
@@ -623,13 +789,22 @@ class BrainLink:
             f"MDN {mdn:.0f} MN9 {st.probes.get('MN9', 0.0):.0f} DNg12 {d.get('groom', 0):.0f} Hz",
             "O loom  T sugar  K bitter" + ("   brain actions ON" if self.triggers is not None
                                            else ""),
-        ]
+        ] + ([self.playground_hud()] if self.pg_used or self.lesions else [])
+
+    def playground_hud(self) -> str:
+        p = self.presets[self.pg_selected % len(self.presets)]
+        st = self.latest
+        opto = [f"{o.get('label')} {o.get('rate_hz', 0):.0f}Hz"
+                for o in ((getattr(st, "playground", None) or {}).get("opto", []) if st else [])]
+        return (f"PLAYGROUND lesioned: {', '.join(self.lesions) or 'none'}  "
+                f"stim: {', '.join(opto) or 'none'}  [9] {p.label} [0] stim [-] lesion")
 
     def render_snapshot(self, size: tuple[int, int] | None = None):
         """BGR brain-window frame rendered in this process from the recent states
         (None before the first state). Call with a copy of ``recent`` if the
         physics thread is running (see app.py screenshots)."""
-        return render_brain_frame(self.layout, list(self.recent), self.cfg.window_s, size)
+        return render_brain_frame(self.layout, list(self.recent), self.cfg.window_s, size,
+                                  playground=self.cfg.playground)
 
     def metric_row(self) -> tuple:
         st = self.latest
@@ -658,4 +833,7 @@ class BrainLink:
                 "brain_time_s": None if st is None else st.brain_time,
                 "brain_lag_s": self.lag(), "brain_info": self.info,
                 "brain_actions": (dict(self.triggers.counts) if self.triggers is not None
-                                  else None)}
+                                  else None),
+                "playground": ({"lesions": list(self.lesions),
+                                "log": [[round(t, 3), txt] for t, txt in self.pg_log]}
+                               if self.pg_used else None)}

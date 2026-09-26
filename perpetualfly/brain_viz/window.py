@@ -173,8 +173,14 @@ def short_stimulus(s) -> str:
     if isinstance(s, StimulusEvent):
         lab = (s.details or {}).get("label") if isinstance(s.details, dict) else None
         if lab:  # e.g. the app's "LOOM" / "SUGAR" keys
-            return str(lab).upper()[:28]
+            lab = str(lab)
+            if lab.startswith(("OPTO", "LESION", "UNLESION", "CLEAR LESIONS")):
+                return lab[:28]  # playground: keep cell-type case (DNa02)
+            return lab.upper()[:28]
         s = f"{s.kind} {s.side} {s.intensity}"
+    if isinstance(s, str) and s.startswith(("opto:", "lesion:")):  # playground labels
+        head, _, rest = s.partition(":")
+        return f"{'OPTO' if head == 'opto' else 'LESION'} {rest}"[:28]
     kinds = {"whip_hit": "WHIP", "whip": "WHIP", "shove": "SHOVE", "fall": "FALL",
              "ground_contact": "CONTACT", "reset": "RESET", "manual": "MANUAL"}
     sides = {"left": "L", "right": "R", "front": "FRONT", "rear": "REAR", "top": "TOP",
@@ -202,6 +208,10 @@ def _stim_color(label: str):
         return (60, 60, 225)
     if label.startswith(("SHOVE", "FALL")):
         return (40, 140, 235)
+    if label.startswith("OPTO"):
+        return (170, 130, 30)
+    if label.startswith(("LESION", "UNLESION")):
+        return (60, 50, 170)
     return (150, 110, 70)
 
 
@@ -252,7 +262,7 @@ class BrainRenderer:
     def __init__(self, layout: BrainLayout, size: tuple[int, int] = DEFAULT_SIZE,
                  rate_range: tuple[float, float] = (1.0, 150.0),
                  trace_span_s: float = 10.0, group_by: str = "region",
-                 atlas: dict | None = None) -> None:
+                 atlas: dict | None = None, playground: bool = False) -> None:
         self.W, self.H = int(size[0]), int(size[1])
         self.rate_lo, self.rate_hi = rate_range
         self.span = float(trace_span_s)
@@ -261,6 +271,12 @@ class BrainRenderer:
         # octopamine stress gauge row (DESCENDING panel): shown once a state carries
         # an enabled BrainState.neuromod (perpetualfly/brain/neuromod.py)
         self._show_nm = False
+        # brain playground (perpetualfly/brain_viz/playground.py, docs/PLAYGROUND.md):
+        # palette + decision meters replace the raster + transmitter panels
+        from perpetualfly.brain_viz.playground import PlaygroundUI
+
+        self.show_playground = bool(playground)
+        self.pg_ui = PlaygroundUI(self)
         self._layout_panels()
         self.set_layout(layout)
 
@@ -558,6 +574,33 @@ class BrainRenderer:
                     start = j
         self._bands = bands
 
+    def toggle_playground(self) -> None:
+        """Playground panels (palette + decision meters) <-> classic (raster + NT)."""
+        self.show_playground = not self.show_playground
+        self._static = self._draw_static()
+
+    def region_at(self, x: float, y: float) -> int | None:
+        """Index of the (smallest) brain-map region under frame pixel (x, y)."""
+        r = self.r_map
+        lx, ly = x - r.x, y - r.y
+        best, best_area = None, None
+        for i, m in enumerate(self._masks):
+            if m is None:
+                continue
+            x0, y0, mk = m
+            jx, jy = int(lx - x0), int(ly - y0)
+            if 0 <= jy < mk.shape[0] and 0 <= jx < mk.shape[1] and mk[jy, jx] > 0.5:
+                area = float(mk.sum())
+                if best_area is None or area < best_area:
+                    best, best_area = i, area
+        return best
+
+    def click(self, x: float, y: float, button: str = "left",
+              wall: float | None = None) -> dict | None:
+        """Mouse click at frame pixel (x, y) -> playground command dict or None
+        (palette buttons in playground mode; brain-map regions in both modes)."""
+        return self.pg_ui.click(x, y, button, wall)
+
     def toggle_grouping(self) -> None:
         self.group_by = "nt" if self.group_by == "region" else "region"
         self._build_raster_rows()
@@ -573,9 +616,15 @@ class BrainRenderer:
     def _draw_static(self) -> np.ndarray:
         img = np.full((self.H, self.W, 3), BG, np.uint8)
         self._draw_static_map(img)
-        self._draw_static_nt(img)
+        if self.show_playground:
+            self.pg_ui.draw_static_meters(img)
+        else:
+            self._draw_static_nt(img)
         self._draw_static_dn(img)
-        self._draw_static_raster(img)
+        if self.show_playground:
+            self.pg_ui.draw_static_palette(img)
+        else:
+            self._draw_static_raster(img)
         cv2.line(img, (0, self.r_header.y2 - 1), (self.W, self.r_header.y2 - 1), BORDER, 1)
         return img
 
@@ -946,9 +995,16 @@ class BrainRenderer:
         wall = time.time() if wall is None else wall
         img = self._static.copy()
         self._draw_map(img)
-        self._draw_nt(img)
+        self.pg_ui.draw_map_overlays(img)
+        if self.show_playground:
+            self.pg_ui.draw_meters(img)
+        else:
+            self._draw_nt(img)
         self._draw_dn(img, wall)
-        self._draw_raster(img, wall)
+        if self.show_playground:
+            self.pg_ui.draw_palette(img, wall)
+        else:
+            self._draw_raster(img, wall)
         self._draw_header(img, wall)
         return img
 
@@ -1379,6 +1435,27 @@ class BrainWindow:
         cv2.namedWindow(self.title, cv2.WINDOW_AUTOSIZE)
         self._shown = False
         self.last_render_ms = 0.0
+        # playground commands from mouse clicks (drained by run_window / the caller)
+        self.commands: list[dict] = []
+        try:
+            cv2.setMouseCallback(self.title, self.on_mouse)
+        except cv2.error:
+            pass
+
+    def on_mouse(self, event, x, y, flags=0, param=None) -> None:
+        """OpenCV mouse callback: display pixels -> frame pixels -> renderer.click."""
+        if self.renderer is None:
+            return
+        if event == cv2.EVENT_LBUTTONDOWN:
+            button = "right" if flags & cv2.EVENT_FLAG_CTRLKEY else "left"
+        elif event == cv2.EVENT_RBUTTONDOWN:
+            button = "right"
+        else:
+            return
+        sc = self.display_scale if self.display_scale > 0 else 1.0
+        cmd = self.renderer.click(x / sc, y / sc, button)
+        if cmd is not None:
+            self.commands.append(cmd)
 
     def feed(self, item) -> None:
         if isinstance(item, BrainLayout) and self.renderer is None:
@@ -1409,6 +1486,8 @@ class BrainWindow:
         keys = [k for k in keys if k]
         if "g" in keys and self.renderer is not None:
             self.renderer.toggle_grouping()
+        if "p" in keys and self.renderer is not None:
+            self.renderer.toggle_playground()
         return keys
 
     def is_open(self) -> bool:
@@ -1432,7 +1511,7 @@ def run_window(state_queue, layout: BrainLayout | None = None, *,
                title: str = WINDOW_TITLE, size: tuple[int, int] = DEFAULT_SIZE,
                fps: float = 30.0, max_seconds: float | None = None,
                parent_pid: int | None = None, display_scale: float | None = None,
-               **renderer_kw) -> None:
+               cmd_queue=None, **renderer_kw) -> None:
     """Window main loop; use as a ``multiprocessing`` (spawn) target.
 
     Drains ``state_queue`` without blocking (``BrainState``, ``StimulusEvent`` or a new
@@ -1467,6 +1546,13 @@ def run_window(state_queue, layout: BrainLayout | None = None, *,
                     return
                 win.feed(item)
             keys = win.tick(1)
+            while win.commands:  # playground clicks -> the app (BrainLink)
+                cmd = win.commands.pop(0)
+                if cmd_queue is not None:
+                    try:
+                        cmd_queue.put_nowait(cmd)
+                    except (queue_mod.Full, ValueError, OSError):
+                        pass
             if "q" in keys or "esc" in keys or not win.is_open():
                 return
             if max_seconds is not None and t0 - t_start > max_seconds:
@@ -1496,7 +1582,11 @@ class BrainWindowProcess:
         ctx = mp.get_context("spawn")
         self.queue = ctx.Queue(maxsize=maxsize)
         self.queue.cancel_join_thread()  # never hang the parent at exit on a full pipe
+        # playground commands (mouse clicks) coming back from the window
+        self.cmd_queue = ctx.Queue(maxsize=256)
+        self.cmd_queue.cancel_join_thread()
         window_kw.setdefault("parent_pid", os.getpid())
+        window_kw.setdefault("cmd_queue", self.cmd_queue)
         self.process = ctx.Process(target=run_window, args=(self.queue, layout),
                                    kwargs=window_kw, name="perpetualfly-brain-window",
                                    daemon=True)
@@ -1520,6 +1610,16 @@ class BrainWindowProcess:
             self.dropped += 1
             return False
 
+    def poll_commands(self) -> list[dict]:
+        """Playground commands clicked in the window since the last call."""
+        out = []
+        for _ in range(64):
+            try:
+                out.append(self.cmd_queue.get_nowait())
+            except (queue_mod.Empty, ValueError, OSError, EOFError):
+                break
+        return out
+
     def close(self, timeout: float = 3.0) -> None:
         if self.process.is_alive():
             try:
@@ -1533,10 +1633,11 @@ class BrainWindowProcess:
         if self.process.is_alive():
             self.process.kill()
             self.process.join(1.0)
-        try:
-            self.queue.close()
-        except (ValueError, OSError):
-            pass
+        for q in (self.queue, self.cmd_queue):
+            try:
+                q.close()
+            except (ValueError, OSError):
+                pass
 
     def __enter__(self) -> "BrainWindowProcess":
         return self.start()

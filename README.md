@@ -91,6 +91,7 @@ With the venv activated (`source .venv/bin/activate.fish` in fish, or
 | O | brain (`--brain`): looming shadow: LC4 looming detectors → giant fiber (escape) + MDN (backward walking). With `--brain-steer` the fly stops (see below); with `--brain-actions` the giant fiber makes it **jump** |
 | T | brain: sugar taste: sugar GRNs → MN9 (proboscis motor neuron). With `--brain-actions` (and the full body) MN9 extends the proboscis |
 | K | brain: bitter taste (bitter GRNs). Display only, no body effect |
+| 9 / 0 / - | brain playground ([docs/PLAYGROUND.md](docs/PLAYGROUND.md)): **9** selects the next palette target (GF, MDN, BDN2, DNa02 L/R, …; shown in the HUD), **0** stimulates it (optogenetic, 120 Hz for 1 s), **-** lesions / un-lesions it |
 | V | swatter (`--swatter`): swat at the fly **from behind** at the current strength (1–4 = lazy / normal / quick / lightning). A second V during a swat is queued. The outcome (`HIT` / `GRAZED` / `DODGED` / `MISS`) is printed, shown in the HUD and written to `events.csv` (`swat` rows) |
 | L | flight (`--flight`): **take off** (jump → flapping wings → hover ~2 mm up; lands by itself after 4 s of hovering) / **land**. While flying, the arrows **steer** instead of cracking the whip: UP / DOWN forward speed ±50 mm/s, LEFT / RIGHT turn 30°. HUD `FLIGHT` line (state, wingbeat Hz, altitude, speed) |
 | Shift+V | swatter: swat from a random direction around the fly. In `--script-keys` write `shift+v`. Any other Shift / Caps-Lock letter acts as the plain key |
@@ -250,6 +251,39 @@ Without the data, `--brain` prints the fetch command and exits (code 2).
   with both windows. Closing the brain window leaves the fly (and the brain) running.
   Q / ESC / Ctrl-C / closing the fly window stop both child processes; they also exit
   by themselves if the app is killed.
+
+### Brain playground: optogenetics, lesions, decision meters
+
+Details and measured effects: [docs/PLAYGROUND.md](docs/PLAYGROUND.md). The brain
+window's lower-left panel is a clickable palette of 16 targets (GF DNp01, MDN, BDN2,
+P9, DNa02 L/R, DNg12, MN9, sugar, LC4, OA-VUMa1, …):
+* left-click stimulates the target at the chosen rate / duration (optogenetic
+  stimulation: direct, not a natural sense);
+* right-click (or its LES box) lesions it, i.e. silences it: the neurons can no
+  longer fire;
+* clicking a region on the brain map stimulates that neuropil (right-click lesions it).
+The top-right panel shows **decision meters**: escape, back up, walk faster, turn,
+groom, feed (and arousal with `--stress`) against the thresholds the body uses. It
+shows what the brain is leaning toward before the fly acts. Key P in the brain
+window switches to the classic panels.
+
+```bash
+.venv/bin/python scripts/run_sim.py --brain-actions                         # click away
+.venv/bin/python scripts/run_sim.py --brain-steer --stim "DNa02_L:120:1.0@3,MDN@6"
+.venv/bin/python scripts/run_sim.py --brain-actions --lesion DNp01 --script-keys "3:o"   # no jump
+```
+
+Measured with the real brain:
+* DNa02 L at 120 Hz turns the fly left (+19.5° in 1 s);
+* MDN backs it up (−5.0 mm/s mean);
+* BDN2 speeds it up by 10 %;
+* GF makes it jump;
+* lesioning GF abolishes the looming jump;
+* lesioning MDN abolishes backing up under `--brain-backup`;
+* lesioning DNa02 roughly halves the turn away from a one-eyed loom (DNa01 + DNa02
+  lesioned: no turn).
+
+`events.csv` gets `brain_opto` / `brain_lesion` rows. Lesions persist across resets.
 
 ## Output
 

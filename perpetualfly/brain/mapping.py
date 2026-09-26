@@ -148,6 +148,112 @@ def named_sets(table: NeuronTable) -> dict[str, np.ndarray]:
     return sets
 
 
+# --- playground targets (virtual optogenetics / lesions; docs/PLAYGROUND.md) ------
+
+# friendly names -> FlyWire cell types (or a DN group / named set)
+TARGET_ALIASES: dict[str, str] = {
+    "GF": "DNp01", "GIANT_FIBER": "DNp01", "GIANT_FIBRE": "DNp01",
+    "BDN2": "DNg100", "ODN1": "DNg97", "P9": "DNp09",
+    "MOONWALKER": "MDN", "DNG12": "group:groom", "GROOM": "group:groom",
+    "MN9": "set:MN9", "OA": "set:OA",
+}
+MAX_OPTO_NEURONS = 2000  # large targets (regions) are subsampled for stimulation
+
+
+@dataclass
+class Target:
+    """A resolved playground target: model indices + a display label."""
+
+    name: str        # as given
+    label: str       # canonical, e.g. "DNa02 L", "region GNG", "MDN"
+    kind: str        # "cell_type" | "group" | "set" | "region" | "root_ids" | "unknown"
+    idx: np.ndarray  # model indices (empty = unknown / no match)
+    side: str = "none"
+
+
+def _split_side(name: str) -> tuple[str, str]:
+    for suf, side in (("_L", "left"), ("_R", "right"), (":L", "left"), (":R", "right"),
+                      (" L", "left"), (" R", "right")):
+        if name.endswith(suf) and len(name) > len(suf):
+            return name[: -len(suf)], side
+    return name, "none"
+
+
+def resolve_target(table: NeuronTable, name: str, sets: dict | None = None) -> Target:
+    """Model indices for a playground target name (never raises).
+
+    Accepted (first match wins; a trailing ``_L`` / ``_R`` selects the fly's left /
+    right side when the full name is not itself a match, e.g. ``DNa02_L``; region
+    names such as ``AL_L`` match as regions first):
+
+    * aliases: ``GF`` / ``giant_fiber`` = DNp01, ``BDN2`` = DNg100, ``oDN1`` = DNg97,
+      ``P9`` = DNp09, ``MN9``, ``DNg12`` (= groom DN group), ``OA`` (all OA-* neurons);
+    * descending groups ``walk``, ``turn``, ``backward``, ``escape``, ``groom``
+      (``walk_L`` ...); named sets (``sugar``, ``bitter``, ``LC4``, ``an_walk``, ...);
+    * ``region:NAME`` or a bare neuropil name (``GNG``, ``AL_L``): every neuron whose
+      primary output neuropil it is;
+    * a FlyWire ``cell_type`` (``DNa02``, ``OA-VUMa1``), then ``hemibrain_type``;
+      ``PREFIX*`` matches every cell type starting with PREFIX;
+    * ``ids:ROOT,ROOT`` root ids.
+    """
+    raw = str(name).strip()
+    sets = named_sets(table) if sets is None else sets
+    ct = table.col("cell_type")
+    side_col = table.col("side")
+
+    def lookup(n: str):
+        up = n.upper()
+        if up.startswith("IDS:"):
+            try:
+                ids = [int(x) for x in n[4:].replace(";", ",").split(",") if x.strip()]
+            except ValueError:
+                return None
+            return "root_ids", f"ids({len(ids)})", table.index_of(ids)
+        al = TARGET_ALIASES.get(up.replace("-", "_") if up != "OA" else up)
+        if al is not None:
+            if al.startswith("group:"):
+                g = al[6:]
+                return "group", n, np.nonzero(np.isin(ct, DESCENDING_TYPES[g]))[0]
+            if al == "set:MN9":
+                return "set", "MN9", table.index_of(MN9_IDS)
+            if al == "set:OA":
+                return "set", "OA-*", np.nonzero(np.char.startswith(ct.astype(str), "OA-"))[0]
+            n = al
+        if n in DESCENDING_TYPES:
+            return "group", n, np.nonzero(np.isin(ct, DESCENDING_TYPES[n]))[0]
+        if n in sets:
+            return "set", n, np.asarray(sets[n], dtype=np.int64)
+        reg = n[7:] if n.lower().startswith("region:") else n
+        if reg in table.regions:
+            return "region", f"region {reg}", np.nonzero(table.region == table.regions.index(reg))[0]
+        m = ct == n
+        if m.any():
+            return "cell_type", n, np.nonzero(m)[0]
+        hb = table.col("hemibrain_type")
+        m = hb == n
+        if m.any():
+            return "cell_type", n, np.nonzero(m)[0]
+        if n.endswith("*") and len(n) > 1:
+            m = np.char.startswith(ct.astype(str), n[:-1])
+            if m.any():
+                return "cell_type", n, np.nonzero(m)[0]
+        return None
+
+    for cand, side in ((raw, "none"), _split_side(raw)):
+        if side != "none" and cand == raw:
+            continue
+        hit = lookup(cand)
+        if hit is None:
+            continue
+        kind, label, idx = hit
+        idx = np.asarray(idx, dtype=np.int64)
+        if side != "none":
+            idx = idx[side_col[idx] == side]
+            label = f"{label} {'L' if side == 'left' else 'R'}"
+        return Target(raw, label, kind, idx, side)
+    return Target(raw, raw, "unknown", np.zeros(0, dtype=np.int64))
+
+
 # --- stimulus mapping -------------------------------------------------------------
 
 @dataclass
@@ -226,6 +332,17 @@ class StimulusMapper:
                 rate = float(d[key]) if key in d else self._rate(ev)
                 out.append((f"loom:{name}:{side}", self._sided(self.sets[name], side),
                             min(rate, self.max_rate_hz)))
+        elif kind == "opto":
+            # virtual optogenetics (docs/PLAYGROUND.md): details["target"] (see
+            # resolve_target), details["rate_hz"]; direct drive, not a natural sense
+            d = ev.details or {}
+            tg = resolve_target(self.table, str(d.get("target", "")), self.sets)
+            idx = tg.idx
+            if len(idx) > MAX_OPTO_NEURONS:
+                rng = np.random.default_rng(len(idx))
+                idx = np.sort(rng.choice(idx, MAX_OPTO_NEURONS, replace=False))
+            rate = float(d.get("rate_hz", 0.0) or 0.0) or self._rate(ev)
+            out.append((f"opto:{tg.label}", idx, rate))
         elif kind == "manual":
             d = ev.details or {}
             if "root_ids" in d:
@@ -248,6 +365,10 @@ class StimulusMapper:
             self.active.clear()
             self._dirty = True
             return ["reset"]
+        if ev.kind == "opto_stop":  # playground: end every optogenetic stimulation
+            self.active = [s for s in self.active if not s.label.startswith("opto:")]
+            self._dirty = True
+            return ["opto_stop"]
         labels = []
         for lab, idx, rate in self.resolve(ev):
             self.active.append(ActiveStimulus(lab, idx, rate, now + max(ev.duration_s, 0.0)))

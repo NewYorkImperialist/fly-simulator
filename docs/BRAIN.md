@@ -256,8 +256,12 @@ computed, and whether it is applied. The config is `AppConfig.brain`
 
 `seq` (detect dropped states), `sim_time` (the fly time the state's end corresponds
 to), `compute_rtf` (brain s per wall s spent computing, i.e. the headroom), `probes`
-(`{"MN9": Hz}`), `drive` (filled by the app). Older producers and consumers are
-unaffected.
+(`{"MN9": Hz}`), `drive` (filled by the app), `playground` (lesions / optogenetic
+stimulation, experiment log and meter thresholds; see
+[PLAYGROUND.md](PLAYGROUND.md)). Older producers and consumers are unaffected. The
+playground also adds the `opto` / `opto_stop` stimulus kinds, the `lesion` worker
+command (`BrainProcess.set_lesions`) and `LIFEngine.set_silenced`; with none of
+them used the engine is bit-identical.
 
 ### Time: the brain follows fly simulation time
 

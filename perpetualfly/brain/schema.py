@@ -120,6 +120,12 @@ class BrainState:
         of the OA-* neurons in the window), "oa_neurons", "dh44_hz", "n_targets",
         "vth_shift_mv", "noci_hz" (hit-afferent rate, hit side), "nociceptive_input"
         (the modelled afferent -> octopamine path is on), "tau_decay_s"}.
+    playground: brain playground (docs/PLAYGROUND.md), empty when unused. The
+        worker fills {"lesions": [{"target", "label", "n"}], "n_silenced", "opto":
+        [{"label", "rate_hz", "n", "t_left"}], "lesion_disp" / "opto_disp" (display
+        indices of silenced / stimulated neurons), "errors": [str]}; the app adds
+        "log" (recent experiment log lines), "thresholds" (decision meters),
+        "selected" (palette target of keys 9 / 0 / -) and "active_lesions".
     """
 
     brain_time: float
@@ -140,3 +146,4 @@ class BrainState:
     probes: dict[str, float] = field(default_factory=dict)
     drive: dict | None = None
     neuromod: dict = field(default_factory=dict)
+    playground: dict = field(default_factory=dict)
