@@ -92,8 +92,9 @@ With the venv activated (`source .venv/bin/activate.fish` in fish, or
 | T | brain: sugar taste: sugar GRNs → MN9 (proboscis motor neuron). With `--brain-actions` (and the full body) MN9 extends the proboscis |
 | K | brain: bitter taste (bitter GRNs). Display only, no body effect |
 | V | swatter (`--swatter`): swat at the fly **from behind** at the current strength (1–4 = lazy / normal / quick / lightning). A second V during a swat is queued. The outcome (`HIT` / `GRAZED` / `DODGED` / `MISS`) is printed, shown in the HUD and written to `events.csv` (`swat` rows) |
+| L | flight (`--flight`): **take off** (jump → flapping wings → hover ~2 mm up; lands by itself after 4 s of hovering) / **land**. While flying, the arrows **steer** instead of cracking the whip: UP / DOWN forward speed ±50 mm/s, LEFT / RIGHT turn 30°. HUD `FLIGHT` line (state, wingbeat Hz, altitude, speed) |
 | Shift+V | swatter: swat from a random direction around the fly. In `--script-keys` write `shift+v`. Any other Shift / Caps-Lock letter acts as the plain key |
-| ? | show / hide the on-screen key help (grouped: hits, obstacles / terrain, brain, actions, swatter, view / run; actions the body can't do are greyed out); it is also printed in the terminal |
+| ? | show / hide the on-screen key help (grouped: hits, obstacles / terrain, brain, actions, flight, swatter, view / run; actions the body can't do are greyed out); it is also printed in the terminal |
 | Q / ESC | quit (closing the window or Ctrl-C in the terminal also quits) |
 
 Actions (docs/ACTIONS.md) take over the leg targets for a moment and then blend back
@@ -150,6 +151,7 @@ long it has been down.
 | `--swatter` | a physical flyswatter ([docs/SWATTER.md](docs/SWATTER.md)): V / Shift+V swat, 1–4 strength. The paddle is a looming source on the compound eyes (LC4 / LPLC2); with `--brain-actions` the giant fiber triggers a short-mode escape jump, so slow swats can be dodged. The escape-flight emulation stays off. Hits count as hits in the metrics; every swat is a `swat` row in `events.csv`; `summary.json` gets a `swatter` block. Does not start the brain by itself |
 | `--stress` | octopamine pain / arousal layer ([docs/STRESS.md](docs/STRESS.md); a phenomenological model on top of the connectome). Implies `--brain`. Use with `--brain-steer` (walk-DN bursts per hit) and/or `--brain-actions` (lower jump threshold when stressed). HUD `PAIN/AROUSAL` line; `metrics.csv` gains `octopamine`, `oa_rate_hz`, `noci_hz`, `stress_freq_mult`, `stress_amp_mult`, `stress_jump_hz` |
 | `--whip-vision` | the fly sees the whip coming: compound-eye looming → LC4 / LPLC2 `loom` stimuli (implies `--brain`; with `--brain-actions` the giant fiber can jump). Shares one looming model with `--swatter`. HUD `EYES` line |
+| `--flight` | real flapping-wing flight ([docs/FLIGHT.md](docs/FLIGHT.md) §7): the flight fly (stroke-plane wing hinges + MuJoCo fluid model, same leg actuators) at dt 5e-5 s. It walks as usual; L takes off / lands, the arrows steer while flying. With `--brain-actions` the giant-fibre escape jump starts the wings at take-off and the fly flies away from the threat (the swatter paddle) and lands ~1.3 s later: no external force, only wing aerodynamics. About half the RTF of the normal app. Not with `--course` / `--job`; `--full-body` is ignored (W / N greyed out) |
 | `--course NAME` | obstacle course instead of endless terrain ([docs/COURSE.md](docs/COURSE.md)): `tutorial`, `gauntlet`, `slalom`, `brain_test` or a `.json` / `.toml` path. Flat base terrain, no app auto reset (the course respawns the fly), `[ ]` and F disabled. Course HUD; the app quits at the finish and prints the lap; results in `<run dir>/course_results.json`, leaderboard in `<runs dir>/leaderboard.json` |
 | `--course-loop` | with `--course`: start a new lap after the finish instead of quitting |
 | `--job NAME` | eternal job ([docs/JOBS.md](docs/JOBS.md)): `sisyphus`, `hamster_wheel`, `mowing`, `raking`, `kebab`. The job's props are compiled into the world, flat terrain, no auto hits / auto reset (the job recovers the fly itself, also from physics instabilities), no whip (hit keys shove; `--whip-vision` keeps the whip). Job HUD on top, C adds the job camera. Same as `scripts/run_job.py`, but with every app key and flag |
@@ -167,7 +169,22 @@ happens while a loom is active and can lower the window's frame rate then).
 .venv/bin/python scripts/run_sim.py --brain-actions --swatter --whip-vision --stress   # dodge + pain
 .venv/bin/python scripts/run_sim.py --course gauntlet --stress --brain-steer
 .venv/bin/python scripts/run_sim.py --job kebab --brain                              # + brain window
+.venv/bin/python scripts/run_sim.py --flight --brain-actions --swatter                # escape by real flight
 ```
+
+### Flight (`--flight`)
+
+The fly can fly for real: its wings flap (218 Hz, 160° stroke) and all lift, thrust
+and steering come from MuJoCo's fluid model acting on the wings; a PID "haltere +
+visual" controller sets the wingbeat. Press **L** to take off (jump → wings → hover),
+steer with the arrows while airborne, L again to land (it lands by itself after 4 s of
+hovering). With `--brain-actions --swatter`, a swat seen coming makes the giant fibre
+fire: short-mode jump → wings at take-off → 200 mm/s escape flight away from the
+paddle (low, 2 mm above the ground) → landing and walking ~1.3 s later. Real brain,
+L1–L2 swats from behind / the left: 6/12 dodged with flight vs 5/12 with the short
+jump alone, and **2/12 falls vs 9/12** (the short jump tumbles; the flights land
+upright). Walking speed is unchanged at dt 5e-5, but the app runs at about half its
+normal RTF. Details and limits: [docs/FLIGHT.md](docs/FLIGHT.md) §7.
 
 ## Connectome brain (optional)
 

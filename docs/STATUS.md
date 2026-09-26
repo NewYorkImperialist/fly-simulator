@@ -13,9 +13,10 @@
 | quick wins (ROADMAP A) | `--brain-backup` (looming makes the fly walk backward), automatic Retina ×2 fly window, `--no-reflections`, `[` / `]` live terrain difficulty, `I` screenshot (fly + brain PNG, renderer frames only), `M` live MP4 with a REC badge, `?` on-screen help, auto hits paused while the fly is down, walked distance separate from total path, brain atlas in the wheel. See "Quick wins" below. |
 | actions | `perpetualfly/actions/`: jump (J), freeze (Z), groom (Y, a recorded NeuroMechFly grooming bout), back away (E), turn in place (, .), wing raise (W), proboscis extension (N). They blend back into walking, are logged to events.csv and shown in the HUD. Auto hits and fall counting pause during a jump. `--full-body` (default in the CLI) adds wing and proboscis joints with walking unchanged. `--brain-actions`: giant fiber → jump (0.12 s after O), MN9 → proboscis (T), DNg12 → groom (not reached by natural input in this model). The unboosted jump is +3.0 ± 0.2 mm and lands upright in 16/16 gait phases. See docs/ACTIONS.md. |
 | integration pass (2026-09-26) | The standalone features are now app flags that compose: `--swatter` (V / Shift+V), `--stress`, `--whip-vision`, `--course NAME` (+ `--course-loop`), `--job NAME` (+ `--job-config`). Session wiring, HUD lines, `?` overlay (new "swatter" group), events / metrics / summary logging, refused combos. See "Integration pass" below. |
+| real flight in the app (2026-09-26) | `--flight`: the flight fly (flapping wings, MuJoCo fluid model, dt 5e-5) walks as usual; **L** take off / hover / land, arrows steer while airborne, HUD `FLIGHT` line. `--flight --brain-actions`: giant fibre → short-mode jump → wings at take-off → escape flight away from the swatter → landing → walking, with no external force. Real brain, L1–L2 swats (rear + left, 12): 6 dodged / 4 grazed (≤1.6 µN·s) / 2 hits, 2 falls, 10/12 upright landings, vs the short jump alone: 5 / 4 / 3, 9 falls. See docs/FLIGHT.md §7. |
 | robustness eval | `scripts/eval_robustness.py` runs N headless sessions in parallel, or aggregates existing run folders, and writes `report.md` and `report.json` with the spec's long-horizon metrics. |
 
-Tests: `.venv/bin/python -m pytest -q`: 225 passed, ~5 min (15 in `tests/test_integration.py`).
+Tests: `.venv/bin/python -m pytest -q`: 262 passed, ~5.5 min (15 in `tests/test_integration.py`).
 
 ## How to run
 
@@ -31,6 +32,26 @@ Tests: `.venv/bin/python -m pytest -q`: 225 passed, ~5 min (15 in `tests/test_in
 .venv/bin/python scripts/run_sim.py --brain-actions                   # + GF -> jump, MN9 -> proboscis, DNg12 -> groom
 .venv/bin/python scripts/demo_actions.py --frames /tmp/frames          # every action headless, metrics + key frames
 ```
+
+## Flight in the app (2026-09-26)
+
+`--flight` (perpetualfly/flight/mode.py `FlightMode`, `FlightModeConfig` = `AppConfig.flight`),
+key L, arrows steer while flying, brain escape flight through
+`BrainActionTriggers.flight`. Evidence and numbers: docs/FLIGHT.md §7. Summary:
+
+* walking at dt 5e-5: 14.14 vs 14.08 mm/s, straight; RTF halves (bare sim 0.33 vs 0.70,
+  app ~0.25–0.4, brain 0.2–0.37, real vision ~0.12);
+* manual L cycle: take-off (long jump, tilt 3°) → hover → auto landing (tilt 1.8°) →
+  walking; combined real-brain run (`--flight --brain-actions --stress --swatter`,
+  normal terrain): 10 s steered flight, swat while flying → GF → escape re-directed →
+  dodged → upright landing;
+* swatter, real brain, geometric looming (12 swats): flight 6/12 dodged, 2 falls vs
+  short jump 5/12, 9 falls; `--real-vision`: 1/8 dodged (the eyes fire after the plate
+  lands);
+* refused: `--flight` + `--course` / `--job`. `--full-body` ignored in flight mode.
+* found and fixed on the way: a crash switched the wing servos off at full wing speed
+  → NaN (now always a fade); a 180° turn into a backward escape crashed (now flown
+  backward); take-off from a tumbling / upside-down fly (now refused / no wings).
 
 ## Integration pass (2026-09-26)
 
@@ -133,6 +154,12 @@ are in `runs/soak/report_*/report.md`, `runs/soak/chaos/report.md` and
    `tests/test_whip.py::test_mid_crack_reset_mode_toggle_and_spawn_while_fallen`.
 
 ## Known limitations
+
+- Flight (`--flight`): half the RTF (dt 5e-5 while walking too); L2 whip cracks topple
+  the fly more often at dt 5e-5 (2/5 vs 0/5, same with the normal body at that dt);
+  the escape direction comes from the swatter's position, not from the eyes; wings
+  rest spread while walking; PID flight controller, scripted landing
+  (docs/FLIGHT.md, Limitations).
 
 - Integration: with `--brain-actions`, brain-triggered jumps also fire while the fly
   is lying down (pre-existing). Short-mode escape jumps often tumble (no flight

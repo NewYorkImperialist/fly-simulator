@@ -70,7 +70,10 @@ class FlightSimulation(Simulation):
         world_factory=None,
         world_extensions=(),
         fly_kwargs: dict | None = None,
+        fly_factory_wrapper=None,
     ) -> None:
+        """``fly_factory_wrapper(factory) -> factory`` decorates the flight fly
+        factory (e.g. ``make_eyes_fly_factory(base=...)`` adds compound eyes)."""
         self._flight_ready = False
         self.tethered = tethered
         self.leg_mode = "flight"
@@ -80,9 +83,11 @@ class FlightSimulation(Simulation):
         kw = dict(fly_kwargs or {})
         kw.setdefault("stroke_plane_deg", stroke_plane_deg)
         self.stroke_plane_deg = kw["stroke_plane_deg"]
+        factory = make_flight_fly_factory(**kw)
+        if fly_factory_wrapper is not None:
+            factory = fly_factory_wrapper(factory)
         super().__init__(flight_config(cfg), world_factory=world_factory,
-                         world_extensions=world_extensions,
-                         fly_factory=make_flight_fly_factory(**kw))
+                         world_extensions=world_extensions, fly_factory=factory)
         m = self.model
         apply_air(m)
         fn = self.fly_name

@@ -244,6 +244,56 @@ class RealVisionAppConfig:
 
 
 @dataclass
+class FlightModeConfig:
+    """Real flapping-wing flight as an app mode (``--flight``; perpetualfly/flight/mode.py,
+    docs/FLIGHT.md section 7). Key L takes off / lands; with --brain-actions the giant
+    fibre escape jump starts the wings and flies away from the threat."""
+
+    enabled: bool = False
+    climb_mm: float = 2.0  # hover set point above the take-off COM
+    hover_s: float | None = 4.0  # manual take-off: land after this (None = wait for L)
+    wing_ramp_s: float = 0.01  # wingbeat fade-in at take-off
+    # escape flight (brain giant fibre -> jump -> wings)
+    escape_speed: float = 200.0  # mm/s
+    escape_ramp_s: float = 0.0  # velocity target ramp (0 = step; the accel cap limits it)
+    escape_s: float = 0.8  # powered flight before braking (+ brake_s + landing ~ 1.3 s)
+    escape_climb_mm: float = 1.0
+    # COM height above the ground while escaping (None = take-off + escape_climb_mm)
+    escape_altitude_mm: float | None = 2.0
+    brake_s: float = 0.25
+    # escape = velocity control only (no pull back toward the take-off point), with
+    # a stiffer velocity loop (HoverGains.xy_zeta while escaping)
+    escape_velocity_mode: bool = True
+    escape_xy_zeta: float = 3.0
+    turn_rate: float = 6.0  # rad/s, heading slew toward the flight direction
+    # escape more than this off the heading: no turn, fly backward (facing the threat)
+    max_turn_deg: float = 100.0
+    max_accel_xy: float = 5000.0  # mm/s^2, HoverGains.max_accel_xy while flying
+    # manual steering (arrow keys while airborne)
+    speed_step: float = 50.0  # mm/s per UP / DOWN
+    max_speed: float = 250.0
+    turn_step_deg: float = 30.0  # per LEFT / RIGHT
+    # landing
+    land_speed: float = 15.0  # mm/s descent
+    land_pitch_s: float = 0.2  # wings beat on after touchdown while pitching down
+    wing_stop_s: float = 0.01
+    max_land_s: float = 4.0  # still no touchdown after this: stop the wings anyway
+    max_takeoff_tilt_deg: float = 45.0  # L refused when the fly is not upright
+    max_wings_tilt_deg: float = 80.0  # tilt at the end of the leg stroke: no wings above
+    crash_tilt_deg: float = 120.0  # thorax tilt (hover posture ~48 deg) = crash
+    crash_grace_s: float = 0.15  # after take-off: the short-mode jump tumbles first
+    manual_jump: dict = field(default_factory=dict)  # Jump overrides for the L take-off
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "FlightModeConfig":
+        known = set(cls.__dataclass_fields__)
+        bad = set(d) - known
+        if bad:
+            raise ValueError(f"Unknown config keys for FlightModeConfig: {sorted(bad)}")
+        return cls(**d)
+
+
+@dataclass
 class CourseAppConfig:
     """Obstacle course (--course NAME, --course-loop; perpetualfly/course, docs/COURSE.md)."""
 
@@ -289,6 +339,7 @@ class AppConfig:
     real_vision: RealVisionAppConfig = field(default_factory=RealVisionAppConfig)
     course: CourseAppConfig = field(default_factory=CourseAppConfig)
     job: JobAppConfig = field(default_factory=JobAppConfig)
+    flight: FlightModeConfig = field(default_factory=FlightModeConfig)  # --flight
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

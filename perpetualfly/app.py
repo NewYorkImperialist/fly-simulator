@@ -64,6 +64,10 @@ KEY_GROUPS: list[tuple[str, list[tuple[str, str]]]] = [
         ("W", "wing raise (1.5 s; needs --full-body)"),
         ("N", "proboscis extension (1.5 s; needs --full-body)"),
     ]),
+    ("flight (--flight)", [
+        ("L", "take off (jump -> flapping wings -> hover) / land; flying: arrows steer "
+              "(UP/DOWN speed, LEFT/RIGHT turn)"),
+    ]),
     ("swatter (--swatter)", [
         ("V", "swat at the fly from behind (1-4 = lazy / normal / quick / lightning)"),
         ("Shift+V", "swat from a random direction around the fly"),
@@ -81,7 +85,7 @@ KEY_GROUPS: list[tuple[str, list[tuple[str, str]]]] = [
 KEY_TABLE: list[tuple[str, str]] = [row for _, rows in KEY_GROUPS for row in rows]
 KEY_HELP = ("SPACE/arrows/U hit | 1-4 strength | H whip/shove | A auto | R B S G D spawn | "
             "F flatten | [ ] terrain | J Z Y E , . W N actions | P X C | I shot | M rec | "
-            "O T K brain | V swat | ? help | Q quit")
+            "O T K brain | V swat | L fly | ? help | Q quit")
 # app key -> (action name, parameters); see perpetualfly/actions (docs/ACTIONS.md)
 ACTION_KEY_MAP: dict[str, tuple[str, dict]] = {
     "j": ("jump", {}),
@@ -113,6 +117,11 @@ def check_feature_config(cfg: AppConfig) -> None:
         raise ConfigError("--course and --job can't be combined: both replace the world "
                           "(the course swaps the terrain layout, the job builds its own "
                           "scene). Run one at a time.")
+    if cfg.flight.enabled and (cfg.course.name or cfg.job.name):
+        raise ConfigError("--flight can't be combined with --course / --job: courses and "
+                          "jobs assume a walking fly on the canonical 1e-4 s walking model "
+                          "(their scoring, respawns and props are tuned for it). Run flight "
+                          "on the endless terrain.")
     if cfg.whip_vision.enabled and not cfg.whip.enabled:
         raise ConfigError("--whip-vision needs the physical whip (whip.enabled is false "
                           "in the config)")
@@ -239,12 +248,29 @@ class Session:
         # --real-vision: compound-eye cameras on the fly (must be added before add_fly)
         rv = cfg.real_vision
         fly_factory = None
-        if rv.enabled or rv.eyes_only:
+        eyes = rv.enabled or rv.eyes_only
+        if eyes and not cfg.flight.enabled:
             from perpetualfly.vision.eyes import make_eyes_fly_factory
 
             fly_factory = make_eyes_fly_factory()
-        self.sim = sim = Simulation(cfg, world_factory=self.terrain.build_world,
-                                    world_extensions=exts, fly_factory=fly_factory)
+        self.flight = None  # FlightMode (--flight)
+        if cfg.flight.enabled:
+            # --flight (docs/FLIGHT.md section 7): the flight fly (stroke-plane wing
+            # hinges + fluid ellipsoids, same 42 leg actuators), dt 5e-5 s, air on.
+            from perpetualfly.flight import FLIGHT_TIMESTEP, FlightSimulation
+
+            cfg.sim.timestep = FLIGHT_TIMESTEP
+            cfg.sim.control_every_steps = 1
+            wrap = None
+            if eyes:
+                from perpetualfly.vision.eyes import make_eyes_fly_factory
+
+                wrap = lambda base: make_eyes_fly_factory(base=base)  # noqa: E731
+            self.sim = sim = FlightSimulation(cfg, world_factory=self.terrain.build_world,
+                                              world_extensions=exts, fly_factory_wrapper=wrap)
+        else:
+            self.sim = sim = Simulation(cfg, world_factory=self.terrain.build_world,
+                                        world_extensions=exts, fly_factory=fly_factory)
         self.terrain.attach(sim)
         if self.whip is not None:
             self.whip.attach(sim)
@@ -252,6 +278,12 @@ class Session:
         # exist before brain.attach() below.
         self.actions = ActionManager(sim)
         self.available_actions = set(available_actions(sim))
+        if cfg.flight.enabled:
+            from perpetualfly.flight import FlightMode
+
+            self.flight = FlightMode(sim, self.actions, cfg.flight,
+                                     ground_height_fn=self.ground_height, say=self.say)
+            self.flight.listeners.append(self._on_flight_event)
         if cfg.session.hit_mode not in HIT_MODES:
             raise ValueError(f"session.hit_mode must be one of {HIT_MODES}")
         # Always install the auto perturber (so A can switch it on); it starts in
@@ -267,6 +299,9 @@ class Session:
         hooks[hooks.index(self.detector)] = self._detector_hook
         self._falls_paused = False
         self.metrics = RunMetrics(cfg.stats.speed_window_s).attach(sim, self.detector)
+        if self.flight is not None and self.metrics.walking_fn is not None:
+            walking = self.metrics.walking_fn  # flights are not walking
+            self.metrics.walking_fn = lambda: walking() and not self.flight.busy
         # RunMetrics must bank the run time *before* the detector emits its "reset"
         # event (whose events.csv timestamp is metrics.run_time_at(sim.time)), so
         # move its reset hook in front of the detector's.
@@ -306,6 +341,8 @@ class Session:
         self.actions.listeners.append(self._on_action_event)
         if brain is not None:
             brain.attach(self)
+            if self.flight is not None and brain.triggers is not None:
+                brain.triggers.flight = self.flight  # GF escape -> real flight
         self.down_since: float | None = None  # sim time of the last fall (until recovered/reset)
         # sim time since which the fly is back on its feet after a fall (None while
         # down; -inf after start / reset, where no resume delay applies)
@@ -347,6 +384,9 @@ class Session:
             self.swatter_handle.level = min(max(int(sc.level), 1), len(self.swatter.cfg.levels))
             if self.vision is None and self.swatter_handle.vision is not None:
                 self.vision = self.swatter_handle.vision
+            if self.flight is not None:  # an escape flight counts like the jump
+                self.swatter.jump_probe = lambda: (self.actions.active_name == "jump"
+                                                   or self.flight.busy)
             self.swatter.listeners.append(self._on_swat)
         if cfg.stress.enabled:
             from perpetualfly.stress import install_stress
@@ -408,7 +448,7 @@ class Session:
         ``session.auto_perturb_resume_after_s``."""
         if self.detector.state in (FallState.FALLEN, FallState.RECOVERING) or self.up_since is None:
             return False
-        if self.actions.active_name == "jump":
+        if self.actions.active_name == "jump" or (self.flight is not None and self.flight.busy):
             return False
         if self.swatter is not None and self.swatter.busy:  # like a whip crack
             return False
@@ -420,7 +460,8 @@ class Session:
 
     def _detector_hook(self, sim: Simulation) -> None:
         name = self.actions.active_name
-        if name == "jump":
+        if name == "jump" or (self.flight is not None and self.flight.busy):
+            # jumps and flights are deliberate: no fall detection while airborne
             self._falls_paused = True
             return
         if self._falls_paused:
@@ -435,7 +476,11 @@ class Session:
         """Start an action by registry name (key handler / scripts); returns the
         terminal message. Threaded window mode: call inside runner.locked()."""
         if name not in self.available_actions:
-            return f"[action] {name}: not available with this body (run with --full-body)"
+            why = ("the flight body has its own wings and no proboscis joints"
+                   if self.flight is not None else "run with --full-body")
+            return f"[action] {name}: not available with this body ({why})"
+        if self.flight is not None and self.flight.busy:
+            return f"[action] {name}: not while flying ({self.flight.state}; L lands)"
         defaults = dict(next((p for n, p in ACTION_KEY_MAP.values() if n == name), {}))
         defaults.update(params)
         self.actions.trigger(make_action(name, **defaults), source=source)
@@ -451,11 +496,26 @@ class Session:
             shown = " ".join(f"{k}={info[k]}" for k in keys if k in info)
             self.say(f"[action] {ev.name} {ev.kind} t={ev.time:.2f}s {shown}".rstrip())
 
+    def _on_flight_event(self, ev) -> None:
+        self.log_event(f"flight_{ev.kind}", source=ev.source, **ev.info)
+        shown = " ".join(f"{k}={v}" for k, v in ev.info.items())
+        self.say(f"[flight] {ev.kind} ({ev.source}) t={ev.time:.2f}s {shown}".rstrip())
+
+    def flight_key(self, key: str = "l") -> str:
+        """L (take off / land) and, while airborne, the arrows (steer). Threaded
+        window mode: call inside runner.locked()."""
+        if self.flight is None:
+            return "[flight] L needs the flight model: run with --flight"
+        if key == "l":
+            return self.flight.toggle(source="key")
+        return self.flight.steer(key) or ""
+
     def _on_auto_skip(self, t: float) -> None:
         n = self.auto.n_skipped
         state = self.detector.state.value
         why = (state if state in ("FALLEN", "RECOVERING") else
-               "jumping" if self.actions.active_name == "jump" else "just recovered")
+               "jumping" if self.actions.active_name == "jump" else
+               "flying" if self.flight is not None and self.flight.busy else "just recovered")
         self.say(f"[auto-perturb] t={t:.2f}s hit skipped: fly {why} ({n} skipped so far)")
         self.log_event("auto_hit_skipped", state=state, n_skipped=n)
 
@@ -703,6 +763,7 @@ class Session:
                             if self.vision is not None else None),
             "job": self.job.stats() if self.job is not None else None,
             "real_vision": self._real_vision_summary(),
+            "flight": self.flight.summary() if self.flight is not None else None,
         }
 
     def _real_vision_summary(self) -> dict | None:
@@ -818,6 +879,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
                         "connectome visual system -> LC4 / LPLC2 (implies --brain; replaces "
                         "--whip-vision and the swatter's geometric looming sense). Needs the "
                         "'vision' extra; slows the simulation (~25 ms wall per 10 ms)")
+    g.add_argument("--flight", action="store_true",
+                   help="real flapping-wing flight (docs/FLIGHT.md): the flight fly at dt 5e-5 s "
+                        "with air; L takes off / lands, arrows steer while flying; with "
+                        "--brain-actions the giant-fibre escape jump starts the wings and flies "
+                        "away from the threat. Walks at ~half the RTF. Not with --course / --job")
     g.add_argument("--course", metavar="NAME", default=None,
                    help="obstacle course instead of endless terrain (docs/COURSE.md): "
                         "tutorial, gauntlet, slalom, brain_test or a .json/.toml path. The app "
@@ -947,6 +1013,8 @@ def config_from_args(args: argparse.Namespace) -> AppConfig:
         cfg.whip_vision.enabled = True
     if getattr(args, "real_vision", False):
         cfg.real_vision.enabled = True
+    if getattr(args, "flight", False):
+        cfg.flight.enabled = True
     if getattr(args, "course", None):
         cfg.course.name = args.course
     if getattr(args, "course_loop", False):
@@ -1006,6 +1074,17 @@ def apply_feature_defaults(cfg: AppConfig, terrain_from_cli: bool = False) -> Ap
         cfg.session.auto_reset_after_s = None
         if not terrain_from_cli:
             cfg.terrain.difficulty = "flat"
+    if cfg.flight.enabled:
+        from perpetualfly.config import RenderConfig
+        from perpetualfly.flight import FLIGHT_TIMESTEP
+
+        # dt 5e-5: keep the frames (and brain updates) per simulated second
+        if cfg.sim.timestep != FLIGHT_TIMESTEP:
+            if cfg.render.render_every_steps == RenderConfig().render_every_steps:
+                cfg.render.render_every_steps *= 2
+            cfg.sim.timestep = FLIGHT_TIMESTEP
+        cfg.sim.control_every_steps = 1
+        cfg.fly.extra_joints = False  # the flight body has its own wings
     return cfg
 
 
@@ -1112,7 +1191,7 @@ def run(
           f"{session.perturbation.level_name} | auto-perturb "
           f"{'on' if session.auto.enabled else 'off'} "
           f"({ap.min_interval_s:g}-{ap.max_interval_s:g}s, levels {list(ap.levels)}) | "
-          f"body {'full (wings + proboscis)' if cfg.fly.extra_joints else 'legs-only'} | "
+          f"body {'flight (flapping wings, air)' if cfg.flight.enabled else 'full (wings + proboscis)' if cfg.fly.extra_joints else 'legs-only'} | "
           f"{'headless' if headless else 'window'}"
           f"{f' (x{viewer.display_scale:.2f} display scale)' if viewer is not None else ''}",
           flush=True)
@@ -1131,6 +1210,10 @@ def run(
         feats.append("stress / octopamine (model)" + (
             "" if cfg.brain.steer or cfg.brain.actions else
             " - tip: add --brain-steer / --brain-actions for its body effects"))
+    if session.flight is not None:
+        feats.append("flight (L take off / land, arrows steer while flying; escape flight "
+                     + ("on: giant fibre -> jump -> wings)" if session.brain is not None
+                        and cfg.brain.actions else "needs --brain-actions)"))
     if session.job is not None:
         feats.append(f"job {session.job.name}: {session.job.title}")
     if session.course is not None:
@@ -1227,6 +1310,8 @@ def run(
             lines.append(_vision_hud(session.vision))
         if session.stress is not None:
             lines.append(_stress_hud(session.stress))
+        if session.flight is not None:
+            lines.append(session.flight.hud_line())
         if brain is not None:
             lines.extend(brain.hud_lines())
         if session.course is not None:
@@ -1349,6 +1434,11 @@ def run(
                 msg = session.trigger_action(ACTION_KEY_MAP[k][0], source="key")
             elif k in SWAT_KEYS:
                 msg = session.swat_key(k)
+            elif k == "l":
+                msg = session.flight_key("l")
+            elif (k in ("up", "down", "left", "right") and session.flight is not None
+                  and (steer := session.flight.steer(k)) is not None):
+                msg = steer  # airborne: the arrows steer instead of hitting
             elif k in BRAIN_KEYS:
                 msg = (brain.handle_key(k) if brain is not None else
                        f"[brain] {k.upper()} needs the brain: run with --brain")
@@ -1499,6 +1589,9 @@ def run(
         c = session.swat_counts
         print(f"  swatter: {session.swatter.n_swats} swats: hit {c['hit']}, grazed {c['grazed']}, "
               f"dodged {c['dodged']}, miss {c['miss']}", flush=True)
+    if session.flight is not None:
+        fs = session.flight.summary()
+        print(f"  flight: {fs['counts']} airtime {fs['airtime_s']:.2f}s", flush=True)
     if session.stress is not None:
         print(f"  stress: octopamine level {session.stress.level:.2f} "
               f"(max {session.stress.max_level:.2f})", flush=True)

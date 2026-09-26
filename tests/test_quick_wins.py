@@ -83,7 +83,8 @@ def test_key_table_groups_and_action_keys():
     from perpetualfly.app import ACTION_KEY_MAP
 
     assert [g for g, _ in KEY_GROUPS] == ["hits", "obstacles / terrain", "brain (--brain)",
-                                          "actions", "swatter (--swatter)", "view / run"]
+                                          "actions", "flight (--flight)", "swatter (--swatter)",
+                                          "view / run"]
     keys = [part.lower() for k, _ in KEY_TABLE for part in k.replace(" / ", " ").split()]
     assert {"[", "]", "i", "m", "?", "v", "shift+v"} <= set(keys)
     assert ACTION_KEYS <= set(keys) and set(ACTION_KEY_MAP) == ACTION_KEYS

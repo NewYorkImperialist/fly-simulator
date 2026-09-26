@@ -14,6 +14,11 @@ thread) and triggers actions on an ``ActionManager``:
   when ``threat_fn`` (set e.g. by ``install_swatter``) returns the threat's world
   position: the looming detectors are retinotopic, so the fly knows roughly where
   the looming object is (Card & Dickinson 2008: take-off direction is away from it).
+  With ``flight`` set (``--flight``: a ``perpetualfly.flight.FlightMode``) the jump
+  instead hands over to REAL flapping-wing flight at take-off and the fly flies away
+  from the threat with the flight controller (no external force; ``jump_flight`` /
+  ``flight_assist`` is then ignored). A giant-fibre burst while already airborne
+  re-directs the escape flight instead of jumping.
 * MN9 (``probes["MN9"]``) above ``proboscis_mn9_hz`` -> ``ProboscisExtend`` for
   ``proboscis_hold_s``. While MN9 stays high the running extension is prolonged
   (no re-blend). Needs the extra proboscis joints; never interrupts another action.
@@ -67,11 +72,14 @@ class BrainActionTriggers:
         self._next_groom = -1e9
         self._groom_run = 0.0  # brain seconds of consecutive above-threshold states
         self._groom_end = None  # (action object) to start the refractory when it ends
-        self.counts = {"jump": 0, "proboscis": 0, "groom": 0}
+        self.counts = {"jump": 0, "proboscis": 0, "groom": 0}  # (+ "escape_flight")
         self.fired: list[tuple[float, str, float]] = []  # (run time, action, rate)
         self.jump_modes: list[str] = []  # mode of each brain-triggered jump
         # () -> world position (3,) of the looming threat, or None (escape direction)
         self.threat_fn: Callable[[], object] | None = None
+        # perpetualfly.flight.FlightMode (--flight): real wing-powered escape flight
+        self.flight = None
+        self._flight_dir: tuple[float, float] | None = None
         mgr.listeners.append(self._on_event)
 
     def reset(self) -> None:
@@ -96,13 +104,25 @@ class BrainActionTriggers:
         groom = float(st.descending.get("groom", 0.0) or 0.0)
         tag = f"t_brain={st.brain_time:.2f}s" if getattr(st, "brain_time", None) is not None else ""
 
-        if gf > p.jump_escape_hz and now >= self._next_jump:
+        flight = self.flight
+        if (gf > p.jump_escape_hz and flight is not None and flight.airborne
+                and now >= self._next_jump):
+            if flight.state in ("hovering", "forward"):
+                msg = flight.escape(self.escape_direction(), source="brain")
+                self._next_jump = now + p.jump_refractory_s
+                self._record(run_time, "escape_flight", gf)
+                msgs.append(f"[brain-action] {tag} giant fiber {gf:.0f} Hz (airborne) -> {msg}")
+        elif gf > p.jump_escape_hz and now >= self._next_jump and (
+                flight is None or flight.state == "walking"):
             jump = self.make_jump(gf)
             mgr.trigger(jump, replace=True, source="brain")
             self._next_jump = now + p.jump_refractory_s
             self._record(run_time, "jump", gf)
             self.jump_modes.append(jump.p.mode)
             extra = " (short mode)" if jump.p.mode == "short" else ""
+            if flight is not None:
+                flight.takeoff(source="brain", jump=jump, escape_dir=self._flight_dir)
+                extra += " -> wings at take-off, escape flight"
             msgs.append(f"[brain-action] {tag} giant fiber {gf:.0f} Hz > {p.jump_escape_hz:g} "
                         f"-> JUMP{extra}")
 
@@ -132,25 +152,46 @@ class BrainActionTriggers:
             self.say(m)
         return msgs
 
+    def escape_direction(self) -> tuple[float, float] | None:
+        """World (x, y) unit vector away from ``threat_fn()``; None without a threat
+        position or with the threat straight overhead."""
+        if self.threat_fn is None:
+            return None
+        threat = self.threat_fn()
+        if threat is None:
+            return None
+        away = self.mgr.sim.thorax_position()[:2] - np.asarray(threat, dtype=float)[:2]
+        n = float(np.hypot(*away))
+        if n <= 0.3:
+            return None
+        return (float(away[0] / n), float(away[1] / n))
+
     def make_jump(self, gf_hz: float) -> Jump:
         """The Jump for a giant-fiber rate: short mode above ``jump_short_hz``,
-        escape flight away from ``threat_fn()`` with ``jump_flight``."""
+        escape flight away from ``threat_fn()`` with ``jump_flight`` (emulation) or,
+        with ``flight`` set, real flight after take-off (``_flight_dir``)."""
         p = self.p
         kw = dict(p.jump_overrides or {})
         if p.jump_short_hz is not None and gf_hz >= p.jump_short_hz:
             kw["mode"] = "short"
-        if p.jump_flight:
+        self._flight_dir = None
+        if self.flight is not None:
+            # real wings take over at take-off: no emulated push
+            kw.pop("flight_assist", None)
+            kw.pop("escape_dir", None)
+            d = self.escape_direction()
+            if d is None:  # no threat position: straight ahead
+                h = self.mgr.sim.heading()
+                d = (float(np.cos(h)), float(np.sin(h)))
+            self._flight_dir = d
+        elif p.jump_flight:
             kw["flight_assist"] = True
-            if self.threat_fn is not None and "escape_dir" not in kw:
-                threat = self.threat_fn()
-                if threat is not None:
-                    sim = self.mgr.sim
-                    away = sim.thorax_position()[:2] - np.asarray(threat, dtype=float)[:2]
-                    n = float(np.hypot(*away))
-                    if n > 0.3:  # threat not straight overhead: fly away from it
-                        kw["escape_dir"] = (float(away[0] / n), float(away[1] / n))
+            if "escape_dir" not in kw:
+                d = self.escape_direction()
+                if d is not None:
+                    kw["escape_dir"] = d
         return Jump(**kw)
 
     def _record(self, run_time, name, rate) -> None:
-        self.counts[name] += 1
+        self.counts[name] = self.counts.get(name, 0) + 1
         self.fired.append((self._now() if run_time is None else run_time, name, rate))
