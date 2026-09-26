@@ -10,7 +10,7 @@
     python scripts/run_job.py --job kebab --brain --stress   # S startles the chef
 
 Keys (window): Q / ESC quit, C camera (job / follow / side / top), P pause,
-X explicit reset (counted), I screenshot (PNG with HUD); job keys are forwarded to
+X explicit reset (counted), I screenshot (PNG with HUD), TAB hide / show the HUD; job keys are forwarded to
 the job (kebab: S = startle the chef, a poke; with --stress it speeds the carving up).
 
 Mirrors fly_simulator.app.Session construction (the job's props are compiled in via

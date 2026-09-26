@@ -15,7 +15,7 @@ constant.
 | `raking` | leaves fall from an autumn tree; the fly sweeps them into a pile with a rake; when the pile is done, the wind blows it away | leaves raked, piles completed, gusts survived |
 
 ```bash
-python scripts/run_job.py --job sisyphus                   # window; Q quit, C camera, P pause, X reset, I screenshot
+python scripts/run_job.py --job sisyphus                   # window; Q quit, C camera, P pause, X reset, I screenshot, TAB HUD
 python scripts/run_job.py --job hamster_wheel --headless --max-seconds 300
 python scripts/run_job.py --job sisyphus --headless --record runs/jobs/sis --segment-s 60 --keep 3 --timelapse 5
 python scripts/run_job.py --rotate --rotate-minutes 10     # all jobs in turn, forever

@@ -88,6 +88,7 @@ KEY_GROUPS: list[tuple[str, list[tuple[str, str]]]] = [
         ("I", "screenshot: fly frame (+ brain frame) as PNG into the run dir"),
         ("M", "start / stop MP4 recording of the fly view (run dir)"),
         ("?", "show / hide this help"),
+        ("TAB", "HUD text: full / compact / off"),
         ("Q / ESC", "quit (closing the window or Ctrl-C also quits)"),
     ]),
 ]
@@ -1230,6 +1231,7 @@ class _LoopState:
     quit_reason: str = "max-seconds"
     hud: list[str] | None = None
     show_help: bool = False  # ? toggles the on-screen key help
+    hud_mode: int = 0  # TAB cycles the HUD text: 0 full, 1 compact, 2 off
     # I pressed: (run time, copy of the brain's recent states) taken under the lock;
     # the main loop saves the PNGs outside it
     shot: tuple | None = None
@@ -1422,9 +1424,14 @@ def run(
         return {"ground_z": session.ground_height(x, y), "tilt_deg": sim.tilt_deg()}
 
     def hud_lines() -> list[str] | None:
-        if not cfg.render.show_hud:
+        if not cfg.render.show_hud or st.hud_mode == 2:
             return None
         m = metrics
+        if st.hud_mode == 1:  # compact: the essentials on two lines
+            state = detector.state.value.upper()
+            return [f"t {session.run_time():6.1f}s  {m.current_speed:4.1f} mm/s  {state}"
+                    f"{'  PAUSED' if st.paused else ''}",
+                    "TAB = full HUD   ? = keys"]
         lines = [
             f"t {session.run_time():7.2f}s   dist {m.distance:7.1f} mm   "
             f"speed {m.current_speed:5.1f} mm/s (avg {m.average_speed:4.1f})",
@@ -1433,7 +1440,7 @@ def run(
             (f"terrain {terrain.cfg.difficulty} ([ ] change): {session.terrain_here()}"
              if session.job is None and session.course is None else ""),
             session.controls.hud_line(),
-            f"cam {frame_renderer.camera.mode}   {'PAUSED' if st.paused else ''}",
+            f"cam {frame_renderer.camera.mode if frame_renderer is not None else '-'}   {'PAUSED' if st.paused else ''}",
         ]
         if session.auto.enabled and not session.auto_hits_allowed():
             lines[3] += "  (waiting: fly down)"
@@ -1464,7 +1471,7 @@ def run(
             lines = session.course.hud_lines() + lines
         if session.job is not None:
             lines = session.job.hud_lines() + lines
-        lines.append("? = key help   I = screenshot   M = record")
+        lines.append("? = key help   TAB = hide HUD   I = screenshot   M = record")
         return [ln for ln in lines if ln]
 
     def ensure_renderer():
@@ -1573,6 +1580,10 @@ def run(
                 msg = key_help_text(session.available_actions) + (
                     "\n(on-screen help shown; ? hides it)"
                                          if st.show_help else "")
+            elif k == "tab":
+                st.hud_mode = (st.hud_mode + 1) % 3
+                msg = f"[HUD] {('full', 'compact', 'off')[st.hud_mode]}"
+                st.hud = hud_lines()  # refresh now (also while paused)
             elif k in ("[", "]"):
                 msg = session.step_difficulty(-1 if k == "[" else 1)
             elif k == "i":

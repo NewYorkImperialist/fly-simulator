@@ -183,6 +183,7 @@ class JobRunner:
         self.n_instabilities = 0
         self.quit_reason = "max-seconds"
         self.paused = False
+        self.hud_on = True  # TAB toggles the HUD text in the window
         self.n_shots = 0
         self.shot_dir: Path | None = Path(record_dir) if record_dir is not None else None
 
@@ -251,6 +252,9 @@ class JobRunner:
             self.say(f"[camera] {self.renderer.camera.cycle_mode()}")
         elif k == "p":
             self.paused = not self.paused
+        elif k == "tab":
+            self.hud_on = not self.hud_on
+            self.say(f"[HUD] {'on' if self.hud_on else 'off'}")
         elif k == "x":
             self.session.reset("manual")
         elif k == "i":
@@ -283,14 +287,14 @@ class JobRunner:
                 need_tl = self.timelapse is not None and self.timelapse.due(rt)
                 show = self.viewer is not None and time.perf_counter() - last_shown >= period
                 if need_rec or need_tl or show:
-                    _, hud = self.render()
+                    clean, hud = self.render()
                     if need_rec:
                         self.recorder.add(hud, rt)
                     if need_tl:
                         self.timelapse.add(hud, rt)
                     if show:
                         last_shown = time.perf_counter()
-                        self.viewer.show(hud)
+                        self.viewer.show(hud if self.hud_on else clean)
                         for k in self.viewer.poll_keys(30 if self.paused else 1):
                             self._handle_key(k)
                         if not self.viewer.is_open():

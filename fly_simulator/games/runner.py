@@ -17,7 +17,7 @@ import numpy as np
 HIGHSCORE_FILE = Path("runs") / "games_highscores.json"
 KEEP_SCORES = 5
 FPS = 30.0
-KEYS_HELP = "SPACE pause  R restart  1/2/3 easy/normal/hard  B brain window  Q quit"
+KEYS_HELP = "SPACE pause  R restart  1/2/3 easy/normal/hard  B brain window  TAB panel  Q quit"
 
 
 class HighScores:
@@ -152,6 +152,9 @@ class GameRunner:
             self.paused = False
         elif key == "b":
             self.toggle_brain_window()
+        elif key == "tab":
+            self.panel = not self.panel
+            self.say(f"[panel] {'on' if self.panel else 'off'}")
         return True
 
     def toggle_brain_window(self) -> None:
@@ -265,7 +268,7 @@ class GameRunner:
                                     macro_block_size=8)
         wall0 = time.time()
         steps_per_frame = max(1, int(round((1.0 / FPS) / (s.sim.timestep * s.chunk_steps))))
-        keymap = {27: "esc", 32: "space"}
+        keymap = {9: "tab", 27: "esc", 32: "space"}
         try:
             while True:
                 wall = time.time() - wall0
