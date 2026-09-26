@@ -86,6 +86,17 @@ class BrainLinkConfig:
     clock_every_s: float = 0.01  # sim s between clock marks sent to the brain
     max_lag_s: float = 1.0  # brain gives up catching up beyond this lag
     window_s: float = 0.1  # brain time per BrainState
+    # Low-latency pacing (docs/SWATTER.md). A state covering fly time T normally
+    # reaches the body one physics chunk after the chunk containing T (the brain can
+    # only run to T once that chunk's clock mark is sent, and it is polled after the
+    # next chunk). With sync_wait_s > 0, update() waits up to that much wall time
+    # after sending the clock for the brain to publish the window ending in the last
+    # window_s, removing that chunk of latency at the cost of wall time. With
+    # sync_loom_only it only waits while a visual loom stimulus is active (sent in
+    # the last loom event's duration), i.e. when an escape decision may be pending.
+    # Pair with a short window_s (0.01-0.02 s; the GF rate is read per window).
+    sync_wait_s: float = 0.0
+    sync_loom_only: bool = True
     # ---- brain -> actions (--brain-actions; docs/ACTIONS.md) ----------------------
     actions: bool = False  # descending readouts trigger body actions
     jump_escape_hz: float = 60.0  # giant fiber (DNp01) rate that fires a Jump
@@ -249,6 +260,9 @@ class BrainLink:
         self._window_closed_reported = False
         self._flags: dict[str, bool] = {}
         self.stim_log: list[StimulusEvent] = []  # everything sent (tests / summary)
+        self._loom_until = -1e9  # run time the last visual loom stimulus ends
+        self.n_sync_waits = 0
+        self.sync_wait_wall_s = 0.0
         if start:
             self.start()
 
@@ -331,6 +345,8 @@ class BrainLink:
         """Brain + window + events.csv. ``ev.sim_time`` must be the fly run time."""
         self.stim_log.append(ev)
         self.n_sent += 1
+        if ev.kind == "loom" and ev.sim_time is not None:
+            self._loom_until = max(self._loom_until, float(ev.sim_time) + float(ev.duration_s))
         if self.brain is not None and self.brain.is_alive():
             try:
                 self.brain.send(ev)
@@ -469,6 +485,8 @@ class BrainLink:
             except Exception:
                 pass
         states = self.brain.poll("app")
+        if self.cfg.sync_wait_s > 0 and (not self.cfg.sync_loom_only or rt <= self._loom_until):
+            states += self._sync_wait(rt, states)
         for st in states:
             if self._last_seq and st.seq > self._last_seq + 1:
                 self.n_dropped += st.seq - self._last_seq - 1
@@ -515,6 +533,38 @@ class BrainLink:
             if not self.window.is_alive() and not self._window_closed_reported:
                 self._window_closed_reported = True
                 self.say("[brain] brain window closed (the fly and the brain keep running)")
+
+    def _sync_wait(self, rt: float, states: list) -> list:
+        """Wait (<= sync_wait_s wall) until the brain has published the state whose
+        window ends within the last window_s of fly time; returns the extra states."""
+        import time
+
+        def newest(sts):
+            for st in reversed(sts):
+                if st.sim_time is not None:
+                    return float(st.sim_time)
+            return None
+
+        target = rt - self.cfg.window_s + 1e-9
+        t_new = newest(states)
+        if t_new is None and self.latest is not None and self.latest.sim_time is not None:
+            t_new = float(self.latest.sim_time)
+        if t_new is not None and t_new >= target:
+            return []
+        extra: list = []
+        t0 = time.perf_counter()
+        deadline = t0 + self.cfg.sync_wait_s
+        while time.perf_counter() < deadline and self.brain.is_alive():
+            time.sleep(0.0003)
+            more = self.brain.poll("app")
+            if more:
+                extra += more
+                t = newest(more)
+                if t is not None and t >= target:
+                    break
+        self.n_sync_waits += 1
+        self.sync_wait_wall_s += time.perf_counter() - t0
+        return extra
 
     def _notice(self, st: BrainState) -> None:
         """Edge-triggered terminal notes for the readouts worth knowing about."""

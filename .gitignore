@@ -8,5 +8,5 @@ runs/
 .DS_Store
 demo_output/
 MUJOCO_LOG.TXT
-data/
+/data/
 .ruff_cache/

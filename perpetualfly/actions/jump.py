@@ -14,6 +14,26 @@ legs for the stroke and the flight, re-engaged at touchdown. Joint names:
 ``thc`` = thorax-coxa pitch. See docs/ACTIONS.md for the measured results and the
 tuning.
 
+Two escape modes (von Reyn et al. 2014, Nat Neurosci 17:962): a **long-mode**
+take-off (default, ``mode="long"``) with the ``prep_s`` postural crouch, and a
+**short-mode** take-off (``mode="short"``) in which a strong, early giant-fiber
+spike drives the TTM before any preparation: the crouch shrinks to ``short_prep_s``
+(a few ms of leg set-up) and the stroke follows at once. Real short-mode take-offs
+are ~5-10 ms from the GF spike (long mode ~25-40+ ms including wing raising) and are
+less stable (flies often tumble); ``BrainActionTriggers`` chooses short mode when
+the GF rate is very high (``TriggerParams.jump_short_hz``).
+
+Optional *escape flight* (default off, ``flight_assist=True``; documented physics
+emulation, docs/SWATTER.md): real escapes continue in flight -- the wings open
+during / right after the jump and the fly flies away from the threat at ~0.3-1 m/s.
+Wings are not simulated aerodynamically here, so after take-off an external force on
+the thorax (``data.xfrc_applied``, our contribution tracked and removed exactly)
+servoes the thorax velocity toward ``flight_speed`` along ``escape_dir`` (world,
+horizontal; default the heading) plus ``flight_climb`` for ``flight_s``, then a slow
+descent until touchdown, capped at ``flight_max_bw`` body weights, with a PD
+attitude stabiliser (the halteres / wing steering). Without it the jump is a
+vertical hop that lands where it started (under a flyswatter, that is no dodge).
+
 Optional *boost* (default off): multiply ``kp`` and the force range of the
 actuators involved in the stroke by ``boost`` for the stroke only (restored right
 after the stroke, on cancel and on reset). The default +-65 uN*mm limit already
@@ -37,7 +57,6 @@ DEG = np.pi / 180.0
 class JumpParams:
     prep_s: float = 0.10  # postural adjustment + crouch
     stroke_s: float = 0.015  # TTM stroke (target step, actuators do the rest)
-    flight_max_s: float = 0.40  # give up waiting for touchdown after this
     land_s: float = 0.15  # stance with adhesion after touchdown
     # crouch: offsets added to the standing pose (deg)
     crouch_ctr: float = -20.0
@@ -61,6 +80,21 @@ class JumpParams:
     # protraction cancels it (measured: ~ -375 rad/s pitch per mm, ~ +6 rad/s per deg).
     posture_gain: float = 43.0  # deg per mm (0 = off)
     foot_x_ref: float = 0.23
+    # escape mode (von Reyn et al. 2014): "long" = prep_s crouch, "short" = GF-driven
+    # take-off with only short_prep_s of leg set-up before the stroke
+    mode: str = "long"
+    short_prep_s: float = 0.006
+    # escape flight emulation (off by default; see the module docstring)
+    flight_assist: bool = False
+    flight_s: float = 0.10  # powered flight after take-off
+    flight_speed: float = 180.0  # mm/s, horizontal, along escape_dir
+    flight_climb: float = 20.0  # mm/s, vertical during powered flight
+    flight_descent: float = 50.0  # mm/s, sink rate after flight_s until touchdown
+    flight_tau_s: float = 0.02  # velocity servo time constant
+    flight_max_bw: float = 4.0  # force cap (body weights), gravity support included
+    flight_att_hz: float = 15.0  # attitude stabiliser bandwidth (critically damped)
+    flight_max_s: float = 0.40  # give up waiting for touchdown after this (from stroke end)
+    escape_dir: tuple | None = None  # world (x, y) escape direction; None = heading
 
 
 class Jump(Action):
@@ -72,16 +106,22 @@ class Jump(Action):
         p = params or JumpParams()
         if overrides:
             p = JumpParams(**{**p.__dict__, **overrides})
+        if p.mode not in ("long", "short"):
+            raise ValueError(f"Jump mode must be 'long' or 'short', not {p.mode!r}")
         self.p = p
-        super().__init__(p.prep_s + p.stroke_s + p.flight_max_s + p.land_s)
+        self.prep_s = p.short_prep_s if p.mode == "short" else p.prep_s
+        flight_max = p.flight_max_s + (p.flight_s if p.flight_assist else 0.0)
+        self._flight_max = flight_max
+        super().__init__(self.prep_s + p.stroke_s + flight_max + p.land_s)
         self._t_touch: float | None = None
         self._t_takeoff: float | None = None
+        self._xf = None  # our xfrc_applied contribution (flight assist)
 
     def phase(self, t: float) -> str:
         p = self.p
-        if t < p.prep_s:
+        if t < self.prep_s:
             return "crouch"
-        if t < p.prep_s + p.stroke_s:
+        if t < self.prep_s + p.stroke_s:
             return "stroke"
         if self._t_touch is None:
             return "flight"
@@ -133,16 +173,21 @@ class Jump(Action):
         self._v_stroke_end = None
         self._on = np.ones(6)
         self._off = np.zeros(6)
+        self._xf = None
+        self._assist_done = False
+        self._flight_dist = 0.0
+        if p.flight_assist:
+            self._setup_flight(sim)
 
     def command(self, mgr, t: float) -> ActionCommand:
         sim, p = mgr.sim, self.p
         z = float(sim.data.xpos[sim.thorax_body_id, 2])
         self._zmax = max(self._zmax, z)
         self._tilt_max = max(self._tilt_max, sim.tilt_deg())
-        t1 = p.prep_s
+        t1 = self.prep_s
         t2 = t1 + p.stroke_s
         if t < t1:
-            a = smoothstep(t / p.prep_s)
+            a = smoothstep(t / t1)
             return ActionCommand(targets=(1 - a) * self._start + a * self._crouch, adhesion=self._on)
         if t < t2:
             if self._feet_at_stroke is None:
@@ -164,10 +209,20 @@ class Jump(Action):
             legs, body = mgr.body.ground_contacts(sim)
             airborne_long_enough = self._t_takeoff is not None and t - self._t_takeoff > 0.015
             landed = airborne_long_enough and (legs.sum() >= p.touchdown_legs or body)
-            if landed or t > t2 + p.flight_max_s:
+            if landed or t > t2 + self._flight_max:
                 self._t_touch = t
                 self._p_touch = sim.thorax_position()
+                self._clear_flight_force(sim)
             else:
+                if p.flight_assist and self._t_takeoff is not None and not self._assist_done:
+                    t_air = t - self._t_takeoff
+                    if t_air > p.flight_s and legs.any():
+                        # first foot down after the powered flight: wings stop, the
+                        # normal touchdown / landing logic takes over
+                        self._clear_flight_force(sim)
+                        self._assist_done = True
+                    else:
+                        self._flight_force(sim, t_air)
                 # flight: legs swing to the landing pose
                 a = smoothstep((t - t2) / 0.03)
                 return ActionCommand(targets=(1 - a) * self._ext + a * self._flight, adhesion=self._off)
@@ -201,14 +256,74 @@ class Jump(Action):
             self._t_takeoff = t
             self._p_takeoff = mgr.sim.thorax_position()
 
+    # ------------------------------------------------------------ escape flight
+    def _setup_flight(self, sim) -> None:
+        m, d = sim.model, sim.data
+        tid = sim.thorax_body_id
+        bodies = np.flatnonzero(m.body_rootid == tid)
+        com = d.subtree_com[tid]
+        # composite inertia about the COM (isotropic estimate: mean principal moment)
+        inertia = 0.0
+        for b in bodies:
+            r = d.xipos[b] - com
+            inertia += float(m.body_inertia[b].mean()) + float(m.body_mass[b]) * float(r @ r) * 2 / 3
+        self._inertia = inertia
+        self._mass = float(sim.fly_mass)
+        self._g = float(np.linalg.norm(m.opt.gravity))
+        if self.p.escape_dir is not None:
+            e = np.array([self.p.escape_dir[0], self.p.escape_dir[1], 0.0], dtype=float)
+        else:
+            h = sim.heading()
+            e = np.array([np.cos(h), np.sin(h), 0.0])
+        n = float(np.linalg.norm(e))
+        self._escape = e / n if n > 1e-9 else np.array([1.0, 0.0, 0.0])
+
+    def _flight_force(self, sim, t_air: float) -> None:
+        p = self.p
+        d = sim.data
+        tid = sim.thorax_body_id
+        v = sim.thorax_linvel()
+        if t_air < p.flight_s:
+            v_des = self._escape * p.flight_speed + np.array([0.0, 0.0, p.flight_climb])
+        else:
+            v_des = self._escape * p.flight_speed * np.exp(-(t_air - p.flight_s) / 0.05)
+            v_des[2] = -p.flight_descent
+        f = self._mass * (v_des - v) / max(p.flight_tau_s, 1e-4)
+        f[2] += self._mass * self._g
+        cap = p.flight_max_bw * self._mass * self._g
+        n = float(np.linalg.norm(f))
+        if n > cap:
+            f *= cap / n
+        # attitude: rotate the thorax z axis back to world up, damp the body rates
+        R = sim.thorax_rotmat()
+        err = np.cross(R[:, 2], np.array([0.0, 0.0, 1.0]))
+        w = 2 * np.pi * p.flight_att_hz
+        wv = sim.thorax_angvel_world()
+        tq = self._inertia * (w * w * err - 2.0 * w * wv)
+        new = np.concatenate([f, tq])
+        if self._xf is not None:
+            d.xfrc_applied[tid] -= self._xf
+        d.xfrc_applied[tid] += new
+        self._xf = new
+        self._flight_dist = float(np.hypot(*(sim.thorax_position()[:2] - self._p0[:2])))
+
+    def _clear_flight_force(self, sim) -> None:
+        if self._xf is not None:
+            sim.data.xfrc_applied[sim.thorax_body_id] -= self._xf
+            self._xf = None
+
     def end(self, mgr, cancelled: bool) -> None:
         sim = mgr.sim
+        self._clear_flight_force(sim)
         info = {
             "apex_dz_mm": self._zmax - self._z0,
             "max_tilt_deg": self._tilt_max,
             "final_tilt_deg": sim.tilt_deg(),
             "boost": self.p.boost,
             "cancelled": cancelled,
+            "mode": self.p.mode,
+            "prep_s": self.prep_s,
+            "flight_assist": self.p.flight_assist,
         }
         if self._feet_at_stroke is not None:
             info["feet_x_at_stroke_mm"] = [float(v) for v in self._feet_at_stroke[:, 0]]

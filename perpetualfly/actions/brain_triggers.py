@@ -6,7 +6,14 @@ thread) and triggers actions on an ``ActionManager``:
 
 * giant fiber (``descending["escape"]`` = DNp01) above ``jump_escape_hz`` -> ``Jump``,
   then ``jump_refractory_s`` of fly time without another brain-triggered jump. The
-  jump replaces any running action (escape has priority).
+  jump replaces any running action (escape has priority). With ``jump_short_hz``
+  set, a GF rate at or above it launches a **short-mode** jump (no preparatory
+  crouch; von Reyn et al. 2014: a strong early GF spike gives the fast short-mode
+  take-off, a weaker one the slower long mode). ``jump_flight`` adds the escape
+  flight emulation (``JumpParams.flight_assist``), directed away from the threat
+  when ``threat_fn`` (set e.g. by ``install_swatter``) returns the threat's world
+  position: the looming detectors are retinotopic, so the fly knows roughly where
+  the looming object is (Card & Dickinson 2008: take-off direction is away from it).
 * MN9 (``probes["MN9"]``) above ``proboscis_mn9_hz`` -> ``ProboscisExtend`` for
   ``proboscis_hold_s``. While MN9 stays high the running extension is prolonged
   (no re-blend). Needs the extra proboscis joints; never interrupts another action.
@@ -21,6 +28,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Callable
+
+import numpy as np
 
 from .base import ActionManager
 from .behaviours import Groom, ProboscisExtend
@@ -38,6 +47,9 @@ class TriggerParams:
     groom_sustain_s: float = 0.1
     groom_duration_s: float = 2.0
     groom_refractory_s: float = 1.0
+    jump_short_hz: float | None = None  # GF >= this -> short-mode jump (None = never)
+    jump_flight: bool = False  # escape flight after the jump (JumpParams.flight_assist)
+    jump_overrides: dict | None = None  # extra JumpParams for brain-triggered jumps
 
     @classmethod
     def from_config(cls, cfg) -> "TriggerParams":
@@ -57,6 +69,9 @@ class BrainActionTriggers:
         self._groom_end = None  # (action object) to start the refractory when it ends
         self.counts = {"jump": 0, "proboscis": 0, "groom": 0}
         self.fired: list[tuple[float, str, float]] = []  # (run time, action, rate)
+        self.jump_modes: list[str] = []  # mode of each brain-triggered jump
+        # () -> world position (3,) of the looming threat, or None (escape direction)
+        self.threat_fn: Callable[[], object] | None = None
         mgr.listeners.append(self._on_event)
 
     def reset(self) -> None:
@@ -82,10 +97,14 @@ class BrainActionTriggers:
         tag = f"t_brain={st.brain_time:.2f}s" if getattr(st, "brain_time", None) is not None else ""
 
         if gf > p.jump_escape_hz and now >= self._next_jump:
-            mgr.trigger(Jump(), replace=True, source="brain")
+            jump = self.make_jump(gf)
+            mgr.trigger(jump, replace=True, source="brain")
             self._next_jump = now + p.jump_refractory_s
             self._record(run_time, "jump", gf)
-            msgs.append(f"[brain-action] {tag} giant fiber {gf:.0f} Hz > {p.jump_escape_hz:g} -> JUMP")
+            self.jump_modes.append(jump.p.mode)
+            extra = " (short mode)" if jump.p.mode == "short" else ""
+            msgs.append(f"[brain-action] {tag} giant fiber {gf:.0f} Hz > {p.jump_escape_hz:g} "
+                        f"-> JUMP{extra}")
 
         if self.can_proboscis and mn9 > p.proboscis_mn9_hz:
             a = mgr.action if mgr.action is not None else mgr._pending
@@ -112,6 +131,25 @@ class BrainActionTriggers:
         for m in msgs:
             self.say(m)
         return msgs
+
+    def make_jump(self, gf_hz: float) -> Jump:
+        """The Jump for a giant-fiber rate: short mode above ``jump_short_hz``,
+        escape flight away from ``threat_fn()`` with ``jump_flight``."""
+        p = self.p
+        kw = dict(p.jump_overrides or {})
+        if p.jump_short_hz is not None and gf_hz >= p.jump_short_hz:
+            kw["mode"] = "short"
+        if p.jump_flight:
+            kw["flight_assist"] = True
+            if self.threat_fn is not None and "escape_dir" not in kw:
+                threat = self.threat_fn()
+                if threat is not None:
+                    sim = self.mgr.sim
+                    away = sim.thorax_position()[:2] - np.asarray(threat, dtype=float)[:2]
+                    n = float(np.hypot(*away))
+                    if n > 0.3:  # threat not straight overhead: fly away from it
+                        kw["escape_dir"] = (float(away[0] / n), float(away[1] / n))
+        return Jump(**kw)
 
     def _record(self, run_time, name, rate) -> None:
         self.counts[name] += 1
