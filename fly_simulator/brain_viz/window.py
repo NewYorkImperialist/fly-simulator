@@ -1,4 +1,4 @@
-"""Live brain-activity window (OpenCV) for the PerpetualFly connectome model.
+"""Live brain-activity window (OpenCV) for the Fly Simulator connectome model.
 
 Three layers:
 
@@ -54,8 +54,8 @@ from fly_simulator.display import auto_display_scale as _auto_display_scale
 from fly_simulator.display import screen_info
 
 # ASCII on purpose: OpenCV's Cocoa backend mangles non-ASCII window titles (the em dash
-# came out as ",Äî"). The in-image header uses the proper "PerpetualFly — Brain".
-WINDOW_TITLE = "PerpetualFly - Brain"
+# came out as ",Äî"). The in-image header uses the proper "Fly Simulator — Brain".
+WINDOW_TITLE = "Fly Simulator - Brain"
 DEFAULT_SIZE = (1280, 800)
 
 # ----------------------------------------------------------------------------- style
@@ -1298,7 +1298,7 @@ class BrainRenderer:
 
     def _draw_header(self, img, wall: float) -> None:
         L, s = self.layout, self.state
-        put_text(img, "PerpetualFly — Brain", (14, 27), TEXT, 20, 700)
+        put_text(img, "Fly Simulator — Brain", (14, 27), TEXT, 20, 700)
         info = f"{L.model_name}  ·  {int(L.n_neurons_total):,} neurons simulated  ·  " \
                f"{self.n_neurons:,} displayed"
         put_text(img, info, (14, 50), DIM, 12)
@@ -1421,7 +1421,7 @@ def render_frame(layout: BrainLayout, state: BrainState | list | None = None,
 # ============================================================================ GUI window
 def _placeholder(size, msg: str) -> np.ndarray:
     img = np.full((size[1], size[0], 3), BG, np.uint8)
-    put_text(img, "PerpetualFly — Brain", (20, 36), TEXT, 20, 700)
+    put_text(img, "Fly Simulator — Brain", (20, 36), TEXT, 20, 700)
     put_text(img, msg, (size[0] // 2, size[1] // 2), DIM, 16, 400, "center")
     return img
 

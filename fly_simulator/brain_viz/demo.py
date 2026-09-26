@@ -136,7 +136,7 @@ def _size(s: str):
 
 
 def main(argv=None) -> None:
-    ap = argparse.ArgumentParser(description="PerpetualFly brain window (mock brain)")
+    ap = argparse.ArgumentParser(description="Fly Simulator brain window (mock brain)")
     ap.add_argument("--mock", action="store_true", default=True,
                     help="drive the window with the mock brain (the only source for now)")
     ap.add_argument("--process", action="store_true",

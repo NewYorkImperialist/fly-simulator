@@ -1,6 +1,6 @@
-"""Residual-RL Gymnasium environment for PerpetualFly (spec phase 10).
+"""Residual-RL Gymnasium environment for Fly Simulator (spec phase 10).
 
-``PerpetualFlyEnv`` wraps one ``fly_simulator.simulation.Simulation`` on
+``FlySimulatorEnv`` wraps one ``fly_simulator.simulation.Simulation`` on
 ``ProceduralTerrain`` with the thorax-shove ``Perturbation`` + ``AutoPerturber`` and
 a ``FallDetector``. No logging, no rendering unless ``render_mode="rgb_array"``.
 
@@ -170,7 +170,7 @@ class EnvConfig:
 # ---------------------------------------------------------------------------
 
 
-class PerpetualFlyEnv(gym.Env):
+class FlySimulatorEnv(gym.Env):
     metadata = {"render_modes": ["rgb_array"], "render_fps": 30}
 
     def __init__(self, cfg: EnvConfig | None = None, render_mode: str | None = None) -> None:
@@ -471,7 +471,7 @@ class PerpetualFlyEnv(gym.Env):
 
     def _instability(self, err: SimulationInstabilityError, a: np.ndarray):
         # Loud: logged at ERROR level *and* printed to stderr, never silently swallowed.
-        msg = f"[PerpetualFlyEnv] SimulationInstabilityError (stage {self.stage.name}, " \
+        msg = f"[FlySimulatorEnv] SimulationInstabilityError (stage {self.stage.name}, " \
               f"seeds {self._episode_seeds}, policy step {self._policy_steps}):\n{err}"
         log.error(msg)
         print(msg, file=sys.stderr, flush=True)

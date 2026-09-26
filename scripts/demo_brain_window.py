@@ -1,4 +1,4 @@
-"""Open the PerpetualFly brain window on the mock brain.
+"""Open the Fly Simulator brain window on the mock brain.
 
     .venv/bin/python scripts/demo_brain_window.py --mock            # live window
     .venv/bin/python scripts/demo_brain_window.py --mock --process  # child process

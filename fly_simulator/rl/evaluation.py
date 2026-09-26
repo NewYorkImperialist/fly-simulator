@@ -1,4 +1,4 @@
-"""Long-horizon evaluation of a policy in ``PerpetualFlyEnv`` (spec "Long-term eval").
+"""Long-horizon evaluation of a policy in ``FlySimulatorEnv`` (spec "Long-term eval").
 
 ``evaluate(env, policy, sim_seconds)`` runs back-to-back episodes until the sim-time
 budget is used up. Episodes end only when the fly stays FALLEN for
@@ -16,7 +16,7 @@ from typing import Any, Callable
 import numpy as np
 
 from fly_simulator.metrics.run_metrics import RunMetrics
-from fly_simulator.rl.env import PerpetualFlyEnv
+from fly_simulator.rl.env import FlySimulatorEnv
 
 Policy = Callable[[np.ndarray], np.ndarray]
 
@@ -26,7 +26,7 @@ def zero_policy(n_actions: int) -> Policy:
     return lambda obs: z
 
 
-def evaluate(env: PerpetualFlyEnv, policy: Policy, sim_seconds: float, seed: int = 0,
+def evaluate(env: FlySimulatorEnv, policy: Policy, sim_seconds: float, seed: int = 0,
              stage: int | str | None = None, verbose: bool = True) -> dict[str, Any]:
     """Run ``policy`` for ``sim_seconds`` of simulated time; return the metrics dict."""
     if stage is not None:

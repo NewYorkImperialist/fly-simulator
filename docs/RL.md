@@ -1,4 +1,4 @@
-# Residual RL for PerpetualFly (spec phase 10)
+# Residual RL for Fly Simulator (spec phase 10)
 
 Status: the environment, PPO training script and evaluation script are built and
 tested. **No policy has been trained yet.** Only a smoke test has been run: 4096 steps,
@@ -16,7 +16,7 @@ needed for RL (a test checks this).
 
 | file | what |
 |---|---|
-| `fly_simulator/rl/env.py` | `PerpetualFlyEnv(gymnasium.Env)`, `EnvConfig`, `RewardConfig`, `CurriculumStage`, `default_curriculum()` |
+| `fly_simulator/rl/env.py` | `FlySimulatorEnv(gymnasium.Env)`, `EnvConfig`, `RewardConfig`, `CurriculumStage`, `default_curriculum()` |
 | `fly_simulator/rl/wrappers.py` | `make_env(cfg, rank, seed)` (picklable thunk + SB3 `Monitor`), `make_vec_env(cfg, n_envs, seed)` (SubprocVecEnv, spawn) |
 | `fly_simulator/rl/evaluation.py` | `evaluate(env, policy, sim_seconds)`: long-horizon metrics through the app's `RunMetrics` |
 | `scripts/train_ppo.py` | SB3 PPO + VecNormalize, curriculum, checkpoints, periodic long evaluation, TensorBoard |
@@ -26,8 +26,8 @@ needed for RL (a test checks this).
 ## Environment design
 
 ```python
-from fly_simulator.rl import PerpetualFlyEnv, EnvConfig
-env = PerpetualFlyEnv(EnvConfig(stage="normal"))       # render_mode="rgb_array" optional
+from fly_simulator.rl import FlySimulatorEnv, EnvConfig
+env = FlySimulatorEnv(EnvConfig(stage="normal"))       # render_mode="rgb_array" optional
 obs, info = env.reset(seed=0, options={"stage": "flat"})
 obs, reward, terminated, truncated, info = env.step(action)   # action in [-1, 1]^42
 ```

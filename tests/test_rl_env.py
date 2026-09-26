@@ -12,7 +12,7 @@ pytest.importorskip("gymnasium")
 
 from fly_simulator.config import AppConfig  # noqa: E402
 from fly_simulator.interaction.perturbation import AutoPerturber, Perturbation  # noqa: E402
-from fly_simulator.rl import CurriculumStage, EnvConfig, PerpetualFlyEnv  # noqa: E402
+from fly_simulator.rl import CurriculumStage, EnvConfig, FlySimulatorEnv  # noqa: E402
 from fly_simulator.simulation import Simulation  # noqa: E402
 from fly_simulator.terrain import ProceduralTerrain, ProceduralTerrainConfig  # noqa: E402
 
@@ -21,11 +21,11 @@ BUSY = CurriculumStage("busy", "normal", True, (1, 2), (0.5, 0.5), (0.3, 0.6),
                        first_hit_after_s=0.2)
 
 
-def _env(**kw) -> PerpetualFlyEnv:
+def _env(**kw) -> FlySimulatorEnv:
     cfg = EnvConfig(**kw)
     if "curriculum" not in kw:
         cfg.curriculum = cfg.curriculum + [BUSY]
-    return PerpetualFlyEnv(cfg)
+    return FlySimulatorEnv(cfg)
 
 
 def test_check_env():

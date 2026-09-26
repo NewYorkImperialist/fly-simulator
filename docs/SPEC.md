@@ -1,4 +1,4 @@
-# PerpetualFly — Project Spec
+# Fly Simulator — Project Spec
 
 > **Fruit fly. Runs forever. Terrain gets worse. I can smack it. It learns not to care.**
 

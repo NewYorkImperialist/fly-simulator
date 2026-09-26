@@ -1,4 +1,4 @@
-"""PerpetualFly: a NeuroMechFly (FlyGym 2.x) that jogs forever."""
+"""Fly Simulator: a NeuroMechFly (FlyGym 2.x) that jogs forever."""
 
 from fly_simulator.config import AppConfig
 from fly_simulator.simulation import Simulation, SimulationInstabilityError

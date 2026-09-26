@@ -1,4 +1,4 @@
-# PerpetualFly roadmap
+# Fly Simulator roadmap
 
 Everything discussed so far, compared. Effort assumes agents doing the work on this M1.
 "Brain-real" = how much of the behaviour comes from the real FlyWire wiring

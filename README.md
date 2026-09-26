@@ -1,4 +1,4 @@
-# PerpetualFly
+# Fly Simulator
 
 A physically simulated fruit fly (FlyGym 2.x / NeuroMechFly on MuJoCo) that jogs
 forward forever through endless procedural terrain while you whack it with physical

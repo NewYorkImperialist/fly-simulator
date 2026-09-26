@@ -130,7 +130,7 @@ def compose_frame(rgb: np.ndarray, hud_lines: list[str] | None = None, *,
 
 
 class LiveViewer:
-    def __init__(self, title: str = "PerpetualFly", display_scale: float | None = None,
+    def __init__(self, title: str = "Fly Simulator", display_scale: float | None = None,
                  frame_size: tuple[int, int] = (960, 640)) -> None:
         """``display_scale``: None = auto for a ``frame_size`` = (w, h) frame
         (backing scale on Retina, capped to ~2/3 of the screen width; env

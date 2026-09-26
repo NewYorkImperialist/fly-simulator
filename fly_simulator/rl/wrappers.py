@@ -5,11 +5,11 @@ from __future__ import annotations
 import copy
 from typing import Callable
 
-from fly_simulator.rl.env import EnvConfig, PerpetualFlyEnv
+from fly_simulator.rl.env import EnvConfig, FlySimulatorEnv
 
 
 def make_env(cfg: EnvConfig | None = None, rank: int = 0, seed: int = 0,
-             monitor: bool = True, render_mode: str | None = None) -> Callable[[], PerpetualFlyEnv]:
+             monitor: bool = True, render_mode: str | None = None) -> Callable[[], FlySimulatorEnv]:
     """Picklable thunk building one env; env ``rank`` is seeded with ``seed + rank``.
 
     ``monitor=True`` wraps it in SB3's ``Monitor`` (episode return / length in
@@ -18,7 +18,7 @@ def make_env(cfg: EnvConfig | None = None, rank: int = 0, seed: int = 0,
     cfg = copy.deepcopy(cfg) if cfg is not None else EnvConfig()
 
     def _init():
-        env = PerpetualFlyEnv(cfg, render_mode=render_mode)
+        env = FlySimulatorEnv(cfg, render_mode=render_mode)
         env.reset(seed=seed + rank)
         if monitor:
             from stable_baselines3.common.monitor import Monitor

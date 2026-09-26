@@ -609,7 +609,7 @@ def run_viewer(rec: BrainRecording, speed: float = 1.0, start: float | None = No
     pl = ReplayPlayer(rec, size=size, playground=playground, speed=speed)
     if start is not None:
         pl.seek(start)
-    title = "PerpetualFly - Brain replay"
+    title = "Fly Simulator - Brain replay"
     h = pl.size[1] + TIMELINE_H
     scale = auto_display_scale((pl.size[0], h))
     cv2.namedWindow(title, cv2.WINDOW_AUTOSIZE)

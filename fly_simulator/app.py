@@ -850,7 +850,7 @@ class Session:
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(description="PerpetualFly: NeuroMechFly jogging forever.")
+    p = argparse.ArgumentParser(description="Fly Simulator: NeuroMechFly jogging forever.")
     p.add_argument("--headless", action="store_true", help="no window, terminal stats only")
     p.add_argument("--max-seconds", type=float, default=None,
                    help="stop after this many *simulated* seconds (run time, across resets)")
@@ -1313,7 +1313,7 @@ def run(
         raise
 
     ap = cfg.auto_perturb
-    print(f"PerpetualFly | dt={sim.timestep:g}s | fly mass={sim.fly_mass * 1e3:.3f} mg | "
+    print(f"Fly Simulator | dt={sim.timestep:g}s | fly mass={sim.fly_mass * 1e3:.3f} mg | "
           f"controller={cfg.controller.kind} | terrain={terrain.cfg.difficulty} "
           f"(seed {terrain.cfg.seed}) | hit mode {session.hit_mode} | "
           f"strength L{session.perturbation.level} "

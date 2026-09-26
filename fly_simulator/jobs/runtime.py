@@ -269,7 +269,7 @@ class JobRunner:
         if not self.headless:
             from fly_simulator.interaction import LiveViewer
 
-            self.viewer = LiveViewer(f"PerpetualFly - {self.job.title}",
+            self.viewer = LiveViewer(f"Fly Simulator - {self.job.title}",
                                      display_scale=self.cfg.render.display_scale,
                                      frame_size=(self.cfg.render.width, self.cfg.render.height))
         period = 1.0 / max(self.cfg.render.target_fps, 1.0)

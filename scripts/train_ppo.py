@@ -1,4 +1,4 @@
-"""PPO (Stable-Baselines3) on the residual PerpetualFly env.
+"""PPO (Stable-Baselines3) on the residual Fly Simulator env.
 
     # smoke test (a few thousand steps, 2 envs): proves the pipeline end to end
     .venv/bin/python scripts/train_ppo.py --timesteps 4096 --n-envs 2 --n-steps 1024 \
@@ -36,7 +36,7 @@ from stable_baselines3 import PPO  # noqa: E402
 from stable_baselines3.common.callbacks import BaseCallback, CallbackList  # noqa: E402
 from stable_baselines3.common.vec_env import VecNormalize  # noqa: E402
 
-from fly_simulator.rl.env import EnvConfig, PerpetualFlyEnv  # noqa: E402
+from fly_simulator.rl.env import EnvConfig, FlySimulatorEnv  # noqa: E402
 from fly_simulator.rl.evaluation import evaluate, format_report  # noqa: E402
 from fly_simulator.rl.wrappers import make_vec_env  # noqa: E402
 
@@ -122,7 +122,7 @@ class LongEvalCallback(BaseCallback):
         if self.every <= 0 or self.num_timesteps < self._next:
             return True
         self._next += self.every
-        env = PerpetualFlyEnv(self.env_cfg)
+        env = FlySimulatorEnv(self.env_cfg)
         vn = self.model.get_vec_normalize_env()
 
         def policy(obs):
@@ -205,7 +205,7 @@ def main(argv: list[str] | None = None) -> int:
 
     venv = make_vec_env(cfg, n_envs=args.n_envs, seed=args.seed)
     venv = VecNormalize(venv, norm_obs=True, norm_reward=True, clip_obs=10.0, gamma=args.gamma)
-    probe = PerpetualFlyEnv(cfg)
+    probe = FlySimulatorEnv(cfg)
     start_stage = probe.stage_index
     print(f"out: {out}\nenvs: {args.n_envs}, policy rate {1 / probe.dt:.0f} Hz, obs "
           f"{probe.observation_space.shape}, act {probe.action_space.shape}, stage "

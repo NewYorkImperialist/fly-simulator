@@ -96,7 +96,7 @@ class SimConfig:
     # accept that.
     control_every_steps: int = 1
     # FlyGym's globals enable mjENBL_ENERGY (potential/kinetic energy computed in
-    # every mj_step, never read by PerpetualFly). Turning it off does not change
+    # every mj_step, never read by Fly Simulator). Turning it off does not change
     # the dynamics (verified bit-identical trajectory) and saves ~1-2 %.
     compute_energy: bool = False
 
@@ -154,7 +154,7 @@ class RenderConfig:
     # Physics steps the worker runs per lock acquisition (50 = 5 ms sim, ~7 ms
     # wall): bounds how long the display waits for the lock.
     thread_chunk_steps: int = 50
-    window_title: str = "PerpetualFly"
+    window_title: str = "Fly Simulator"
     show_hud: bool = True
     # Floor reflections (MuJoCo's mjRND_REFLECTION scene flag; the checker floor has
     # reflectance 0.2). Off (--no-reflections) saves ~5 ms per 960x640 frame on an

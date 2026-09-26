@@ -23,11 +23,11 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from fly_simulator.rl.env import EnvConfig, PerpetualFlyEnv  # noqa: E402
+from fly_simulator.rl.env import EnvConfig, FlySimulatorEnv  # noqa: E402
 from fly_simulator.rl.evaluation import evaluate, format_report, zero_policy  # noqa: E402
 
 
-def load_policy(checkpoint: Path, vecnorm: Path | None, env: PerpetualFlyEnv):
+def load_policy(checkpoint: Path, vecnorm: Path | None, env: FlySimulatorEnv):
     from stable_baselines3 import PPO
 
     model = PPO.load(str(checkpoint), device="cpu")
@@ -88,7 +88,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.action_scale is not None:
         cfg.action_scale = args.action_scale
     stage = int(args.stage) if args.stage.isdigit() else args.stage
-    env = PerpetualFlyEnv(cfg)
+    env = FlySimulatorEnv(cfg)
     policy = (zero_policy(env.n_actions) if args.baseline
               else load_policy(args.checkpoint, args.vecnormalize, env))
     who = "baseline (zero residual)" if args.baseline else str(args.checkpoint)

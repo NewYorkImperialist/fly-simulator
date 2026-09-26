@@ -123,7 +123,7 @@ Everything from the fly is prefixed with `"<fly name>/"`.
 ## 7. Contacts and sensors
 
 * **In plain FlyGym, all fly and ground geoms have `contype=0, conaffinity=0`.**
-  (PerpetualFly changes the bits, but not the explicit pairs; see §14.) Collisions exist only
+  (Fly Simulator changes the bits, but not the explicit pairs; see §14.) Collisions exist only
   through explicit `<pair>`s that `_GroundContactMixin._set_ground_contact` creates at
   `add_fly` time for every (fly geom in the preset) × (geom in `world.ground_geoms`).
   Pair params come from `flygym.compose.ContactParams()`: friction (1,1,0.02,1e-4,1e-4),
@@ -232,7 +232,7 @@ Everything from the fly is prefixed with `"<fly name>/"`.
   `test_fast_turning_controller_is_bitwise_flygym`) at ≈ 45 µs/step; whole loop
   ≈ 0.75× real time headless. See §13.
 * Behaviour: the plain hybrid controller settles at a constant ~10° heading offset to
-  the left (walks straight but diagonally). PerpetualFly adds a heading-hold P loop
+  the left (walks straight but diagonally). Fly Simulator adds a heading-hold P loop
   (`ControllerConfig.heading_gain=1.5`) feeding `HybridTurningController`: y stays
   within ~0.6 mm over 210 mm.
 
@@ -246,7 +246,7 @@ Everything from the fly is prefixed with `"<fly name>/"`.
   rotation=Rotation3D("xyaxes",(1,0,0,0,0.6,0.8)), fovy=30)` is called before
   `world.add_fly` in all tutorials (do the same); the camera is a child of the thorax, offset in the thorax frame;
   compiled name `"nmf/trackcam"`. "track" follows rigidly → jittery with gait bob.
-* PerpetualFly instead uses a free `mujoco.MjvCamera` (`mjCAMERA_FREE`) with smoothed
+* Fly Simulator instead uses a free `mujoco.MjvCamera` (`mjCAMERA_FREE`) with smoothed
   `lookat` / azimuth, rendered through `mujoco.Renderer.update_scene(data, camera=cam)`
   (`fly_simulator/rendering.py`). Free-camera convention: camera position =
   `lookat - distance * (cos el cos az, cos el sin az, sin el)`; the free camera uses
@@ -297,7 +297,7 @@ Everything from the fly is prefixed with `"<fly name>/"`.
 
 * MuJoCo by default **auto-resets `MjData`** (`mj_resetData`) when qpos/qvel/qacc
   become bad (`mjWARN_BADQACC/BADQPOS/BADQVEL`), which would silently teleport the fly
-  to the origin. PerpetualFly sets `model.opt.disableflags |= mjDSBL_AUTORESET` and
+  to the origin. Fly Simulator sets `model.opt.disableflags |= mjDSBL_AUTORESET` and
   `Simulation.check_stability()` raises `SimulationInstabilityError` on non-finite
   qpos/qvel/qacc, |qvel| > `SimConfig.max_abs_qvel` (1e6) on the **fly's** DoFs
   (`sim.fly_dofs` = DoFs whose body is in the thorax subtree), |qvel| >

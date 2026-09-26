@@ -12,7 +12,7 @@ A second live window, next to the fly, that shows what the connectome model
 
 ```
 +---------------------------------------------------------------------------------+
-| PerpetualFly — Brain   model · neurons   stimuli [WHIP L 0.80]  [BRAIN 4× SLOWER] |
+| Fly Simulator — Brain   model · neurons   stimuli [WHIP L 0.80]  [BRAIN 4× SLOWER] |
 +--------------------------------------------+------------------------------------+
 | BRAIN MAP                                  | NEUROTRANSMITTER ACTIVITY          |
 |  FlyWire neuropil outlines, regions glow   |  ACh GABA Glu DA 5-HT OA:          |
@@ -97,7 +97,7 @@ so on Retina a 1280×800 frame would be 640×400 pt with 6-pt text); the scale i
 auto-detected (≈1.6 on a 1440×900-pt MacBook screen → ~1040×650 pt window).
 Override with `FLY_SIMULATOR_BRAIN_SCALE=1.0`. (The fly window is currently shown at
 half size on Retina for the same reason.) The OS window title is ASCII
-(`PerpetualFly - Brain`) because Cocoa mangles the em dash.
+(`Fly Simulator - Brain`) because Cocoa mangles the em dash.
 
 ## API
 

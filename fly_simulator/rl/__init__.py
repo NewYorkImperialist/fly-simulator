@@ -5,10 +5,10 @@ imports this subpackage, so gymnasium / SB3 / torch stay optional."""
 from fly_simulator.rl.env import (
     CurriculumStage,
     EnvConfig,
-    PerpetualFlyEnv,
+    FlySimulatorEnv,
     RewardConfig,
     default_curriculum,
 )
 
-__all__ = ["CurriculumStage", "EnvConfig", "PerpetualFlyEnv", "RewardConfig",
+__all__ = ["CurriculumStage", "EnvConfig", "FlySimulatorEnv", "RewardConfig",
            "default_curriculum"]

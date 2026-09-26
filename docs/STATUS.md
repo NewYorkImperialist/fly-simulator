@@ -1,4 +1,4 @@
-# PerpetualFly: status (2026-09-26, after the integration pass)
+# Fly Simulator: status (2026-09-26, after the integration pass)
 
 ## What works
 

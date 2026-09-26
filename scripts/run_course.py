@@ -113,7 +113,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.window:
         from fly_simulator.interaction import LiveViewer
 
-        viewer = LiveViewer(f"PerpetualFly course: {course.spec.name}",
+        viewer = LiveViewer(f"Fly Simulator course: {course.spec.name}",
                             frame_size=(cfg.render.width, cfg.render.height))
     chunk = cfg.render.render_every_steps
     if args.record:
