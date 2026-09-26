@@ -31,6 +31,7 @@ from perpetualfly.interaction import HitEvent, install_perturbation
 from perpetualfly.interaction.perturb_controls import HIT_MODES, format_event, format_whip_event
 from perpetualfly.interaction.whip import Whip, WhipHitEvent
 from perpetualfly.metrics import FallDetector, FallEvent, FallState, RunLogger, RunMetrics
+from perpetualfly.senses.taste import TASTE_KEYS
 from perpetualfly.simulation import Simulation, SimulationInstabilityError, WorldExtension
 from perpetualfly.terrain import DIFFICULTY_PRESETS, ProceduralTerrain, ProceduralTerrainConfig
 
@@ -48,6 +49,8 @@ KEY_GROUPS: list[tuple[str, list[tuple[str, str]]]] = [
     ("obstacles / terrain", [
         ("R B S G D", "spawn a rock / bump / slope / gap / dip ahead"),
         ("F", "flatten the next terrain chunk"),
+        # taste patches (--taste-patches; docs/TASTE.md)
+        ("5 6 7", "taste patch ahead: sugar / bitter / mixed (--taste-patches)"),
         ("[ / ]", "terrain difficulty down / up (flat easy normal hard chaos), new chunks"),
     ]),
     ("brain (--brain)", [
@@ -88,7 +91,7 @@ KEY_GROUPS: list[tuple[str, list[tuple[str, str]]]] = [
 ]
 KEY_TABLE: list[tuple[str, str]] = [row for _, rows in KEY_GROUPS for row in rows]
 KEY_HELP = ("SPACE/arrows/U hit | 1-4 strength | H whip/shove | A auto | R B S G D spawn | "
-            "F flatten | [ ] terrain | J Z Y E , . W N actions | P X C | I shot | M rec | "
+            "F flatten | [ ] terrain | 5 6 7 taste | J Z Y E , . W N actions | P X C | I shot | M rec | "
             "O T K brain | 9 0 - playground | V swat | L fly | ? help | Q quit")
 # app key -> (action name, parameters); see perpetualfly/actions (docs/ACTIONS.md)
 ACTION_KEY_MAP: dict[str, tuple[str, dict]] = {
@@ -128,6 +131,10 @@ def check_feature_config(cfg: AppConfig) -> None:
                           "jobs assume a walking fly on the canonical 1e-4 s walking model "
                           "(their scoring, respawns and props are tuned for it). Run flight "
                           "on the endless terrain.")
+    # --- taste patches (docs/TASTE.md) ---
+    if cfg.taste.enabled and (cfg.course.name or cfg.job.name):
+        raise ConfigError("--taste-patches can't be combined with --course / --job: the "
+                          "patches are laid out along the endless terrain")
     if cfg.whip_vision.enabled and not cfg.whip.enabled:
         raise ConfigError("--whip-vision needs the physical whip (whip.enabled is false "
                           "in the config)")
@@ -223,6 +230,8 @@ class Session:
         self.swatter = None
         self.swatter_handle = None
         self.stress = None  # StressHandle (--stress)
+        self.taste = None  # TasteHandle (--taste-patches; docs/TASTE.md)
+        self._taste_patches = None
         self.swat_counts = {k: 0 for k in SWAT_OUTCOMES}
         self.last_swat = None
         self._job_obj = None
@@ -250,6 +259,11 @@ class Session:
             exts.append(self.swatter.extension)
         if self._job_obj is not None:  # the job's props (docs/JOBS.md)
             exts.append(self._job_obj.extension)
+        if cfg.taste.enabled:  # --- taste patches: visual-only pool geoms (docs/TASTE.md)
+            from perpetualfly.senses.taste import TastePatches
+
+            self._taste_patches = TastePatches(cfg.taste)
+            exts.append(self._taste_patches.extension)
         exts += list(world_extensions)
         # --real-vision: compound-eye cameras on the fly (must be added before add_fly)
         rv = cfg.real_vision
@@ -394,6 +408,10 @@ class Session:
                 self.swatter.jump_probe = lambda: (self.actions.active_name == "jump"
                                                    or self.flight.busy)
             self.swatter.listeners.append(self._on_swat)
+        if self._taste_patches is not None:  # --- taste patches (docs/TASTE.md) ---
+            from perpetualfly.senses.taste import install_taste
+
+            self.taste = install_taste(self, self._taste_patches, cfg.taste, say=self.say)
         if cfg.stress.enabled:
             from perpetualfly.stress import install_stress
 
@@ -462,7 +480,7 @@ class Session:
 
     # actions during which the fly deliberately stands still: the detector's
     # "no progress" window is kept empty so standing is not read as being stuck
-    STATIONARY_ACTIONS = ("freeze", "groom")
+    STATIONARY_ACTIONS = ("freeze", "groom", "feed")  # feed: taste patches (docs/TASTE.md)
 
     def _detector_hook(self, sim: Simulation) -> None:
         name = self.actions.active_name
@@ -658,6 +676,12 @@ class Session:
         return (f"[spawn] {kind} {r.distance:.1f} mm ahead "
                 f"(x {r.x_start:.1f}..{r.x_end:.1f} mm)")
 
+    def spawn_taste(self, kind: str) -> str:
+        """Keys 5 / 6 / 7: a sugar / bitter / mixed taste patch ahead (docs/TASTE.md)."""
+        if self.taste is None:
+            return f"[taste] {kind} patch: run with --taste-patches"
+        return self.taste.spawn(kind)
+
     def flatten(self) -> str:
         idx = self.terrain.flatten_next_chunk()
         x0, x1 = self.terrain.generator.chunk_bounds(idx)
@@ -705,6 +729,8 @@ class Session:
         auto reset."""
         if self.brain is not None:
             self.brain.update()
+        if self.taste is not None:  # taste patches: legs -> brain, feeding rule
+            self.taste.update()
         down = self.down_for()
         if down is None:
             return
@@ -770,6 +796,7 @@ class Session:
             "job": self.job.stats() if self.job is not None else None,
             "real_vision": self._real_vision_summary(),
             "flight": self.flight.summary() if self.flight is not None else None,
+            "taste": self.taste.summary() if self.taste is not None else None,
         }
 
     def _real_vision_summary(self) -> dict | None:
@@ -900,6 +927,14 @@ def build_arg_parser() -> argparse.ArgumentParser:
                         "with air; L takes off / lands, arrows steer while flying; with "
                         "--brain-actions the giant-fibre escape jump starts the wings and flies "
                         "away from the threat. Walks at ~half the RTF. Not with --course / --job")
+    g.add_argument("--taste-patches", action="store_true",
+                   help="sugar / bitter spots on the ground tasted with the legs (docs/TASTE.md): "
+                        "taste -> sugar / bitter GRNs in the brain (labellar stand-in); with "
+                        "--brain-actions the real MN9 makes the fly stop and feed (proboscis). "
+                        "5 / 6 / 7 spawn a sugar / bitter / mixed patch ahead")
+    g.add_argument("--taste-density", type=float, default=None, metavar="PER_CM",
+                   help="with --taste-patches: procedural patches per 10 mm of path "
+                        "(default 0.3; 0 = only key-spawned patches)")
     g.add_argument("--course", metavar="NAME", default=None,
                    help="obstacle course instead of endless terrain (docs/COURSE.md): "
                         "tutorial, gauntlet, slalom, brain_test or a .json/.toml path. The app "
@@ -1047,6 +1082,12 @@ def config_from_args(args: argparse.Namespace) -> AppConfig:
         cfg.real_vision.enabled = True
     if getattr(args, "flight", False):
         cfg.flight.enabled = True
+    if getattr(args, "taste_patches", False):  # --- taste patches (docs/TASTE.md)
+        cfg.taste.enabled = True
+    if getattr(args, "taste_density", None) is not None:
+        if not cfg.taste.enabled:
+            raise ConfigError("--taste-density needs --taste-patches")
+        cfg.taste.density_per_cm = max(float(args.taste_density), 0.0)
     if getattr(args, "course", None):
         cfg.course.name = args.course
     if getattr(args, "course_loop", False):
@@ -1249,6 +1290,12 @@ def run(
         feats.append("flight (L take off / land, arrows steer while flying; escape flight "
                      + ("on: giant fibre -> jump -> wings)" if session.brain is not None
                         and cfg.brain.actions else "needs --brain-actions)"))
+    if session.taste is not None:
+        feats.append("taste patches (5 / 6 / 7 spawn sugar / bitter / mixed; legs -> sugar / "
+                     "bitter GRNs" + (", feeding stop on MN9)" if session.taste.rule is not None
+                                      else "; add --brain-actions for the feeding stop)"
+                                      if session.brain is not None else
+                                      "; add --brain-actions for the brain and feeding)"))
     if session.job is not None:
         feats.append(f"job {session.job.name}: {session.job.title}")
     if session.course is not None:
@@ -1347,6 +1394,8 @@ def run(
             lines.append(_stress_hud(session.stress))
         if session.flight is not None:
             lines.append(session.flight.hud_line())
+        if session.taste is not None:
+            lines.append(session.taste.hud_line())
         if brain is not None:
             lines.extend(brain.hud_lines())
         if session.course is not None:
@@ -1453,6 +1502,8 @@ def run(
                 msg = session.spawn(SPAWN_KEYS[k])
             elif k == "f":
                 msg = session.flatten()
+            elif k in TASTE_KEYS:
+                msg = session.spawn_taste(TASTE_KEYS[k])
             elif k in ("?", "/"):
                 st.show_help = not st.show_help and viewer is not None
                 msg = key_help_text(session.available_actions) + (

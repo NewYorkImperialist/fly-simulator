@@ -32,6 +32,10 @@ Stimulus mapping (``StimulusMapper``)
 * ``loom``: visual looming seen by one eye (``perpetualfly.vision``): LC4 and
   LPLC2 on that side at ``details["lc4_hz"]`` / ``details["lplc2_hz"]``
   (docs/VISION.md).
+* ``taste``: taste patches under the legs (perpetualfly/senses/taste.py,
+  docs/TASTE.md): the labellar sugar / bitter GRN sets as a stand-in for leg taste
+  (``details["tastes"]``, ``details["sugar_hz"]`` / ``["bitter_hz"]``), optionally
+  the ascending leg gustatory afferents (``details["leg_hz"]``).
 * ``manual``: ``details`` = {"set": name} (see ``NAMED_SETS``), or
   {"cell_type": "LC4"}, or {"root_ids": [...]}; optional "side", "rate_hz".
 * ``reset``: clears all active stimuli.
@@ -149,6 +153,12 @@ def named_sets(table: NeuronTable) -> dict[str, np.ndarray]:
         # LC10a drives the *ipsilateral* DNa01/02 (a turn toward). Used by the CHASE
         # game (perpetualfly/games/chase.py, docs/GAMES.md) via manual {"set": "LC10a"}.
         "LC10a": np.nonzero(ct == "LC10a")[0],
+        # Leg gustatory afferents that ascend straight to the brain (VTV tract,
+        # cell_class gustatory; taste modality not annotated). Taste patches
+        # (perpetualfly/senses/taste.py, docs/TASTE.md) can drive them on the touching
+        # side (TasteConfig.leg_afferent_hz, off by default: no MN9 effect measured).
+        "leg_gustatory": np.nonzero((sub == "SA_VTV_pro_meso_meta")
+                                    & (table.col("cell_class") == "gustatory"))[0],
     }
     return sets
 
@@ -348,6 +358,23 @@ class StimulusMapper:
                 idx = np.sort(rng.choice(idx, MAX_OPTO_NEURONS, replace=False))
             rate = float(d.get("rate_hz", 0.0) or 0.0) or self._rate(ev)
             out.append((f"opto:{tg.label}", idx, rate))
+        elif kind == "taste":
+            # Taste patches tasted by the legs (perpetualfly/senses/taste.py,
+            # docs/TASTE.md). details["tastes"]: a subset of ("sugar", "bitter"), with
+            # details["<taste>_hz"]. Stand-in: the labellar sugar / bitter GRN sets
+            # of Shiu et al. (both on the fly's left labellar nerve, so ``side`` does
+            # not select them); details["leg_hz"] > 0 also drives the ascending leg
+            # gustatory afferents on ``side``.
+            d = ev.details or {}
+            for name in d.get("tastes") or ():
+                if name not in ("sugar", "bitter"):
+                    continue
+                rate = float(d.get(f"{name}_hz", 0.0) or 0.0) or self._rate(ev)
+                out.append((f"taste:{name}:{side}", self.sets[name], min(rate, self.max_rate_hz)))
+            leg_hz = float(d.get("leg_hz", 0.0) or 0.0)
+            if leg_hz > 0:
+                out.append((f"taste:leg_gustatory:{side}",
+                            self._sided(self.sets["leg_gustatory"], side), leg_hz))
         elif kind == "manual":
             d = ev.details or {}
             if "root_ids" in d:

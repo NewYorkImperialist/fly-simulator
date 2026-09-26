@@ -17,6 +17,7 @@ from perpetualfly.interaction.perturbation import AutoPerturbConfig, Perturbatio
 from perpetualfly.interaction.whip import WhipConfig
 from perpetualfly.metrics.falls import FallDetectorConfig
 from perpetualfly.metrics.run_logger import LoggingConfig
+from perpetualfly.senses.taste import TasteConfig  # --taste-patches (docs/TASTE.md)
 from perpetualfly.stress import StressConfig
 
 
@@ -340,6 +341,8 @@ class AppConfig:
     course: CourseAppConfig = field(default_factory=CourseAppConfig)
     job: JobAppConfig = field(default_factory=JobAppConfig)
     flight: FlightModeConfig = field(default_factory=FlightModeConfig)  # --flight
+    # --- taste patches (--taste-patches; perpetualfly/senses/taste.py, docs/TASTE.md) ---
+    taste: TasteConfig = field(default_factory=TasteConfig)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

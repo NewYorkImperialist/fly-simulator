@@ -75,6 +75,7 @@ With the venv activated (`source .venv/bin/activate.fish` in fish, or
 | G | spawn a gap ahead |
 | D | spawn a dip ahead |
 | F | flatten the next terrain chunk |
+| 5 / 6 / 7 | taste patches (`--taste-patches`): spawn a sugar / bitter / mixed spot 3 mm ahead ([docs/TASTE.md](docs/TASTE.md)) |
 | [ / ] | terrain difficulty one step down / up (flat → easy → normal → hard → chaos) at runtime. Chunks from 12–24 mm ahead of the fly onward are regenerated; nothing changes under its feet. The HUD shows the current difficulty, and each change is logged (`terrain_difficulty` event) |
 | P | pause / resume |
 | X | reset the fly (an explicit reset, counted in the metrics) |
@@ -153,6 +154,7 @@ long it has been down.
 | `--stress` | octopamine pain / arousal layer ([docs/STRESS.md](docs/STRESS.md); a phenomenological model on top of the connectome). Implies `--brain`. Use with `--brain-steer` (walk-DN bursts per hit) and/or `--brain-actions` (lower jump threshold when stressed). HUD `PAIN/AROUSAL` line; `metrics.csv` gains `octopamine`, `oa_rate_hz`, `noci_hz`, `stress_freq_mult`, `stress_amp_mult`, `stress_jump_hz` |
 | `--whip-vision` | the fly sees the whip coming: compound-eye looming → LC4 / LPLC2 `loom` stimuli (implies `--brain`; with `--brain-actions` the giant fiber can jump). Shares one looming model with `--swatter`. HUD `EYES` line |
 | `--flight` | real flapping-wing flight ([docs/FLIGHT.md](docs/FLIGHT.md) §7): the flight fly (stroke-plane wing hinges + MuJoCo fluid model, same leg actuators) at dt 5e-5 s. It walks as usual; L takes off / lands, the arrows steer while flying. With `--brain-actions` the giant-fibre escape jump starts the wings at take-off and the fly flies away from the threat (the swatter paddle) and lands ~1.3 s later: no external force, only wing aerodynamics. About half the RTF of the normal app. Not with `--course` / `--job`; `--full-body` is ignored (W / N greyed out) |
+| `--taste-patches` | sugar / bitter / mixed spots on the ground tasted with the legs ([docs/TASTE.md](docs/TASTE.md)): taste → sugar / bitter GRNs (labellar stand-in); with `--brain-actions` the real MN9 makes the fly stop and feed (proboscis). Keys 5 / 6 / 7 spawn a spot ahead; `--taste-density PER_CM` sets the procedural density (default 0.3 per 10 mm, 0 = only spawned). HUD `TASTE` line, `taste` block in `summary.json`. Not with `--course` / `--job` |
 | `--course NAME` | obstacle course instead of endless terrain ([docs/COURSE.md](docs/COURSE.md)): `tutorial`, `gauntlet`, `slalom`, `brain_test` or a `.json` / `.toml` path. Flat base terrain, no app auto reset (the course respawns the fly), `[ ]` and F disabled. Course HUD; the app quits at the finish and prints the lap; results in `<run dir>/course_results.json`, leaderboard in `<runs dir>/leaderboard.json` |
 | `--course-loop` | with `--course`: start a new lap after the finish instead of quitting |
 | `--job NAME` | eternal job ([docs/JOBS.md](docs/JOBS.md)): `sisyphus`, `hamster_wheel`, `mowing`, `raking`, `kebab`. The job's props are compiled into the world, flat terrain, no auto hits / auto reset (the job recovers the fly itself, also from physics instabilities), no whip (hit keys shove; `--whip-vision` keeps the whip). Job HUD on top, C adds the job camera. Same as `scripts/run_job.py`, but with every app key and flag |
@@ -285,6 +287,31 @@ Measured with the real brain:
 
 `events.csv` gets `brain_opto` / `brain_lesion` rows. Lesions persist across resets.
 
+### Taste patches (`--taste-patches`)
+
+Details and measurements: [docs/TASTE.md](docs/TASTE.md).
+
+* **Patches.** Sugar (pale yellow, shiny), bitter (dark olive) and mixed (amber)
+  spots are placed procedurally along the fly's path. Set the density with
+  `--taste-density`; keys 5 / 6 / 7 spawn one ahead. They are visual only: walking
+  is bit-identical with and without them.
+* **Tasting.** Legs standing on a spot taste it. While the contact lasts, the brain
+  gets sugar / bitter GRN input: 67 / 133 / 200 Hz for 1 / 2 / 3+ legs.
+* **Which neurons.** Leg taste neurons mostly end in the VNC, which the model lacks,
+  and the model's own ascending leg gustatory afferents reach no MN9. So the
+  labellar sugar / bitter GRNs of Shiu et al. are used as a **stand-in**. The HUD
+  says so.
+* **Feeding.** With `--brain-actions`, sugar drives the real MN9 to 60–90 Hz. Our
+  rule stops the fly and extends the proboscis while MN9 stays above 30 Hz, for up
+  to 4 s. Then it walks on.
+* **Bitter.** Measured: bitter drives no avoidance DN (no MDN, no escape; at most
+  5–7 Hz on the walk DNs), so bitter has no body effect. Mixed into sugar it
+  suppresses MN9 (to about 4–10 Hz), so a mixed spot gives no feeding.
+
+```bash
+.venv/bin/python scripts/run_sim.py --taste-patches --brain-actions
+```
+
 ## Output
 
 Terminal line, every simulated second:
@@ -352,6 +379,8 @@ perpetualfly/
   vision/          compound-eye looming -> LC4 / LPLC2 (--whip-vision, the swatter)
   course/          obstacle courses (--course; docs/COURSE.md)
   jobs/            eternal jobs (--job, scripts/run_job.py; docs/JOBS.md)
+  senses/          taste patches: sugar / bitter spots tasted by the legs (--taste-patches;
+                   docs/TASTE.md)
 scripts/run_sim.py        the app
 scripts/demo_*.py         stand-alone demos of terrain / perturbation / falls / whip / actions
 scripts/eval_robustness.py  N headless sessions -> long-horizon robustness report
