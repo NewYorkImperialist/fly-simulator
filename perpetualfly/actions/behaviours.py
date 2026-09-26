@@ -89,7 +89,10 @@ class Groom(Action):
                  sweep_hz: float = 6.0, mid_raise_deg: float = 20.0) -> None:
         super().__init__(duration)
         self.speed = speed
-        self.source = source
+        # ``source`` picks recorded clip vs synthetic sweep. Stored as ``clip_source``
+        # because ActionManager.trigger overwrites ``action.source`` with who
+        # triggered it ("key" / "brain" / "api").
+        self.clip_source = source
         self.sweep_hz = sweep_hz
         # Mid legs extended (coxa-trochanter +raise, femur-tibia -raise): lifts the
         # front of the body so the recorded front-leg rubbing (recorded tethered,
@@ -107,7 +110,7 @@ class Groom(Action):
             self._targets[b.idx(leg, "ctr_pitch")] += r
             self._targets[b.idx(leg, "fti")] -= r
         self._adh = np.array([0.0, 1.0, 1.0, 0.0, 1.0, 1.0])  # lf lm lh rf rm rh
-        if self.source == "recorded":
+        if self.clip_source == "recorded":
             angles, names, fps = load_grooming_clip()
             self._cols = np.array([b.names.index(n) for n in names])
             self._clip, self._fps = angles, fps
@@ -137,11 +140,11 @@ class Groom(Action):
 
     def command(self, mgr, t: float) -> ActionCommand:
         tg = self._targets
-        tg[self._cols] = self._recorded(t) if self.source == "recorded" else self._synthetic(mgr, t)
+        tg[self._cols] = self._recorded(t) if self.clip_source == "recorded" else self._synthetic(mgr, t)
         return ActionCommand(targets=tg.copy(), adhesion=self._adh)
 
     def end(self, mgr, cancelled: bool) -> None:
-        self.info = {"source": self.source, "tilt_deg": mgr.sim.tilt_deg(), "cancelled": cancelled}
+        self.info = {"source": self.clip_source, "trigger": self.source, "tilt_deg": mgr.sim.tilt_deg(), "cancelled": cancelled}
 
 
 # ------------------------------------------------------------ drive overrides

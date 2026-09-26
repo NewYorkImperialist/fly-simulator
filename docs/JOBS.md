@@ -204,6 +204,72 @@ heading hold along +x (the tangent) with a correction of −0.35 rad per mm of l
 offset. The job counts revolutions, distance (surface travel) and top speed (max over
 1 s windows).
 
+### kebab
+
+`perpetualfly/jobs/kebab.py`, tests in `tests/test_jobs_kebab.py`.
+
+**Scene.** A vertical spit (hinge about z, driven by a velocity actuator at 12 rpm)
+stands 1.7 mm in front of the carving station. Its meat is an inverted cone 2.5 mm
+tall (r 0.9 mm at the bottom, 1.25 mm at the top): 10 rings, 199 browned chunks
+(visual box geoms on the spit body) over a pinkish core. Behind it is a heater with
+glowing bars, and below it a steel drip tray and base. The floor is shop tiles. The
+fly wears a chef hat. The props are fly-scale: the doner is about as tall as the fly
+is long.
+
+**Knife.** A handle, guard and 0.8 mm blade sit on the right front `rf_tarsus1`.
+They are visual-only geoms with no mass and no contacts, added to the fly spec just
+before `add_fly` (the extension wraps `world.add_fly` once). They cannot change the
+dynamics: the fly still weighs 1.02 mg and no contact pair involves them. I chose
+the knife's direction by searching over the recorded stroke. With it, the tip is
+more than 1.6 mm ahead of the thorax 58 % of the time and never goes below the
+floor.
+
+**Stroke.** `CarveStroke` is a `Groom` subclass. It loops the recorded NeuroMechFly
+front-leg grooming clip, with the mid legs extended and the mid / hind legs planted
+and adhering. It advances the clip with a phase accumulator, so its speed can change
+while it runs. It registers itself as a stationary action
+(`session.STATIONARY_ACTIONS`), so standing still to carve is not flagged as
+`no_progress`. The steering speed is 0. Found while building it: `Groom` picks the
+clip with `self.source`, but `ActionManager.trigger(..., source=...)` overwrites
+that attribute with the trigger source ("key" / "api" / "brain"). So a triggered
+`Groom()` has actually been running the **synthetic** sweep, not the recording.
+`CarveStroke` works around this, and a test checks that its targets match the
+recorded clip. `Groom` itself is not changed here.
+
+**Cut, shaving and regrowth.** Every 1 ms the job checks three blade points
+(mid-blade to tip) against the ripe chunks. A point within 0.2 mm of a chunk centre,
+with the tip moving faster than 12 mm/s, cuts that chunk. There is at most one cut
+per 0.12 s. The blade and meat do not collide physically: the cut is a geometric
+test. When a chunk is cut, it is hidden (size and alpha), and a shaving from a pool
+of 18 free bodies (3 µg ellipsoids, recycled oldest first) is launched from the
+chunk's pose with the spit's surface speed plus an outward kick. It falls onto the
+tray with real physics. Shavings touch only the tray, the floor and each other, not
+the fly. A shaving that goes NaN or leaves the arena is put back on the tray
+(`shavings_lost`). A cut chunk regrows over 18 s, from raw pink to browned, and can
+be cut again from 85 % of its size. A reset brings back a whole kebab.
+
+**Counters.** Shavings (the work counter), kebabs completed (every 60 shavings), and
+µg served (3.5 µg per slice), also shown as a human-scale mass: × (1.75 m / 2.5 mm)³,
+so a 3.5 µg slice is ~1.2 kg. There is also a rate per minute (last 60 s). The HUD
+states that the knife stroke is a real recorded fly grooming bout.
+
+**Station keeping.** If the thorax drifts more than 0.45 mm or 25° from its station,
+the fly stops carving, backs off or walks back, and resumes. This never triggered in
+the runs below.
+
+**Brain (`--brain`, off by default).** The job turns on the full body (proboscis
+joints) and treats the kebab as food: every 4 s it sends a 1 s sugar-GRN stimulus
+(the T key's set, labelled `KEBAB (sugar GRNs)`). The proboscis follows the brain's
+MN9 rate: fully extended at 60 Hz, smoothed with τ 0.15 s. The job drives the
+proboscis itself, because the brain-trigger path never interrupts a running action,
+and the carve action always runs. The food response is the connectome's wiring.
+"Kebab" is only a label on sugar input. The job trims `BrainLink.stim_log` to keep
+memory constant.
+
+**Stress (optional).** If `session.stress` is an enabled handle (docs/STRESS.md),
+carve speed is multiplied by `1 + gain · (freq_mult − 1)`. `run_job.py` does not
+install stress, so this path is tested with a fake handle only.
+
 ## Verification
 
 The test file is `tests/test_jobs.py`: synthetic tests of the registry, steering and

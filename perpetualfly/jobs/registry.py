@@ -29,6 +29,7 @@ def _load_builtin() -> None:
         from perpetualfly.jobs import hamster_wheel  # noqa: F401
     except ImportError:
         pass
+    from perpetualfly.jobs import kebab  # noqa: F401
 
 
 def available_jobs() -> list[str]:

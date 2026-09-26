@@ -124,6 +124,22 @@ def test_freeze_holds_then_resumes(rig):
     assert _walk(sim, 0.6) > 8.0
 
 
+def test_triggered_groom_still_uses_recorded_clip(rig):
+    # ActionManager.trigger sets action.source to who triggered it; that must not
+    # switch Groom from the recorded clip to the synthetic sweep (regression).
+    sim, mgr = rig
+    sim.reset()
+    sim.step(100)
+    for trigger in ("key", "brain", "api"):
+        g = Groom(duration=0.1)
+        mgr.trigger(g, source=trigger)
+        sim.step(1)
+        assert g.clip_source == "recorded" and g.source == trigger
+        assert hasattr(g, "_clip")  # begin() loaded the recording
+        while mgr.busy:
+            sim.step(50)
+
+
 def test_groom_replays_recorded_front_legs(rig):
     sim, mgr = rig
     angles, names, fps = load_grooming_clip()
