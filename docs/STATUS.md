@@ -1,4 +1,4 @@
-# PerpetualFly: status (2026-09-25, after the overnight soak pass)
+# PerpetualFly: status (2026-09-26, after the integration pass)
 
 ## What works
 
@@ -12,9 +12,10 @@
 | connectome brain | `--brain` runs the Shiu et al. 2024 LIF model of the whole FlyWire v783 brain (138,639 neurons) in its own process, paced to the fly's *simulated* time (lag ~0.1 s), plus a brain window. Whip hits, shoves, falls and resets become sensory input; O (looming), T (sugar), K (bitter) inject stimuli. `--brain-steer` feeds the descending neurons back into the walking controller: looming (giant fiber 120-150 Hz, MDN 15-45 Hz) stops the fly for ~1 s. Whip hits never reach the walking DNs in this model. See docs/BRAIN.md, *Integration*. |
 | quick wins (ROADMAP A) | `--brain-backup` (looming makes the fly walk backward), automatic Retina ×2 fly window, `--no-reflections`, `[` / `]` live terrain difficulty, `I` screenshot (fly + brain PNG, renderer frames only), `M` live MP4 with a REC badge, `?` on-screen help, auto hits paused while the fly is down, walked distance separate from total path, brain atlas in the wheel. See "Quick wins" below. |
 | actions | `perpetualfly/actions/`: jump (J), freeze (Z), groom (Y, a recorded NeuroMechFly grooming bout), back away (E), turn in place (, .), wing raise (W), proboscis extension (N). They blend back into walking, are logged to events.csv and shown in the HUD. Auto hits and fall counting pause during a jump. `--full-body` (default in the CLI) adds wing and proboscis joints with walking unchanged. `--brain-actions`: giant fiber → jump (0.12 s after O), MN9 → proboscis (T), DNg12 → groom (not reached by natural input in this model). The unboosted jump is +3.0 ± 0.2 mm and lands upright in 16/16 gait phases. See docs/ACTIONS.md. |
+| integration pass (2026-09-26) | The standalone features are now app flags that compose: `--swatter` (V / Shift+V), `--stress`, `--whip-vision`, `--course NAME` (+ `--course-loop`), `--job NAME` (+ `--job-config`). Session wiring, HUD lines, `?` overlay (new "swatter" group), events / metrics / summary logging, refused combos. See "Integration pass" below. |
 | robustness eval | `scripts/eval_robustness.py` runs N headless sessions in parallel, or aggregates existing run folders, and writes `report.md` and `report.json` with the spec's long-horizon metrics. |
 
-Tests: `.venv/bin/python -m pytest -q`: 139 passed, ~3.6 min (18 in `tests/test_actions.py`, 12 in `tests/test_quick_wins.py`).
+Tests: `.venv/bin/python -m pytest -q`: 225 passed, ~5 min (15 in `tests/test_integration.py`).
 
 ## How to run
 
@@ -30,6 +31,40 @@ Tests: `.venv/bin/python -m pytest -q`: 139 passed, ~3.6 min (18 in `tests/test_
 .venv/bin/python scripts/run_sim.py --brain-actions                   # + GF -> jump, MN9 -> proboscis, DNg12 -> groom
 .venv/bin/python scripts/demo_actions.py --frames /tmp/frames          # every action headless, metrics + key frames
 ```
+
+## Integration pass (2026-09-26)
+
+Flags (all in `perpetualfly/app.py`; config blocks `swatter`, `stress`, `whip_vision`,
+`course`, `job` in `AppConfig`, so `--config` files work too):
+
+| flag | wiring | evidence (headless unless noted) |
+|---|---|---|
+| `--swatter` | `Swatter.extension` compiled in, `install_swatter` (vision source on the shared `LoomingVision`, short-mode escape with `--brain-actions`, flight emulation **off**). V rear / Shift+V random, 1-4 (and `--strength`) set the level. `swat` rows in events.csv, hits in RunMetrics, auto hits wait during a swat, HUD `SWATTER` line, `summary.swatter` | L2 swats without a brain: 2/2 hits (154 / 99 uN·s). Renderer frame shows the red paddle flat on the fly |
+| `--stress` | implies `--brain`; `install_stress` after the brain link; restored in `Session.close` before `brain.close`; HUD `PAIN/AROUSAL`, 6 metrics.csv columns, `summary.stress` | see the combined run |
+| `--whip-vision` | implies `--brain`; `install_whip_vision` with the brain link as sink; the swatter adds its paddle to the same instance | L4 cracks: GF 100-150 Hz → brain jump at contact (L2 cracks stay below the whip's 12 000 deg/s response threshold: 0 loom events) |
+| brain pacing | `window_s 0.02`, `sync_wait_s 0.05` when the swatter or whip vision run with a brain (only if still at the defaults) | config.json of the combined run |
+| `--course NAME` / `--course-loop` | `install_course` in the Session; flat base terrain, auto reset off; the app quits at the finish (`quit_reason "course finished"`) and prints the lap | gauntlet finished in 10.32 s (0 falls, 3 whip hits); `--course gauntlet --stress --brain-steer`: 8.80 s, octopamine 0.35 |
+| `--job NAME` / `--job-config` | `make_job` + `configure_app` before the world is built, props via `world_extensions`, `install_job`; `Session.ground_height` follows the job; `JobCamera` in the C cycle; job HUD on top; no whip (hits shove); instabilities recovered by `job.recover` (also in the physics thread via `PhysicsThread(step_fn=...)`) | kebab 8 s: 48 shavings; sisyphus 10 s: 2 summits, 0 falls; `kebab --brain`: 61 shavings, MN9 40-60 Hz on each food pulse |
+
+Combined run, real brain: `run_sim.py --headless --brain-actions --stress --swatter
+--whip-vision --max-seconds 20 --script-keys "3:v,6:space,9:o"` (normal terrain):
+the swat at 3 s was **DODGED** (GF 100 Hz at 3.76 s → short-mode jump; the fly 7.7 mm
+from the aim point when the plate landed), but the jump tumbled and the fly fell at
+4.18 s (short-mode jumps without flight tumble, docs/SWATTER.md). SPACE at 6 s: whip
+**HIT** (338 nN·s). The octopamine level rose 0 → 0.20 (9 s) → **0.64** after O and
+decayed to 0.48 at 20 s; the jump threshold followed (60 → 41 Hz). 5 brain-triggered
+jumps. 999 brain states, 0 dropped, final lag 0.03 s.
+
+Window (threaded, keys injected into `LiveViewer.poll_keys`, `--brain-actions
+--no-brain-window --swatter --stress`): V, Shift+V (queued), SPACE, O, ?, ?, C, Q all
+handled without deadlock; frames checked (HUD lines, `?` overlay with the swatter group
+fits at ×1). `--job kebab` window: C job → follow, Q. `scripts/run_job.py --brain` now
+opens the brain window when not `--headless` (it always passed `headless=True`
+before); checked with a 1.5 s windowed kebab run ("window on", both processes exit).
+
+Small changes outside app/config: `decode_key(code, shift_names=False)` and
+`LiveViewer.shift_names` (Shift+V; the app turns it on), `PhysicsThread(step_fn=...)`,
+`scripts/run_job.py` (brain window, `--no-brain-window`).
 
 ## Quick wins (ROADMAP section A, 2026-09-25)
 
@@ -98,6 +133,11 @@ are in `runs/soak/report_*/report.md`, `runs/soak/chaos/report.md` and
    `tests/test_whip.py::test_mid_crack_reset_mode_toggle_and_spawn_while_fallen`.
 
 ## Known limitations
+
+- Integration: with `--brain-actions`, brain-triggered jumps also fire while the fly
+  is lying down (pre-existing). Short-mode escape jumps often tumble (no flight
+  emulation by default). `sync_wait_s` costs wall time while a loom is active. A job
+  runs on top of the (flat) procedural terrain, which keeps recycling chunks.
 
 - **No righting reflex.** A fly on its back stays down, so long unattended runs need
   `--auto-reset-after`. This is the main gap and the reason for the RL work.

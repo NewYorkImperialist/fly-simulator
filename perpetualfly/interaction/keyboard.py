@@ -19,8 +19,12 @@ _SPECIAL = {
 }
 
 
-def decode_key(code: int) -> str | None:
-    """Return a lowercase key name ('q', 'space', 'left', ...) or None for no key."""
+def decode_key(code: int, shift_names: bool = False) -> str | None:
+    """Return a lowercase key name ('q', 'space', 'left', ...) or None for no key.
+
+    ``shift_names``: an upper-case letter (Shift or Caps Lock held) becomes
+    ``"shift+<letter>"`` instead of the plain letter (the app binds Shift+V; it maps
+    every other ``shift+<k>`` back to ``<k>``)."""
     if code is None or code < 0:
         return None
     if code in _SPECIAL:
@@ -30,5 +34,8 @@ def decode_key(code: int) -> str | None:
         if low in _SPECIAL:
             return _SPECIAL[low]
         if 32 < low < 127:
-            return chr(low).lower()
+            ch = chr(low)
+            if shift_names and "A" <= ch <= "Z":
+                return "shift+" + ch.lower()
+            return ch.lower()
     return f"code{code}"

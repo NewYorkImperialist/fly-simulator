@@ -24,9 +24,15 @@ added optional fields to it (see *Integration* below).
   The sign of each connection comes from the predicted transmitter of the
   presynaptic neuron (Eckstein et al. 2024). ACh, DA, 5-HT and OA count as
   excitatory; GABA and Glu count as inhibitory.
-* **It is not** a model of neuromodulation. Dopamine, serotonin and octopamine
-  neurons act only as fast excitatory synapses, as in Shiu et al. The window colours
-  neurons by predicted transmitter, but the dynamics do not distinguish them.
+* **The base model is not** a model of neuromodulation. Dopamine, serotonin and
+  octopamine neurons act only as fast excitatory synapses, as in Shiu et al. The
+  window colours neurons by predicted transmitter, but the dynamics do not
+  distinguish them. **Exception, opt-in:** `--stress` adds a phenomenological
+  octopamine layer on top (docs/STRESS.md): the spikes of the 43 real `OA-*` neurons
+  drive a slow leaky "octopamine level", which lowers the spike threshold of their
+  synaptic partners and speeds up the gait. The level dynamics, targets and effects
+  are our modelling choices, not connectome data. Without `--stress` the engine is
+  bit-identical to the plain Shiu model.
 * There is **no VNC.** FlyWire covers the brain only, and most body mechanosensors
   and all leg motor circuits live in the ventral nerve cord. The descending neurons
   are therefore the output of the model, and they drive nothing downstream.

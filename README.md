@@ -66,7 +66,7 @@ With the venv activated (`source .venv/bin/activate.fish` in fish, or
 | LEFT / RIGHT | whip: crack *from* the fly's left / right (pushes it right / left) · shove: push to the fly's left / right |
 | UP / DOWN | whip: crack from the front / rear (pushes it back / forward) · shove: push forward / backward |
 | U | whip: overhead crack (chops down on the thorax) · shove: straight up |
-| 1 2 3 4 | hit strength: gentle / medium / hard / absurd (default 2), both modes |
+| 1 2 3 4 | hit strength: gentle / medium / hard / absurd (default 2), both modes; with `--swatter` also the swat level |
 | H | hit mode: whip ↔ shove (default whip; the HUD shows `WHIP ...` or `SHOVE ...`) |
 | A | toggle automatic random hits (they use the current hit mode; they wait while the fly is FALLEN / RECOVERING and for 1 s after it recovers, and skipped hits are counted) |
 | R | spawn a rock ahead |
@@ -78,7 +78,7 @@ With the venv activated (`source .venv/bin/activate.fish` in fish, or
 | [ / ] | terrain difficulty one step down / up (flat → easy → normal → hard → chaos) at runtime. Chunks from 12–24 mm ahead of the fly onward are regenerated; nothing changes under its feet. The HUD shows the current difficulty, and each change is logged (`terrain_difficulty` event) |
 | P | pause / resume |
 | X | reset the fly (an explicit reset, counted in the metrics) |
-| C | camera: follow / side / top |
+| C | camera: follow / side / top (with `--job`: job view / follow / side / top) |
 | I | screenshot: saves the fly frame from the renderer as PNGs (`shotNNN_t<run time>s_fly.png` clean, `..._fly_hud.png` with the HUD), plus a brain-window frame (`..._brain.png`) rendered from the latest brain states with `--brain`. Files go into the run folder, or `runs/screenshots/` with `--no-log`. The screen itself is never captured |
 | M | start / stop an MP4 recording of the fly view (`recordingNN_t<run time>s.mp4` in the run folder, or `runs/recordings/`). The video has 30 frames per *simulated* second and plays at real time, like `--record`. While recording, a red `REC` badge shows in the top-right corner of the window |
 | J | action: **jump** (escape: crouch, 15 ms mid-leg push, ~3 mm up, ~55 ms airtime, lands upright). Auto hits and fall detection pause during the jump |
@@ -91,7 +91,9 @@ With the venv activated (`source .venv/bin/activate.fish` in fish, or
 | O | brain (`--brain`): looming shadow: LC4 looming detectors → giant fiber (escape) + MDN (backward walking). With `--brain-steer` the fly stops (see below); with `--brain-actions` the giant fiber makes it **jump** |
 | T | brain: sugar taste: sugar GRNs → MN9 (proboscis motor neuron). With `--brain-actions` (and the full body) MN9 extends the proboscis |
 | K | brain: bitter taste (bitter GRNs). Display only, no body effect |
-| ? | show / hide the on-screen key help (grouped: hits, obstacles / terrain, brain, actions, view / run; actions the body can't do are greyed out); it is also printed in the terminal |
+| V | swatter (`--swatter`): swat at the fly **from behind** at the current strength (1–4 = lazy / normal / quick / lightning). A second V during a swat is queued. The outcome (`HIT` / `GRAZED` / `DODGED` / `MISS`) is printed, shown in the HUD and written to `events.csv` (`swat` rows) |
+| Shift+V | swatter: swat from a random direction around the fly. In `--script-keys` write `shift+v`. Any other Shift / Caps-Lock letter acts as the plain key |
+| ? | show / hide the on-screen key help (grouped: hits, obstacles / terrain, brain, actions, swatter, view / run; actions the body can't do are greyed out); it is also printed in the terminal |
 | Q / ESC | quit (closing the window or Ctrl-C in the terminal also quits) |
 
 Actions (docs/ACTIONS.md) take over the leg targets for a moment and then blend back
@@ -145,6 +147,27 @@ long it has been down.
 | `--brain-backup` | lowers the MDN (backward-walking) reference from 40 to 20 Hz, so looming (O) makes the fly walk backward instead of just stopping (implies `--brain-steer`; docs/BRAIN.md) |
 | `--brain-actions` | descending neurons trigger body actions: giant fiber (DNp01) > 60 Hz → jump (1.5 s refractory), MN9 > 30 Hz → proboscis extension (full body), DNg12 > 20 Hz for ≥ 100 ms → groom. Implies `--brain-steer` |
 | `--no-reflections` | no floor reflections: faster rendering (the draw goes from ~11 to ~6 ms per 960×640 frame on an M1) |
+| `--swatter` | a physical flyswatter ([docs/SWATTER.md](docs/SWATTER.md)): V / Shift+V swat, 1–4 strength. The paddle is a looming source on the compound eyes (LC4 / LPLC2); with `--brain-actions` the giant fiber triggers a short-mode escape jump, so slow swats can be dodged. The escape-flight emulation stays off. Hits count as hits in the metrics; every swat is a `swat` row in `events.csv`; `summary.json` gets a `swatter` block. Does not start the brain by itself |
+| `--stress` | octopamine pain / arousal layer ([docs/STRESS.md](docs/STRESS.md); a phenomenological model on top of the connectome). Implies `--brain`. Use with `--brain-steer` (walk-DN bursts per hit) and/or `--brain-actions` (lower jump threshold when stressed). HUD `PAIN/AROUSAL` line; `metrics.csv` gains `octopamine`, `oa_rate_hz`, `noci_hz`, `stress_freq_mult`, `stress_amp_mult`, `stress_jump_hz` |
+| `--whip-vision` | the fly sees the whip coming: compound-eye looming → LC4 / LPLC2 `loom` stimuli (implies `--brain`; with `--brain-actions` the giant fiber can jump). Shares one looming model with `--swatter`. HUD `EYES` line |
+| `--course NAME` | obstacle course instead of endless terrain ([docs/COURSE.md](docs/COURSE.md)): `tutorial`, `gauntlet`, `slalom`, `brain_test` or a `.json` / `.toml` path. Flat base terrain, no app auto reset (the course respawns the fly), `[ ]` and F disabled. Course HUD; the app quits at the finish and prints the lap; results in `<run dir>/course_results.json`, leaderboard in `<runs dir>/leaderboard.json` |
+| `--course-loop` | with `--course`: start a new lap after the finish instead of quitting |
+| `--job NAME` | eternal job ([docs/JOBS.md](docs/JOBS.md)): `sisyphus`, `hamster_wheel`, `mowing`, `raking`, `kebab`. The job's props are compiled into the world, flat terrain, no auto hits / auto reset (the job recovers the fly itself, also from physics instabilities), no whip (hit keys shove; `--whip-vision` keeps the whip). Job HUD on top, C adds the job camera. Same as `scripts/run_job.py`, but with every app key and flag |
+| `--job-config JSON` | with `--job`: job config overrides, e.g. `'{"gap": 1.6}'` |
+
+The features compose: e.g. `--brain-actions --stress --swatter --whip-vision`,
+`--job kebab --brain`, `--course gauntlet --stress`. `--course` and `--job` can't be
+combined (both replace the world); bad combinations, unknown jobs / courses and bad
+`--job-config` exit with a clear `ERROR:` (code 2). With `--swatter` or
+`--whip-vision` and a brain, the low-latency brain pacing from docs/SWATTER.md is set
+automatically (`brain.window_s = 0.02`, `brain.sync_wait_s = 0.05`; the wait only
+happens while a loom is active and can lower the window's frame rate then).
+
+```bash
+.venv/bin/python scripts/run_sim.py --brain-actions --swatter --whip-vision --stress   # dodge + pain
+.venv/bin/python scripts/run_sim.py --course gauntlet --stress --brain-steer
+.venv/bin/python scripts/run_sim.py --job kebab --brain                              # + brain window
+```
 
 ## Connectome brain (optional)
 
@@ -274,6 +297,10 @@ perpetualfly/
   rl/              residual RL env (Gymnasium), wrappers, long-horizon evaluation
   actions/         action library: jump, freeze, groom, back away, turn, wings, proboscis
                    (ActionManager, brain triggers, full-body fly; docs/ACTIONS.md)
+  stress.py        octopamine pain / arousal body effects (--stress; docs/STRESS.md)
+  vision/          compound-eye looming -> LC4 / LPLC2 (--whip-vision, the swatter)
+  course/          obstacle courses (--course; docs/COURSE.md)
+  jobs/            eternal jobs (--job, scripts/run_job.py; docs/JOBS.md)
 scripts/run_sim.py        the app
 scripts/demo_*.py         stand-alone demos of terrain / perturbation / falls / whip / actions
 scripts/eval_robustness.py  N headless sessions -> long-horizon robustness report

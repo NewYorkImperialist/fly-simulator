@@ -44,10 +44,14 @@ class PhysicsThread:
         after_chunk: Callable[[], bool] | None = None,
         max_realtime_factor: float | None = None,
         switch_interval_s: float = 0.001,
+        step_fn: Callable[[int], None] | None = None,
     ) -> None:
         """``after_chunk()`` runs in the worker, under the lock, after every chunk
-        (stats, printing). Returning True stops the worker (e.g. max sim time)."""
+        (stats, printing). Returning True stops the worker (e.g. max sim time).
+        ``step_fn(n)`` replaces ``sim.step(n)`` (e.g. the app's job-aware step that
+        recovers from instabilities)."""
         self.sim = sim
+        self.step_fn = step_fn or sim.step
         self.chunk_steps = max(1, int(chunk_steps))
         self.after_chunk = after_chunk
         self.max_realtime_factor = max_realtime_factor
@@ -110,7 +114,7 @@ class PhysicsThread:
                 with self._gate:  # turnstile: lets a waiting locked() go first
                     pass
                 with self._lock:
-                    self.sim.step(self.chunk_steps)
+                    self.step_fn(self.chunk_steps)
                     done = self.after_chunk() if self.after_chunk is not None else False
                 if done:
                     return

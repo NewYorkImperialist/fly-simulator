@@ -429,5 +429,6 @@ shavings piling up on the tray, and the counters climbing.
   another respawn point can write it into the keyframe, as `perpetualfly/course` does.
 * `RunMetrics` keeps one float per fall (`falls`, `recovery_times`). This grows very
   slowly and is the only per-event list; the job's own counters are O(1).
-* The app (`perpetualfly/app.py`) is not wired yet. `install_job` + `JobCamera` +
-  `session.job.hud_lines()` are the integration points (see above).
+* The main app runs jobs too: `run_sim.py --job NAME [--job-config JSON]` (all app keys
+  and flags available; the whip is turned off because the idle whip lies across the
+  job scenes, so hit keys shove). `scripts/run_job.py` remains the standalone runner.

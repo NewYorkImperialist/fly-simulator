@@ -14,11 +14,14 @@ hits, reset, reading state for the HUD / camera) goes through ``runner.locked()`
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Callable
+
+import numpy as np
 
 from perpetualfly.actions import ActionEvent, ActionManager, make_action
 from perpetualfly.actions.registry import available_actions
@@ -61,8 +64,12 @@ KEY_GROUPS: list[tuple[str, list[tuple[str, str]]]] = [
         ("W", "wing raise (1.5 s; needs --full-body)"),
         ("N", "proboscis extension (1.5 s; needs --full-body)"),
     ]),
+    ("swatter (--swatter)", [
+        ("V", "swat at the fly from behind (1-4 = lazy / normal / quick / lightning)"),
+        ("Shift+V", "swat from a random direction around the fly"),
+    ]),
     ("view / run", [
-        ("C", "camera: follow / side / top"),
+        ("C", "camera: follow / side / top (--job: job view first)"),
         ("P", "pause / resume"),
         ("X", "reset the fly (explicit reset, counted in the metrics)"),
         ("I", "screenshot: fly frame (+ brain frame) as PNG into the run dir"),
@@ -74,7 +81,7 @@ KEY_GROUPS: list[tuple[str, list[tuple[str, str]]]] = [
 KEY_TABLE: list[tuple[str, str]] = [row for _, rows in KEY_GROUPS for row in rows]
 KEY_HELP = ("SPACE/arrows/U hit | 1-4 strength | H whip/shove | A auto | R B S G D spawn | "
             "F flatten | [ ] terrain | J Z Y E , . W N actions | P X C | I shot | M rec | "
-            "O T K brain | ? help | Q quit")
+            "O T K brain | V swat | ? help | Q quit")
 # app key -> (action name, parameters); see perpetualfly/actions (docs/ACTIONS.md)
 ACTION_KEY_MAP: dict[str, tuple[str, dict]] = {
     "j": ("jump", {}),
@@ -89,6 +96,38 @@ ACTION_KEY_MAP: dict[str, tuple[str, dict]] = {
 # --script-keys names for keys that clash with its syntax
 SCRIPT_KEY_ALIASES = {"comma": ",", "period": ".", "dot": ".", "colon": ":"}
 UNAVAILABLE_MARK = "~"  # help rows starting with this are drawn greyed out
+SWAT_KEYS = ("v", "shift+v")
+# keys with their own Shift binding; any other "shift+<k>" (Shift / Caps Lock held)
+# is handled as plain <k>
+SHIFT_BOUND = {"shift+v"}
+SWAT_OUTCOMES = ("hit", "grazed", "dodged", "miss")
+
+
+class ConfigError(ValueError):
+    """An invalid feature combination / name (main() prints it and exits with 2)."""
+
+
+def check_feature_config(cfg: AppConfig) -> None:
+    """Refuse feature combinations that can't work together (ConfigError)."""
+    if cfg.course.name and cfg.job.name:
+        raise ConfigError("--course and --job can't be combined: both replace the world "
+                          "(the course swaps the terrain layout, the job builds its own "
+                          "scene). Run one at a time.")
+    if cfg.whip_vision.enabled and not cfg.whip.enabled:
+        raise ConfigError("--whip-vision needs the physical whip (whip.enabled is false "
+                          "in the config)")
+
+
+def _make_job(name: str, overrides: dict | None):
+    from perpetualfly.jobs import available_jobs, make_job
+
+    try:
+        return make_job(name, dict(overrides) if overrides else None)
+    except KeyError:
+        raise ConfigError(f"unknown job {name!r}; available: "
+                          f"{', '.join(available_jobs())}") from None
+    except TypeError as e:
+        raise ConfigError(f"--job-config for {name!r}: {e}") from None
 
 
 def help_groups(available: set[str] | None = None) -> list[tuple[str, list[tuple[str, str]]]]:
@@ -160,6 +199,26 @@ class Session:
         self.cfg = cfg
         self.say = say or (lambda msg: print(msg, flush=True))
         self.brain = brain
+        check_feature_config(cfg)
+        # optional features (installed at the end of __init__; None when off)
+        self.job = None  # EternalJob (--job; set by install_job)
+        self.course = None  # CourseRun (--course; set by install_course)
+        self.vision = None  # LoomingVision (--whip-vision, or the swatter's own)
+        self.swatter = None
+        self.swatter_handle = None
+        self.stress = None  # StressHandle (--stress)
+        self.swat_counts = {k: 0 for k in SWAT_OUTCOMES}
+        self.last_swat = None
+        self._job_obj = None
+        if cfg.job.name:
+            # Before anything is built: the job adjusts the config (flat terrain, no
+            # auto hits / auto reset, ...) and its props are compiled in below.
+            self._job_obj = _make_job(cfg.job.name, cfg.job.config)
+            self._job_obj.configure_app(cfg)
+        if cfg.course.name and cfg.session.auto_reset_after_s is not None:
+            self.say("[course] auto reset off: the course respawns the fly at the last "
+                     "checkpoint instead")
+            cfg.session.auto_reset_after_s = None
         tc = cfg.terrain
         self.terrain = ProceduralTerrain(ProceduralTerrainConfig(
             difficulty=tc.difficulty, seed=tc.seed, weights=tc.weights,
@@ -167,7 +226,15 @@ class Session:
         ))
         # The physical whip is a world extension (bodies must exist before add_fly).
         self.whip: Whip | None = Whip(cfg.whip) if cfg.whip.enabled else None
-        exts = ([self.whip.extension] if self.whip else []) + list(world_extensions)
+        exts = [self.whip.extension] if self.whip else []
+        if cfg.swatter.enabled:  # the flyswatter's bodies (docs/SWATTER.md)
+            from perpetualfly.interaction.swatter import Swatter, SwatterConfig
+
+            self.swatter = Swatter(SwatterConfig.from_dict(dict(cfg.swatter.model)))
+            exts.append(self.swatter.extension)
+        if self._job_obj is not None:  # the job's props (docs/JOBS.md)
+            exts.append(self._job_obj.extension)
+        exts += list(world_extensions)
         self.sim = sim = Simulation(cfg, world_factory=self.terrain.build_world,
                                     world_extensions=exts)
         self.terrain.attach(sim)
@@ -202,13 +269,24 @@ class Session:
         self.logger: RunLogger | None = None
         if log:
             from perpetualfly.brain_link import METRIC_COLUMNS as BRAIN_COLUMNS
+            from perpetualfly.stress import METRIC_COLUMNS as STRESS_COLUMNS
 
+            cols: list[str] = []
+            fns: list[Callable[[], tuple]] = []
+            if brain is not None:
+                cols += list(BRAIN_COLUMNS)
+                fns.append(brain.metric_row)
+            if cfg.stress.enabled:
+                cols += list(STRESS_COLUMNS)
+                n = len(STRESS_COLUMNS)
+                fns.append(lambda: self.stress.metric_row() if self.stress is not None
+                           else (float("nan"),) * n)
             self.logger = RunLogger(
                 cfg.logging, config=self.full_config(),
                 terrain_type_fn=self.terrain.terrain_type_at,
                 ground_height_fn=self.ground_height,
-                extra_metric_columns=BRAIN_COLUMNS if brain is not None else (),
-                extra_metric_fn=brain.metric_row if brain is not None else None,
+                extra_metric_columns=tuple(cols),
+                extra_metric_fn=(lambda: tuple(v for f in fns for v in f())) if fns else None,
             ).attach(sim, self.detector, self.metrics)
             # Whip hits go to events.csv as "whip" rows (shove hits stay "hit").
             hl = self.metrics.hit_listeners
@@ -232,9 +310,52 @@ class Session:
         self._hint_shown = False
         self.n_auto_resets = 0
         self.n_manual_resets = 0
+        self._install_features()
+
+    def _install_features(self) -> None:
+        """Optional features, in dependency order: whip vision (its LoomingVision is
+        shared with the swatter), swatter, stress (wraps the brain link's update and
+        the controller's signal filter), job, course."""
+        cfg = self.cfg
+        if cfg.whip_vision.enabled:
+            from perpetualfly.vision.looming import install_whip_vision
+
+            self.vision = install_whip_vision(self, self.whip, brain_link=self.brain,
+                                              cfg=dict(cfg.whip_vision.looming))
+        if self.swatter is not None:
+            from perpetualfly.interaction.swatter import install_swatter
+
+            sc = cfg.swatter
+            self.swatter_handle = install_swatter(
+                self, swatter=self.swatter, vision=sc.vision, looming=self.vision,
+                escape=sc.escape, short_hz=sc.short_hz, flight=sc.flight, say=self.say)
+            self.swatter_handle.level = min(max(int(sc.level), 1), len(self.swatter.cfg.levels))
+            if self.vision is None and self.swatter_handle.vision is not None:
+                self.vision = self.swatter_handle.vision
+            self.swatter.listeners.append(self._on_swat)
+        if cfg.stress.enabled:
+            from perpetualfly.stress import install_stress
+
+            self.stress = install_stress(self, cfg.stress, say=self.say)
+        if self._job_obj is not None:
+            from perpetualfly.jobs import install_job
+
+            install_job(self, self._job_obj)  # sets self.job, chains after_physics
+            if self.logger is not None:
+                self.logger.ground_height_fn = self.ground_height
+        if cfg.course.name:
+            from perpetualfly.course import CourseOptions, install_course
+
+            try:
+                install_course(self, cfg.course.name, cfg, options=CourseOptions(
+                    after_finish="loop" if cfg.course.loop else "stop"))
+            except (FileNotFoundError, KeyError) as e:
+                raise ConfigError(f"course {cfg.course.name!r}: {e}") from None
 
     # ------------------------------------------------------------- queries
     def ground_height(self, x: float, y: float) -> float:
+        if self.job is not None:  # the job's walkable surface (hill, wheel, ...)
+            return self.job.ground_height(x, y)
         return self.terrain.ground_height_at(x, y)
 
     def terrain_here(self) -> str:
@@ -253,6 +374,8 @@ class Session:
         if self.detector.state in (FallState.FALLEN, FallState.RECOVERING) or self.up_since is None:
             return False
         if self.actions.active_name == "jump":
+            return False
+        if self.swatter is not None and self.swatter.busy:  # like a whip crack
             return False
         return self.sim.time - self.up_since >= self.cfg.session.auto_perturb_resume_after_s
 
@@ -346,9 +469,42 @@ class Session:
                                   details=ev.to_dict())
         self.say(format_whip_event(ev, names) + f"  terrain={self.terrain_here()}")
 
+    def _on_swat(self, ev) -> None:
+        """A swat finished (physics thread). Hits count like whip hits in the run
+        metrics (magnitude = mean contact force); every swat is a "swat" row in
+        events.csv with its outcome (hit / grazed / dodged / miss)."""
+        self.swat_counts[ev.outcome] = self.swat_counts.get(ev.outcome, 0) + 1
+        self.last_swat = ev
+        mean_f = ev.impulse_uNs / ev.duration_s if ev.duration_s > 0 else ev.magnitude_uN
+        if ev.hit:
+            self.metrics.record_hit(ev, time=ev.sim_time, magnitude=mean_f,
+                                    duration=ev.duration_s, direction=f"swat_{ev.side}",
+                                    body=ev.body)
+        if self.logger is not None:
+            d = float(np.hypot(ev.fly_at_impact[0] - ev.aim[0], ev.fly_at_impact[1] - ev.aim[1]))
+            self.logger.log_event("swat", ev.sim_time, force_direction=f"from_{ev.side}",
+                                  force_magnitude=mean_f if ev.hit else None, details={
+                "outcome": ev.outcome, "level": ev.level, "level_name": ev.level_name,
+                "source": ev.source, "body": ev.body, "impulse_uNs": round(ev.impulse_uNs, 4),
+                "peak_uN": round(ev.magnitude_uN, 2), "peak_bw": round(ev.magnitude_bw, 1),
+                "duration_s": ev.duration_s, "t_slam": ev.t_slam, "t_ground": ev.t_ground,
+                "t_fly_contact": ev.t_fly_contact, "jumped": ev.jumped,
+                "under_at_slam": ev.under_at_slam, "under_at_impact": ev.under_at_impact,
+                "fly_to_aim_mm": round(d, 3),
+                "impact_speed_mm_s": round(ev.impact_speed_mm_s, 1)})
+
+    def swat_key(self, key: str) -> str:
+        """V / Shift+V (key names "v" / "shift+v"). Threaded: under runner.locked()."""
+        if self.swatter_handle is None:
+            return "[swatter] V needs the swatter: run with --swatter"
+        return self.swatter_handle.handle_key("v" if key == "v" else "V")
+
     def _log_hit_record(self, rec) -> None:
         """metrics.hit_listeners -> events.csv: event_type "whip" for whip hits (with
-        the measured impulse etc. in details), "hit" for shoves."""
+        the measured impulse etc. in details), "hit" for shoves. Swatter hits are
+        written as "swat" rows by ``_on_swat``."""
+        if rec.extra.get("kind") == "swatter":
+            return
         if rec.extra.get("kind") != "whip":
             self.logger.log_hit(rec)
             return
@@ -431,6 +587,10 @@ class Session:
         if msg.startswith("[strength]"):
             self.log_event("strength", level=self.perturbation.level,
                            name=self.perturbation.level_name)
+            if self.swatter_handle is not None:  # 1-4 set the swat level too
+                lv = min(self.perturbation.level, len(self.swatter.cfg.levels))
+                self.swatter_handle.level = lv
+                msg += f" | swatter L{lv} {self.swatter.level_name(lv)}"
         elif msg.startswith("[auto-perturb]"):
             self.log_event("auto_perturb", enabled=self.auto.enabled)
         elif msg.startswith("[hit-mode]"):
@@ -457,6 +617,18 @@ class Session:
             self.say(f"[auto-reset] down for {down:.1f}s -> explicit reset "
                      f"(#{self.n_auto_resets + 1})")
             self.reset("auto")
+
+    def step(self, n: int) -> None:
+        """``sim.step(n)``; with a job an instability (NaN / blow-up) is recovered by
+        an explicit, counted reset (``job.recover("instability")``, like JobRunner),
+        otherwise it propagates."""
+        try:
+            self.sim.step(n)
+        except SimulationInstabilityError as e:
+            if self.job is None:
+                raise
+            self.say(f"[{self.job.name}] physics instability: {str(e).splitlines()[0]}")
+            self.job.recover("instability")
 
     def _action_counts(self) -> dict:
         out: dict[str, int] = {}
@@ -487,12 +659,22 @@ class Session:
             "full_body": "wings" in self.available_actions,
             "actions": self._action_counts(),
             "brain": self.brain.summary() if self.brain is not None else None,
+            "swatter": ({"level": self.swatter_handle.level, "n_swats": self.swatter.n_swats,
+                         "outcomes": dict(self.swat_counts)}
+                        if self.swatter_handle is not None else None),
+            "stress": self.stress.summary() if self.stress is not None else None,
+            "whip_vision": ({"n_loom_events": len(self.vision.sent),
+                             "sources": [src.name for src in self.vision.sources]}
+                            if self.vision is not None else None),
+            "job": self.job.stats() if self.job is not None else None,
         }
 
     def close(self, quit_reason: str) -> None:
         if self.logger is not None:
             self.logger.summary_extra.update(self.summary_extra(quit_reason))
             self.logger.close()
+        if self.stress is not None:  # restore the controller / brain (before brain.close)
+            self.stress.close()
 
 
 # ---------------------------------------------------------------------------
@@ -570,6 +752,32 @@ def build_arg_parser() -> argparse.ArgumentParser:
                    help="descending neurons trigger body actions: giant fiber > 60 Hz -> jump, "
                         "MN9 > 30 Hz -> proboscis (full body), DNg12 > 20 Hz -> groom "
                         "(implies --brain-steer)")
+    g = p.add_argument_group("features (compose freely; --course and --job exclude each other)")
+    g.add_argument("--swatter", action="store_true",
+                   help="flyswatter (docs/SWATTER.md): V swats from behind, Shift+V from a "
+                        "random side, 1-4 strength. The paddle is a looming source for the "
+                        "brain; with --brain-actions the fly can see it coming and jump away. "
+                        "Sets the low-latency brain pacing (window 0.02 s, sync wait 0.05 s)")
+    g.add_argument("--stress", action="store_true",
+                   help="octopamine pain / arousal layer (docs/STRESS.md; implies --brain): "
+                        "hits -> OA neurons -> slow level -> faster gait, lower jump threshold. "
+                        "Use with --brain-steer (walk-DN bursts) or --brain-actions (jumpiness)")
+    g.add_argument("--whip-vision", action="store_true",
+                   help="the fly sees the whip coming: compound-eye looming -> LC4 / LPLC2 "
+                        "(implies --brain; --brain-actions lets the giant fiber jump). Sets the "
+                        "low-latency brain pacing")
+    g.add_argument("--course", metavar="NAME", default=None,
+                   help="obstacle course instead of endless terrain (docs/COURSE.md): "
+                        "tutorial, gauntlet, slalom, brain_test or a .json/.toml path. The app "
+                        "quits at the finish (results in the run dir); [ ] and F are disabled")
+    g.add_argument("--course-loop", action="store_true",
+                   help="with --course: start a new lap after the finish instead of quitting")
+    g.add_argument("--job", metavar="NAME", default=None,
+                   help="eternal job (docs/JOBS.md): sisyphus, hamster_wheel, mowing, raking, "
+                        "kebab. Its props are compiled into the world, C cycles job / follow / "
+                        "side / top, flat terrain, no auto reset (the job recovers itself)")
+    g.add_argument("--job-config", metavar="JSON", default=None,
+                   help='with --job: job config overrides, e.g. \'{"slope_deg": 8}\'')
     return p
 
 
@@ -637,6 +845,7 @@ def config_from_args(args: argparse.Namespace) -> AppConfig:
     # perturbation
     if args.strength is not None:
         cfg.perturbation.default_level = args.strength
+        cfg.swatter.level = args.strength  # 1-4 apply to the swatter too
     if getattr(args, "hit_mode", None):
         cfg.session.hit_mode = args.hit_mode
     ap = cfg.auto_perturb
@@ -677,6 +886,71 @@ def config_from_args(args: argparse.Namespace) -> AppConfig:
         b.actions = True
     if args.brain_backup:
         b.backup = True
+    # features
+    if getattr(args, "swatter", False):
+        cfg.swatter.enabled = True
+    if getattr(args, "stress", False):
+        cfg.stress.enabled = True
+    if getattr(args, "whip_vision", False):
+        cfg.whip_vision.enabled = True
+    if getattr(args, "course", None):
+        cfg.course.name = args.course
+    if getattr(args, "course_loop", False):
+        if not cfg.course.name:
+            raise ConfigError("--course-loop needs --course NAME")
+        cfg.course.loop = True
+    if getattr(args, "job", None):
+        cfg.job.name = args.job
+    if getattr(args, "job_config", None):
+        if not cfg.job.name:
+            raise ConfigError("--job-config needs --job NAME")
+        try:
+            over = json.loads(args.job_config)
+        except json.JSONDecodeError as e:
+            raise ConfigError(f"--job-config is not valid JSON: {e}") from None
+        if not isinstance(over, dict):
+            raise ConfigError("--job-config must be a JSON object, e.g. '{\"slope_deg\": 8}'")
+        cfg.job.config = over
+    apply_feature_defaults(cfg, terrain_from_cli=bool(args.terrain))
+    return cfg
+
+
+def apply_feature_defaults(cfg: AppConfig, terrain_from_cli: bool = False) -> AppConfig:
+    """Implications between features (also usable for --config-built configs):
+    --stress / --whip-vision need the brain; the swatter / whip vision want the
+    low-latency brain pacing (docs/SWATTER.md: window 0.02 s, sync wait 0.05 s,
+    applied only while those are at their defaults); a course runs on flat base
+    terrain without the app's auto reset (it respawns the fly itself)."""
+    from perpetualfly.brain_link import BrainLinkConfig
+
+    check_feature_config(cfg)
+    if cfg.course.name:  # fail before anything (brain, sim) starts
+        from perpetualfly.course import CourseSpec
+
+        try:
+            CourseSpec.load(cfg.course.name)
+        except (FileNotFoundError, KeyError, ValueError) as e:
+            raise ConfigError(f"--course {cfg.course.name!r}: {e}") from None
+    if cfg.job.name:
+        _make_job(cfg.job.name, cfg.job.config)
+    b = cfg.brain
+    if cfg.stress.enabled or cfg.whip_vision.enabled:
+        b.enabled = True
+    if b.enabled and (cfg.swatter.enabled or cfg.whip_vision.enabled):
+        d = BrainLinkConfig()
+        if b.window_s == d.window_s:
+            b.window_s = 0.02
+        if b.sync_wait_s == d.sync_wait_s:
+            b.sync_wait_s = 0.05
+    if cfg.job.name and not cfg.whip_vision.enabled:
+        # like scripts/run_job.py: no idle whip parked across the job's scene; the hit
+        # keys shove instead (--whip-vision keeps the whip)
+        cfg.whip.enabled = False
+        cfg.session.hit_mode = "shove"
+    if cfg.course.name:
+        cfg.session.auto_reset_after_s = None
+        if not terrain_from_cli:
+            cfg.terrain.difficulty = "flat"
     return cfg
 
 
@@ -747,14 +1021,21 @@ def run(
                   f"time | steering {'ON' if cfg.brain.steer else 'off (view only)'} | "
                   f"window {'on' if brain.window is not None else 'off'}", flush=True)
         if need_frames:
-            from perpetualfly.rendering import FrameRenderer
-
-            frame_renderer = FrameRenderer(sim.model, cfg.render, cfg.camera)
+            frame_renderer = _make_renderer(session)
         if not headless:
             from perpetualfly.interaction import LiveViewer
 
-            viewer = LiveViewer(cfg.render.window_title, display_scale=cfg.render.display_scale,
+            title = cfg.render.window_title
+            if session.job is not None:
+                title += f" - {session.job.title}"
+            elif session.course is not None:
+                title += f" - course {session.course.spec.name}"
+            viewer = LiveViewer(title, display_scale=cfg.render.display_scale,
                                 frame_size=(cfg.render.width, cfg.render.height))
+            viewer.shift_names = True  # Shift+V arrives as "shift+v"
+        if session.course is not None:
+            session.course.respawn_listeners.append(
+                lambda c: frame_renderer.camera.reset() if frame_renderer is not None else None)
         if record is not None:
             import imageio.v2 as iio
 
@@ -780,6 +1061,29 @@ def run(
           f"{'headless' if headless else 'window'}"
           f"{f' (x{viewer.display_scale:.2f} display scale)' if viewer is not None else ''}",
           flush=True)
+    feats = []
+    if session.swatter_handle is not None:
+        h = session.swatter_handle
+        feats.append(f"swatter L{h.level} {session.swatter.level_name(h.level)} (V / Shift+V; "
+                     f"vision {'on' if h.vision is not None else 'off'}, escape jumps "
+                     f"{'on' if session.brain is not None and cfg.brain.actions else 'off: add --brain-actions'})")
+    if cfg.whip_vision.enabled:
+        feats.append("whip vision (LC4 / LPLC2 looming)")
+    if session.stress is not None:
+        feats.append("stress / octopamine (model)" + (
+            "" if cfg.brain.steer or cfg.brain.actions else
+            " - tip: add --brain-steer / --brain-actions for its body effects"))
+    if session.job is not None:
+        feats.append(f"job {session.job.name}: {session.job.title}")
+    if session.course is not None:
+        c = session.course
+        feats.append(f"course {c.spec.name} ({c.layout.length:.0f} mm, {len(c.layout.sections)} "
+                     f"sections, {'loop' if c.after_finish == 'loop' else 'quit at the finish'})")
+    if feats:
+        print("features: " + " | ".join(feats), flush=True)
+    if cfg.brain.enabled and cfg.brain.sync_wait_s > 0:
+        print(f"brain pacing: window {cfg.brain.window_s:g}s, sync wait {cfg.brain.sync_wait_s:g}s "
+              f"while a loom is active (docs/SWATTER.md)", flush=True)
     if session.logger is not None:
         print(f"logging to {session.logger.run_dir}/", flush=True)
     if not headless:
@@ -803,6 +1107,11 @@ def run(
         key quit. Threaded mode: runs in the worker thread, under the lock."""
         session.after_physics()
         rt = session.run_time()
+        course = session.course
+        if course is not None and course.done:
+            st.quit_reason = f"course {course.status}"
+            st.done = True
+            return True
         if pending_keys and pending_keys[0][0] <= rt:
             keys = []
             while pending_keys and pending_keys[0][0] <= rt:
@@ -838,7 +1147,8 @@ def run(
             f"speed {m.current_speed:5.1f} mm/s (avg {m.average_speed:4.1f})",
             f"{detector.state.value.upper():<12} falls {m.n_falls}  rec {m.n_recoveries}  "
             f"resets {m.n_resets}  jog {m.current_jog_interval:5.1f}s",
-            f"terrain {terrain.cfg.difficulty} ([ ] change): {session.terrain_here()}",
+            (f"terrain {terrain.cfg.difficulty} ([ ] change): {session.terrain_here()}"
+             if session.job is None and session.course is None else ""),
             session.controls.hud_line(),
             f"cam {frame_renderer.camera.mode}   {'PAUSED' if st.paused else ''}",
         ]
@@ -853,18 +1163,26 @@ def run(
         if act.busy:
             lines.append(f"ACTION {(act.active_name or 'back to walking').upper()}"
                          f"  [{act.phase() or 'starting'}]")
+        if session.swatter_handle is not None:
+            lines.append(_swatter_hud(session))
+        if session.vision is not None:
+            lines.append(_vision_hud(session.vision))
+        if session.stress is not None:
+            lines.append(_stress_hud(session.stress))
         if brain is not None:
             lines.extend(brain.hud_lines())
+        if session.course is not None:
+            lines = session.course.hud_lines() + lines
+        if session.job is not None:
+            lines = session.job.hud_lines() + lines
         lines.append("? = key help   I = screenshot   M = record")
-        return lines
+        return [ln for ln in lines if ln]
 
     def ensure_renderer():
         """Headless runs have no renderer until I / M need one (main thread)."""
         nonlocal frame_renderer
         if frame_renderer is None:
-            from perpetualfly.rendering import FrameRenderer
-
-            frame_renderer = FrameRenderer(sim.model, cfg.render, cfg.camera)
+            frame_renderer = _make_renderer(session)
         return frame_renderer
 
     def process_media(frame=None) -> None:
@@ -934,6 +1252,8 @@ def run(
         for k in keys:
             msg = None
             k = SCRIPT_KEY_ALIASES.get(k, k)
+            if k.startswith("shift+") and k not in SHIFT_BOUND:
+                k = k[len("shift+"):]
             if k in ("q", "esc"):
                 st.quit_reason = "quit key"
             elif k == "p":
@@ -969,6 +1289,8 @@ def run(
                 st.rec_toggle = True
             elif k in ACTION_KEY_MAP:
                 msg = session.trigger_action(ACTION_KEY_MAP[k][0], source="key")
+            elif k in SWAT_KEYS:
+                msg = session.swat_key(k)
             elif k in BRAIN_KEYS:
                 msg = (brain.handle_key(k) if brain is not None else
                        f"[brain] {k.upper()} needs the brain: run with --brain")
@@ -995,7 +1317,8 @@ def run(
             from perpetualfly.physics_thread import PhysicsThread
 
             runner = PhysicsThread(sim, cfg.render.thread_chunk_steps, after_chunk=after_physics,
-                                   max_realtime_factor=cfg.render.max_realtime_factor)
+                                   max_realtime_factor=cfg.render.max_realtime_factor,
+                                   step_fn=session.step)
             runner.start()
             try:
                 next_frame = time.perf_counter()
@@ -1034,7 +1357,7 @@ def run(
             last_shown = -1e9
             while True:
                 if not st.paused:
-                    sim.step(chunk)
+                    session.step(chunk)
                     after_physics()
                 show = viewer is not None and time.perf_counter() - last_shown >= frame_period
                 frame = None
@@ -1114,15 +1437,86 @@ def run(
         print(f"  brain: {b['brain_states']} states ({b['brain_states_dropped']} dropped), "
               f"{b['brain_stimuli_sent']} stimuli, brain time {b['brain_time_s'] or 0:.2f}s, "
               f"final lag {b['brain_lag_s'] or 0:.2f}s", flush=True)
+    if session.swatter_handle is not None:
+        c = session.swat_counts
+        print(f"  swatter: {session.swatter.n_swats} swats: hit {c['hit']}, grazed {c['grazed']}, "
+              f"dodged {c['dodged']}, miss {c['miss']}", flush=True)
+    if session.stress is not None:
+        print(f"  stress: octopamine level {session.stress.level:.2f} "
+              f"(max {session.stress.max_level:.2f})", flush=True)
+    if session.vision is not None:
+        print(f"  vision: {len(session.vision.sent)} loom events sent "
+              f"(sources: {', '.join(src.name for src in session.vision.sources)})", flush=True)
+    if session.job is not None:
+        j = session.job
+        print(f"  job {j.name}: {j.work_label} {j.work_format.format(j.work)}, falls {j.n_falls}, "
+              f"auto-recoveries {j.n_auto_recoveries}", flush=True)
+    if session.course is not None:
+        for r in session.course.laps:
+            print(f"  [{r['status'].upper()}] course {r['course']} lap {r['lap']}: total "
+                  f"{r['total_time_s']:.2f}s = race {r['time_s']:.2f}s + penalties "
+                  f"{r['penalty_s']:.1f}s | falls {r['n_falls']} respawns {r['n_respawns']} | "
+                  f"gates {r['gates_passed']}/{r['gates_total']} | progress "
+                  f"{r['progress_mm']:.0f}/{r['course_length_mm']:.0f} mm"
+                  + (f" | rank #{r['rank']}" if r.get("rank") else ""), flush=True)
+        if session.course.results_path():
+            print(f"  course results: {session.course.results_path()}", flush=True)
     if session.logger is not None:
         print(f"  run dir: {session.logger.run_dir}", flush=True)
     sim.close()
     return result
 
 
+def _make_renderer(session: Session):
+    """FrameRenderer; with a job its camera is a JobCamera (C: job / follow / side / top)."""
+    from perpetualfly.rendering import FrameRenderer
+
+    cfg = session.cfg
+    r = FrameRenderer(session.sim.model, cfg.render, cfg.camera)
+    if session.job is not None:
+        from perpetualfly.jobs import JobCamera
+
+        r.camera = JobCamera(cfg.camera, session.job)
+    return r
+
+
+def _swatter_hud(session: Session) -> str:
+    h, sw, c = session.swatter_handle, session.swatter, session.swat_counts
+    line = f"SWATTER L{h.level} {sw.level_name(h.level)}"
+    if sw.busy:
+        line += f" [{sw.phase.upper()}]"
+    line += (f"  swats {sw.n_swats}: hit {c['hit']} graze {c['grazed']} dodge {c['dodged']} "
+             f"miss {c['miss']}")
+    ev = session.last_swat
+    if ev is not None:
+        line += f"  last {ev.outcome.upper()}" + (f" {ev.impulse_uNs:.1f} uN*s" if ev.hit else "")
+    return line + "  (V / Shift+V)"
+
+
+def _vision_hud(vis) -> str:
+    parts = []
+    for name, eyes in vis.state.items():
+        lc4 = max(e.lc4_hz for e in eyes)
+        lp = max(e.lplc2_hz for e in eyes)
+        th = max(e.theta for e in eyes)
+        parts.append(f"{name} {th:4.1f}deg LC4 {lc4:3.0f} LPLC2 {lp:3.0f} Hz")
+    return "EYES " + ("  |  ".join(parts) or "no sources") + f"  looms sent {len(vis.sent)}"
+
+
+def _stress_hud(stress) -> str:
+    j = stress.jump_hz
+    return (f"PAIN/AROUSAL {stress.level:.2f} (octopamine, model)  OA {stress.oa_rate_hz:4.1f} Hz  "
+            f"step x{stress.freq_mult:.2f} stride x{stress.amp_mult:.2f}"
+            + (f"  jump > {j:.0f} Hz" if j is not None else ""))
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_arg_parser().parse_args(argv)
-    cfg = config_from_args(args)
+    try:
+        cfg = config_from_args(args)
+    except ConfigError as e:
+        print(f"ERROR: {e}", file=sys.stderr)
+        return 2
     if cfg.brain.enabled:
         problem = missing_requirements(cfg.brain)
         if problem:
@@ -1134,4 +1528,7 @@ def main(argv: list[str] | None = None) -> int:
     except SimulationInstabilityError as e:
         print(f"\nERROR: {e}", file=sys.stderr)
         return 1
+    except ConfigError as e:
+        print(f"ERROR: {e}", file=sys.stderr)
+        return 2
     return 0

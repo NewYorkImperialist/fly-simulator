@@ -136,6 +136,7 @@ class LiveViewer:
         (backing scale on Retina, capped to ~2/3 of the screen width; env
         ``PERPETUALFLY_FLY_SCALE`` overrides)."""
         self.title = title
+        self.shift_names = False  # True: upper-case letters -> "shift+<k>" (decode_key)
         self.display_scale = (auto_display_scale(frame_size, 0.67, 0.8, env_var=FLY_SCALE_ENV)
                               if display_scale is None else float(display_scale))
         cv2.namedWindow(self.title, cv2.WINDOW_AUTOSIZE)
@@ -159,7 +160,7 @@ class LiveViewer:
         keys = []
         code = cv2.waitKeyEx(wait_ms)
         while code != -1:
-            name = decode_key(code)
+            name = decode_key(code, self.shift_names)
             if name:
                 keys.append(name)
             code = cv2.waitKeyEx(1) if len(keys) < 8 else -1

@@ -17,6 +17,7 @@ from perpetualfly.interaction.perturbation import AutoPerturbConfig, Perturbatio
 from perpetualfly.interaction.whip import WhipConfig
 from perpetualfly.metrics.falls import FallDetectorConfig
 from perpetualfly.metrics.run_logger import LoggingConfig
+from perpetualfly.stress import StressConfig
 
 
 @dataclass
@@ -201,6 +202,46 @@ class SessionConfig:
     auto_perturb_resume_after_s: float = 1.0
 
 
+@dataclass
+class SwatterAppConfig:
+    """The flyswatter (--swatter; perpetualfly/interaction/swatter.py, docs/SWATTER.md).
+    V swats from behind, Shift+V from a random side; 1-4 set ``level`` too."""
+
+    enabled: bool = False
+    level: int = 2  # 1 lazy, 2 normal, 3 quick, 4 lightning
+    vision: bool = True  # the paddle is a looming source for the brain (LC4 / LPLC2)
+    escape: bool = True  # with --brain-actions: GF >= short_hz -> short-mode jump
+    short_hz: float = 60.0
+    # escape-flight *emulation* (an external thorax force after take-off, not wing
+    # physics): off, per the project rule; dodges come from the real jump alone
+    flight: bool = False
+    model: dict = field(default_factory=dict)  # SwatterConfig overrides (geometry, levels)
+
+
+@dataclass
+class WhipVisionConfig:
+    """The fly sees the whip coming (--whip-vision; perpetualfly/vision/looming.py)."""
+
+    enabled: bool = False
+    looming: dict = field(default_factory=dict)  # LoomingConfig overrides
+
+
+@dataclass
+class CourseAppConfig:
+    """Obstacle course (--course NAME, --course-loop; perpetualfly/course, docs/COURSE.md)."""
+
+    name: str | None = None  # built-in name or a .json / .toml path; None = endless mode
+    loop: bool = False  # start a new lap after the finish (else the app quits)
+
+
+@dataclass
+class JobAppConfig:
+    """Eternal job (--job NAME, --job-config JSON; perpetualfly/jobs, docs/JOBS.md)."""
+
+    name: str | None = None
+    config: dict = field(default_factory=dict)  # job config overrides
+
+
 def _app_auto_perturb() -> AutoPerturbConfig:
     # The auto perturber is always installed (so A can toggle it) but starts off
     # unless --auto-perturb is given.
@@ -224,6 +265,12 @@ class AppConfig:
     session: SessionConfig = field(default_factory=SessionConfig)
     # Connectome brain (--brain, --brain-steer; perpetualfly/brain_link.py). Off by default.
     brain: BrainLinkConfig = field(default_factory=BrainLinkConfig)
+    # Optional features (all off by default; see perpetualfly/app.py Session)
+    swatter: SwatterAppConfig = field(default_factory=SwatterAppConfig)
+    stress: StressConfig = field(default_factory=StressConfig)  # --stress (docs/STRESS.md)
+    whip_vision: WhipVisionConfig = field(default_factory=WhipVisionConfig)
+    course: CourseAppConfig = field(default_factory=CourseAppConfig)
+    job: JobAppConfig = field(default_factory=JobAppConfig)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

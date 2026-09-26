@@ -54,7 +54,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--log", action="store_true", help="write runs/<ts>/ logs (off by default)")
     p.add_argument("--whip", action="store_true", help="also build the physical whip")
     p.add_argument("--brain", action="store_true",
-                   help="run the connectome brain alongside (needs .[brain] + data/brain)")
+                   help="run the connectome brain alongside (needs .[brain] + data/brain); "
+                        "opens the brain window unless --headless / --no-brain-window")
+    p.add_argument("--no-brain-window", action="store_true",
+                   help="with --brain: no brain window")
     p.add_argument("--seed", type=int, default=None, help="controller (CPG) seed")
     return p
 
@@ -84,11 +87,17 @@ def run_one(name: str, args, max_seconds: float | None, stop_flag: dict) -> dict
         problem = missing_requirements(cfg.brain)
         if problem:
             raise SystemExit(f"ERROR: {problem}")
-        brain = BrainLink(cfg.brain, headless=True)
+        if args.no_brain_window:
+            cfg.brain.window = False
+        # the brain window opens unless --headless / --no-brain-window (like run_sim.py)
+        brain = BrainLink(cfg.brain, headless=args.headless)
     session, job = create_job_session(job, cfg, log=args.log, brain=brain)
     try:
         if brain is not None:
             brain.wait_ready()
+            brain.start_window()
+            print(f"brain: {brain.info.get('n_neurons', 0):,} neurons ready | window "
+                  f"{'on' if brain.window is not None else 'off'}", flush=True)
         rec_dir = args.record / name if (args.record and args.rotate) else args.record
         tl_dir = rec_dir or Path(cfg.logging.runs_dir) / "jobs" / name
         runner = JobRunner(session, job, headless=args.headless, record_dir=rec_dir,
