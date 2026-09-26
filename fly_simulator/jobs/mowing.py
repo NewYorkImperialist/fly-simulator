@@ -6,7 +6,7 @@ World (the fly spawns at the origin facing +x):
 * a lawn (``lawn_x0..lawn_x1`` x ``lawn_y0..``) of ``n_rows`` rows along x, covered
   by a jittered grid of short grass blades: a fixed pool of thin *visual* box geoms
   (no contacts, so they can't trip the fly and moving / resizing them needs no BVH
-  refit, docs/API_NOTES.md section 8);
+  refit, docs/dev/API_NOTES.md section 8);
 * a push mower: a round red deck (the only colliding part) with an engine, four
   wheels and a handle (visual). It sits on planar joints (slide x, slide y, hinge z)
   at a fixed height, so it can't tip or climb, and the slide joints' damping plays

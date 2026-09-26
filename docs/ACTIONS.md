@@ -2,7 +2,7 @@
 
 Body behaviours beyond walking: jump, freeze, groom, back away, turn in place, wing
 raise, proboscis extension. Keys can trigger them now; the connectome brain can
-trigger them later. Every number below was measured on this machine (FlyGym 2.1.0,
+trigger them later. Every number below was measured on the development machine, an Apple M1 (FlyGym 2.1.0,
 MuJoCo 3.9, timestep 1e-4 s, flat ground, default config, hybrid controller) with
 the scripts named in each section.
 

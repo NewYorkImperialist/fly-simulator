@@ -1,12 +1,32 @@
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=77"]  # PEP 639 license metadata
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "fly-simulator"
 version = "0.1.0"
-description = "NeuroMechFly (FlyGym 2.x) jogging forever through procedural terrain"
+description = "A NeuroMechFly fruit fly (FlyGym 2.x / MuJoCo) driven by a whole-brain FlyWire connectome model: endless terrain, whips, looming escapes, flight and brain games"
+readme = "README.md"
 requires-python = ">=3.12,<3.15"
+license = "MIT AND CC-BY-NC-4.0 AND Apache-2.0"  # code MIT; bundled FlyWire-derived atlas CC BY-NC 4.0; grooming clip Apache-2.0 (NOTICE.md)
+license-files = ["LICENSE", "NOTICE.md"]
+authors = [{ name = "Jayden Lin" }]
+keywords = [
+    "drosophila", "fruit-fly", "neuromechfly", "flygym", "mujoco", "connectome",
+    "flywire", "computational-neuroscience", "simulation", "reinforcement-learning",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Intended Audience :: Education",
+    "Operating System :: MacOS",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+    "Topic :: Scientific/Engineering :: Artificial Life",
+    "Topic :: Scientific/Engineering :: Physics",
+]
 dependencies = [
     "flygym==2.1.0",        # pins mujoco>=3.9,<3.10; includes flygym_demo controllers
     "numpy>=2.0",
@@ -40,6 +60,11 @@ brain-ref = [
 vision = [
     "flyvis==1.2.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/NewYorkImperialist/fly-simulator"
+Repository = "https://github.com/NewYorkImperialist/fly-simulator"
+Issues = "https://github.com/NewYorkImperialist/fly-simulator/issues"
 
 [project.scripts]
 fly-simulator = "fly_simulator.app:main"

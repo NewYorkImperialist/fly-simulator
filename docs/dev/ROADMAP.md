@@ -1,6 +1,6 @@
 # Fly Simulator roadmap
 
-Everything discussed so far, compared. Effort assumes agents doing the work on this M1.
+Everything planned so far, compared. Effort estimates are rough (one developer, Apple M1).
 "Brain-real" = how much of the behaviour comes from the real FlyWire wiring
 (★★★ = decision made by real wiring end to end, ☆ = hand-built / not brain).
 
@@ -13,7 +13,7 @@ Everything discussed so far, compared. Effort assumes agents doing the work on t
 > and MN9 → proboscis extension (T) are done; sugar patches on the ground are still
 > missing. Also new: back away (E), turn in place (, .), wing raise (W).
 
-## A. Quick wins (≤ 1 h each, no physics changes) — all done 2026-09-25 (details in docs/STATUS.md)
+## A. Quick wins (≤ 1 h each, no physics changes) — all done 2026-09-25 (details in docs/dev/STATUS.md)
 | # | Item | Effort | Needs code | Brain-real | Visible impact |
 |---|---|---|---|---|---|
 | A1 | Looming makes fly back up (`--brain-backup`, MDN threshold 40→20 Hz) — **done: `--brain-backup` (0.5–1.2 s after O: vx mean −4.2, min −21 mm/s vs +2.3 without it)** | minutes | tiny | ★★ | High |
@@ -61,12 +61,6 @@ Everything discussed so far, compared. Effort assumes agents doing the work on t
 | # | Item | Effort | Brain-real | Visible impact |
 |---|---|---|---|---|
 | D1 | First PPO training run (recovery/righting; bigger residual, start-flipped episodes, obs history) | prep ~1 h + 4–8 h overnight | ☆ (artificial network) | Very high — "learns not to care" |
-
-## E. Housekeeping
-| # | Item | Who |
-|---|---|---|
-| E1 | Strip Claude co-author lines from first two commits (commands in chat) | You (permission-gated) |
-| E2 | Rename Python package `fly_simulator` → match `fly-simulator` repo | Agent, ~30 min |
 
 ## Suggested agenda
 1. **Session 1 (≈1–2 h):** A1, A2, A5, A7, A8 + C3 — polish + first reactive behaviour.

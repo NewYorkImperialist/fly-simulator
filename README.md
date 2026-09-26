@@ -2,13 +2,13 @@
 
 A physically simulated fruit fly (FlyGym 2.x / NeuroMechFly on MuJoCo) that jogs
 forward forever through endless procedural terrain while you whack it with physical
-forces. Full plan: [docs/SPEC.md](docs/SPEC.md). FlyGym API reference for
-contributors: [docs/API_NOTES.md](docs/API_NOTES.md). Hit strengths:
-[docs/PERTURBATION_CALIBRATION.md](docs/PERTURBATION_CALIBRATION.md) (shove) and
+forces. Full plan: [docs/dev/SPEC.md](docs/dev/SPEC.md). FlyGym API reference for
+contributors: [docs/dev/API_NOTES.md](docs/dev/API_NOTES.md). Hit strengths:
+[docs/dev/PERTURBATION_CALIBRATION.md](docs/dev/PERTURBATION_CALIBRATION.md) (shove) and
 [docs/WHIP.md](docs/WHIP.md) (physical whip).
 
 **Status: Milestones 1–4** (plus a residual-RL env, not trained yet). Morning summary,
-soak results and next steps: [docs/STATUS.md](docs/STATUS.md). NeuroMechFly walks with FlyGym's hybrid CPG controller
+soak results and next steps: [docs/dev/STATUS.md](docs/dev/STATUS.md). NeuroMechFly walks with FlyGym's hybrid CPG controller
 (plus a heading hold along +x) over chunked, recycled procedural terrain (rocks,
 bumps, rough ground, blocks, slopes, gaps, dips). You can spawn obstacles and hit
 the fly from the keyboard, or let an auto-perturber do it. By default hits are
@@ -421,10 +421,10 @@ Demo: `.venv/bin/python scripts/demo_whip.py` (table), `--calibrate --phases 8`,
   time on flat ground and 0.60–0.65x on normal/hard terrain (more contacts), headless
   or windowed. That breaks down to `mj_step` ~85–95 µs, controller ~45 µs, terrain
   features ~15 µs, and hooks (detector, metrics, logger, whip) ~5–8 µs per 0.1 ms
-  step. See docs/API_NOTES.md §13.
+  step. See docs/dev/API_NOTES.md §13.
 - **Live display:** the window is an OpenCV window showing frames from MuJoCo's
   offscreen renderer. MuJoCo's own passive viewer isn't used: on macOS it needs `mjpython`,
-  and its built-in shortcuts clash with this project's keys (see docs/API_NOTES.md §11).
+  and its built-in shortcuts clash with this project's keys (see docs/dev/API_NOTES.md §11).
   There is no mouse camera control; press C to switch views. OpenCV only reports key
   presses, not held keys. On a Retina display the ×2 upscale costs the main thread
   about 10 ms per frame (resize ~3 ms, then `imshow` of 4× the pixels). The window then

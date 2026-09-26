@@ -20,8 +20,8 @@ branch in `fly_simulator/brain/engine.py` (`LIFEngine.set_depression`), wiring i
   own, and could be dishabituated by a novel stimulus. They put the decrement in
   the afferent pathway onto the GF: the GF → TTMn / DLMn output follows high rates
   without failing.
-* **The GF's looming afferents are LC4 and LPLC2.** von Reyn et al. 2017 (*Nat
-  Neurosci*) and Ache et al. 2019 (*Curr Biol*) identify them. FlyWire v783 agrees:
+* **The GF's looming afferents are LC4 and LPLC2.** von Reyn et al. 2017
+  (*Neuron*) and Ache et al. 2019 (*Curr Biol*) identify them. FlyWire v783 agrees:
   they are the two biggest identified inputs to the two GFs, with LPLC2 at 1080
   synapses (11.5 % of GF input) and LC4 at 805 (8.6 %). DNp70 is next with 587.
 * **Model of the decrement.** We use the resource-depletion model of short-term

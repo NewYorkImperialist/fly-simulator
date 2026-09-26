@@ -14,7 +14,7 @@ exposes what later modules (terrain, perturbation, fall detection, metrics, RL) 
 * ``world_extensions``: callables ``ext(world)`` applied to the ``MjSpec`` world
   after ``world_factory()`` and *before* ``world.add_fly()`` (FlyGym writes the
   "neutral" keyframe in ``add_fly`` sized to the model at that moment, so extra
-  bodies/joints must already exist). See docs/API_NOTES.md section 14.
+  bodies/joints must already exist). See docs/dev/API_NOTES.md section 14.
 * thorax pose / velocity accessors.
 
 Contacts: the default world is ``fly_simulator.terrain.TerrainWorld`` without any

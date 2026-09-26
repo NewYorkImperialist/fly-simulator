@@ -22,7 +22,7 @@ def sim():
 
 
 def test_model_facts(sim):
-    # Units / names that downstream modules rely on (see docs/API_NOTES.md).
+    # Units / names that downstream modules rely on (see docs/dev/API_NOTES.md).
     assert sim.timestep == pytest.approx(1e-4)
     assert sim.model.body(sim.thorax_body_id).name == "nmf/c_thorax"
     assert sim.fly_mass == pytest.approx(1.0e-3, rel=0.1)  # grams (~1 mg fly)

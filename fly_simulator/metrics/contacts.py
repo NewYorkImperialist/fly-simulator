@@ -1,7 +1,7 @@
 """Cheap, terrain-agnostic contact summary for the fly.
 
 FlyGym creates explicit ``<pair>``s between fly geoms and ``world.ground_geoms`` only
-(there is no fly self-collision, see docs/API_NOTES.md §7). So *every* active contact
+(there is no fly self-collision, see docs/dev/API_NOTES.md §7). So *every* active contact
 that involves a fly geom is a fly–terrain contact, whatever terrain geoms exist
 (plane, pooled boxes, hfield, mocap rocks). That lets us classify contacts from
 ``data.contact.geom1/geom2`` alone, without the per-leg sensors (which only exist when

@@ -1,6 +1,6 @@
 """Prop-building helpers for eternal jobs (world extensions, before compile).
 
-Contact scheme (docs/API_NOTES.md section 14; ``FLY_BIT`` = 8, ``TERRAIN_BIT`` = 16)
+Contact scheme (docs/dev/API_NOTES.md section 14; ``FLY_BIT`` = 8, ``TERRAIN_BIT`` = 16)
 plus one bit for jobs, ``PROP_BIT`` = 32, so moving props can also hit each other:
 
 | kind (``collide=``) | contype | conaffinity | collides with |

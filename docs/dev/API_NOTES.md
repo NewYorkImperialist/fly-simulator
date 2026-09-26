@@ -3,7 +3,7 @@
 Installed: **flygym 2.1.0** (PyPI, `requires_python >=3.12,<3.15`), **mujoco 3.9.0**,
 Python 3.12 (arm64) in `.venv`. Everything below was checked by reading
 `.venv/lib/python3.12/site-packages/flygym{,_demo}/` and by running probe scripts;
-numbers are from this machine. FlyGym 2.1 dropped PyMJCF/dm_control and uses
+numbers are from the development machine (Apple M1). FlyGym 2.1 dropped PyMJCF/dm_control and uses
 **MuJoCo's native `MjSpec` API and raw `mujoco.MjModel`/`MjData`**. Don't use v1 code
 (`flygym.mujoco`, `NeuroMechFly(sim_params=...)`, `env.step(action)`,
 `physics.named.data`): none of it exists anymore.

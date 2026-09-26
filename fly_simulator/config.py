@@ -2,7 +2,7 @@
 
 All tunable numbers live here instead of being scattered as magic constants.
 Units follow FlyGym/MuJoCo model units: length mm, time s, mass g,
-force uN (= g*mm/s^2). See docs/API_NOTES.md.
+force uN (= g*mm/s^2). See docs/dev/API_NOTES.md.
 """
 
 from __future__ import annotations
@@ -92,7 +92,7 @@ class SimConfig:
     # Run the locomotion controller every N physics steps and hold ctrl in between
     # (the CPG / reflex integrators then use dt = N * timestep). 1 = FlyGym's
     # canonical loop (controller at the physics rate). >1 is faster but changes
-    # the trajectory (see docs/API_NOTES.md, Performance): keep 1 unless you
+    # the trajectory (see docs/dev/API_NOTES.md, Performance): keep 1 unless you
     # accept that.
     control_every_steps: int = 1
     # FlyGym's globals enable mjENBL_ENERGY (potential/kinetic energy computed in

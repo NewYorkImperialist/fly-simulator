@@ -1,6 +1,6 @@
 """Endless chunked terrain on a pre-allocated MuJoCo geom pool.
 
-How it works (see docs/API_NOTES.md sections 7-8 for the verified MuJoCo facts):
+How it works (see docs/dev/API_NOTES.md sections 7-8 for the verified MuJoCo facts):
 
 * **Contacts (why not explicit pairs).** FlyGym gives every geom ``contype =
   conaffinity = 0`` and creates an explicit ``<pair>`` per (fly contact geom x

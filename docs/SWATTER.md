@@ -18,7 +18,7 @@ A classic swatter at fly scale (the fly is 2.5 mm long):
 * **handle**: 14 mm yellow capsule (r 0.22 mm, 30 mg), a free body welded to the
   mocap body `swatter/hand` (the wrist). This is the whip's pattern: a body parented
   to a mocap body has no velocity, so it would hit nothing with momentum
-  (docs/API_NOTES.md §14).
+  (docs/dev/API_NOTES.md §14).
 * **paddle**: 8 × 7 × 0.15 mm red plate (6 mg), semi-transparent, with a 7 × 6 grid of
   red ribs and a yellow rim (visual geoms). It sits on a **neck hinge** (stiffness
   3·10⁴ µN·mm/rad, damping 40, ±45°), pre-bent 15° so it lands flat. The flex limits

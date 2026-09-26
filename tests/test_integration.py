@@ -1,4 +1,4 @@
-"""Integration pass: --swatter / --stress / --whip-vision / --course / --job wired into
+"""Integration: --swatter / --stress / --whip-vision / --course / --job wired into
 the app (fly_simulator/app.py Session + CLI + keys + HUD + logging)."""
 
 import csv

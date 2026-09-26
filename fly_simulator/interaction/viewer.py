@@ -5,7 +5,7 @@ only works when the script is started with ``mjpython`` (plain ``python`` raises
 RuntimeError), and its built-in key bindings (space, many letters, ESC) collide
 with the controls this project needs. An OpenCV window runs under plain ``python``
 on the main thread, gives us every key press via ``cv2.waitKeyEx`` and lets us own
-the (smoothed) camera completely. See docs/API_NOTES.md.
+the (smoothed) camera completely. See docs/dev/API_NOTES.md.
 
 Retina: OpenCV's Cocoa backend shows one image pixel per *physical* pixel, so the
 frame is upscaled by ``display_scale`` (auto: the display's backing scale, see

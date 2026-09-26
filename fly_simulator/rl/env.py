@@ -105,7 +105,7 @@ class CurriculumStage:
 
 
 def default_curriculum() -> list[CurriculumStage]:
-    # Hit levels: docs/PERTURBATION_CALIBRATION.md (gentle never tips the baseline,
+    # Hit levels: docs/dev/PERTURBATION_CALIBRATION.md (gentle never tips the baseline,
     # medium ~17 %, hard ~2/3).
     return [
         CurriculumStage("flat"),

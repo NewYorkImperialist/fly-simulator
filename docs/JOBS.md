@@ -114,7 +114,7 @@ across resets), `fly_xy()`, `fly_down()`, `fly_moved(window_s)`, `say(msg)`.
 
 ### Props and contacts (`jobs/geometry.py`)
 
-Contact bits: `FLY_BIT` = 8 and `TERRAIN_BIT` = 16 (docs/API_NOTES.md §14), plus
+Contact bits: `FLY_BIT` = 8 and `TERRAIN_BIT` = 16 (docs/dev/API_NOTES.md §14), plus
 `PROP_BIT` = 32 for jobs.
 
 | `collide=` | contype | conaffinity | touches |
@@ -473,7 +473,7 @@ mower surviving an explicit reset, rake carrying, pile counting, gusts, the cons
 leaf pool, and the rake following the thorax.
 Results of the long headless runs are below.
 
-Measured on 2026-09-26 on this machine, with other agents' simulations running at
+Measured on 2026-09-26 on the development machine (Apple M1), with other simulations running at
 the same time:
 
 | run | sim time | result | falls / auto-recoveries | RTF |

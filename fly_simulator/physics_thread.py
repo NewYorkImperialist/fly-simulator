@@ -17,7 +17,7 @@ Rules:
 * Results are identical to the single-threaded loop: only *when* the main thread
   gets to look at the state differs, never the sequence of physics steps.
 
-Two details make this work in practice (measured, see docs/API_NOTES.md):
+Two details make this work in practice (measured, see docs/dev/API_NOTES.md):
 * ``threading.Lock`` is not fair: the worker re-acquired it immediately and the
   display starved (0.7 fps). A second "gate" lock acts as a turnstile.
 * With CPython's default 5 ms GIL switch interval the main thread waits for the

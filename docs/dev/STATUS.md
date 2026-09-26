@@ -1,11 +1,11 @@
-# Fly Simulator: status (2026-09-26, after the integration pass)
+# Fly Simulator: status (2026-09-26)
 
 ## What works
 
 | milestone | status |
 |---|---|
 | M1 walking fly | NeuroMechFly (FlyGym 2.1 / MuJoCo 3.9) walks forever with FlyGym's hybrid CPG controller plus a heading hold along +x. There is a smooth follow camera (C: follow / side / top), a live OpenCV window (physics runs in a worker thread) and a `--headless` mode. |
-| M2 hits | Default: a **physical whip** whose chain of capsules hits the fly only through MuJoCo contact, with the impulse measured. H switches to **shove** (an `xfrc_applied` force on the thorax). Arrow keys, SPACE and U choose the direction; 1-4 set strength (calibrated, see docs/WHIP.md and docs/PERTURBATION_CALIBRATION.md). |
+| M2 hits | Default: a **physical whip** whose chain of capsules hits the fly only through MuJoCo contact, with the impulse measured. H switches to **shove** (an `xfrc_applied` force on the thorax). Arrow keys, SPACE and U choose the direction; 1-4 set strength (calibrated, see docs/WHIP.md and docs/dev/PERTURBATION_CALIBRATION.md). |
 | M3 terrain | Endless chunked procedural terrain from a fixed geom pool (constant model size; recycled, and 2173 chunks were recycled in the 31 min soak). Presets flat / easy / normal / hard / chaos. R B S G D spawn obstacles, F flattens the next chunk. |
 | M4 falls, logging, auto hits | The FallDetector tracks UPRIGHT / DESTABILIZED / FALLEN / RECOVERING. X resets, `--auto-reset-after` resets automatically, `--auto-perturb` gives seeded random hits. Every run writes `runs/<ts>/{config.json, events.csv, metrics.csv, summary.json}`. |
 | RL (phase 10) | A residual Gymnasium env, a curriculum, `scripts/train_ppo.py` and `scripts/eval_policy.py` exist and have been smoke-tested. **No real training run has been done yet** (docs/RL.md). |

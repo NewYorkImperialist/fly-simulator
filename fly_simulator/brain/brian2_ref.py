@@ -1,7 +1,8 @@
 """Reference Brian2 implementation of the Shiu et al. 2024 model (validation/bench only).
 
 This restates ``create_model()`` / ``poi()`` from philshiu/Drosophila_brain_model
-``model.py`` (MIT licence, Copyright (c) 2023 Philip Shiu) with the same equations,
+``model.py`` (MIT licence, Copyright (c) 2023 Philip Shiu and Nico Spiller; see
+NOTICE.md) with the same equations,
 parameters, schedule and connectivity, so the numba engine in ``engine.py`` can be
 checked against it. Not used by the running app (it is far slower; see
 docs/BRAIN.md). Requires ``brian2``.

@@ -129,7 +129,7 @@ class WhipConfig:
     # per-side aim height shift (mm): the abdomen (hit from the rear) and the head
     # (front) are lower than the thorax top; overhead aims at the top of the thorax.
     # per-side swing speed factor: a crack from the front pushes the fly backward,
-    # which tips it far more easily (as with the shove, docs/PERTURBATION_CALIBRATION.md)
+    # which tips it far more easily (as with the shove, docs/dev/PERTURBATION_CALIBRATION.md)
     side_omega_scale: dict = field(default_factory=lambda: {"front": 0.9})
     side_aim_dz: dict = field(default_factory=lambda: {"front": -0.2, "rear": -0.35,
                                                        "overhead": 0.4})

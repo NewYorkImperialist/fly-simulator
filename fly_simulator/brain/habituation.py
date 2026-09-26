@@ -10,7 +10,7 @@ of the brain, recovers spontaneously within tens of seconds, can be dishabituate
 by a novel stimulus, and that the decrement lies in the *afferent* pathway onto the
 GF (the GF -> TTMn/DLMn output follows high rates without fatigue). The GF's main
 looming afferents are the visual projection neurons LC4 and LPLC2 (von Reyn et al.
-2017 Nat Neurosci; Ache et al. 2019 Curr Biol); in FlyWire v783 they are the two
+2017 Neuron; Ache et al. 2019 Curr Biol); in FlyWire v783 they are the two
 largest identified inputs to DNp01 (LPLC2 1080 and LC4 805 synapses onto the two
 GFs). (Looming-evoked escape in freely behaving flies: Card & Dickinson 2008 Curr
 Biol; we cite no specific behavioural looming-habituation dataset, so the time

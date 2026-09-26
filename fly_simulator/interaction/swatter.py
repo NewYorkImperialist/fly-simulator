@@ -5,7 +5,7 @@ Model (added to the world ``MjSpec`` by ``Swatter.extension`` before ``add_fly``
 * ``swatter/hand``: a **mocap** body at the wrist (the swing pivot). No geoms.
 * ``swatter/handle``: a **free** body (the handle, 30 mg) welded to the hand by a
   stiff ``weld`` equality, exactly like the whip's grip (a body parented to a mocap
-  body would have no velocity and hit nothing with momentum; see docs/API_NOTES.md
+  body would have no velocity and hit nothing with momentum; see docs/dev/API_NOTES.md
   §14). Local frame: x along the handle (grip -> paddle), y = the swing axis, z =
   the paddle's upper face normal.
 * ``swatter/paddle``: the paddle (flat plate + grid ribs + rim, 6 mg) on a stiff but

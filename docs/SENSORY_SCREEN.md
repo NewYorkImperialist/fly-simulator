@@ -142,7 +142,7 @@ Findings:
    0 Hz and turning rises. Adding more touch input to a speed-up set is
    counter-productive in this model.
 
-## Nociception, "pain" and speed-up (coordinator question)
+## Nociception, "pain" and speed-up
 
 * **FlyWire v783 has no identified nociceptors or nociceptive ascending neurons.** No
   annotation column mentions noci-, ppk, multidendritic/md, noxious or pain, including

@@ -257,6 +257,7 @@ def test_brain_worker_exits_when_parent_is_killed(tmp_path):
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     out = subprocess.run([sys.executable, str(script)], capture_output=True, text=True,
                          timeout=120, env={**os.environ, "PYTHONPATH": root})
+    assert out.stdout.strip(), f"parent script printed no pid; stderr:\n{out.stderr[-2000:]}"
     pid = int(out.stdout.strip().splitlines()[-1])
     deadline = time.time() + 10
     while time.time() < deadline and _pid_alive(pid):

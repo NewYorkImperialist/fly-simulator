@@ -1,4 +1,4 @@
-"""Quick wins (docs/ROADMAP.md section A): brain backup flag, Retina scaling, floor
+"""Quick wins (docs/dev/ROADMAP.md section A): brain backup flag, Retina scaling, floor
 reflections, live terrain difficulty, screenshots, live recording, help overlay,
 auto hits paused while down, walked distance, package data."""
 

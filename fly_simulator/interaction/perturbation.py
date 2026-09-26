@@ -4,7 +4,7 @@
 post-step and reset hook. ``apply_impulse`` / ``hit`` queue a constant world-frame
 force on a body (default: the thorax) for a fixed number of physics steps.
 
-MuJoCo facts this relies on (see docs/API_NOTES.md, section 6):
+MuJoCo facts this relies on (see docs/dev/API_NOTES.md, section 6):
 
 * ``data.xfrc_applied`` has shape ``(nbody, 6)`` = ``[fx, fy, fz, tx, ty, tz]`` in the
   **world frame**, applied at the body's **centre of mass** (``data.xipos``), in model
@@ -50,7 +50,7 @@ class StrengthLevel:
 
 def _default_levels() -> list[StrengthLevel]:
     # Empirically calibrated with scripts/demo_perturbation.py --calibrate on flat
-    # ground with the default hybrid controller; see docs/PERTURBATION_CALIBRATION.md.
+    # ground with the default hybrid controller; see docs/dev/PERTURBATION_CALIBRATION.md.
     return [
         StrengthLevel("gentle", 0.75, 0.020),
         StrengthLevel("medium", 1.5, 0.020),

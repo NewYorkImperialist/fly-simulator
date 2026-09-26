@@ -17,7 +17,7 @@ read T4 / T5, following what is known about them:
   with ``m`` the local motion vector; ``LPLC2_c = (prod_d A_cd)^(1/4)`` (all four
   arms needed: a geometric mean). Receptive field radius ``rf_deg`` (30 deg ~ the
   ~60 deg LPLC2 receptive field).
-* **LC4** (von Reyn et al. 2017, Nat Neurosci 20:1117): encodes the angular velocity
+* **LC4** (von Reyn et al. 2017, Neuron 94:1190): encodes the angular velocity
   of a dark looming object; weak for translating objects. Model: from T5 only (OFF
   edges: the rim of a dark expanding object is a bright-to-dark edge moving
   outward): the outward flux of the OFF motion through the unit's receptive field,

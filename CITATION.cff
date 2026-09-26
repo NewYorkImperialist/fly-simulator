@@ -1,0 +1,65 @@
+cff-version: 1.2.0
+message: >-
+  If you use Fly Simulator, please cite it as below. If you use the connectome brain
+  model, please also cite the FlyWire papers (Dorkenwald et al. 2024; Schlegel et al.
+  2024) and Shiu et al. 2024, and for the body NeuroMechFly v2 (Wang-Chen et al. 2024).
+  See NOTICE.md for the full list.
+title: "Fly Simulator"
+type: software
+authors:
+  - given-names: Jayden
+    family-names: Lin
+version: 0.1.0
+date-released: "2026-09-26"
+license: MIT
+repository-code: "https://github.com/NewYorkImperialist/fly-simulator"
+url: "https://github.com/NewYorkImperialist/fly-simulator"
+abstract: >-
+  A physically simulated fruit fly (NeuroMechFly on FlyGym 2.x / MuJoCo) that walks
+  through endless procedural terrain, driven in part by a whole-brain leaky
+  integrate-and-fire model of the FlyWire v783 connectome (after Shiu et al. 2024).
+keywords:
+  - Drosophila
+  - connectome
+  - FlyWire
+  - NeuroMechFly
+  - MuJoCo
+  - simulation
+references:
+  - type: article
+    title: "Neuronal wiring diagram of an adult brain"
+    authors:
+      - family-names: Dorkenwald
+        given-names: Sven
+      - name: "The FlyWire Consortium"
+    journal: Nature
+    volume: 634
+    year: 2024
+    doi: 10.1038/s41586-024-07558-y
+  - type: article
+    title: "Whole-brain annotation and multi-connectome cell typing of Drosophila"
+    authors:
+      - family-names: Schlegel
+        given-names: Philipp
+    journal: Nature
+    volume: 634
+    year: 2024
+    doi: 10.1038/s41586-024-07686-5
+  - type: article
+    title: "A Drosophila computational brain model reveals sensorimotor processing"
+    authors:
+      - family-names: Shiu
+        given-names: Philip K.
+    journal: Nature
+    volume: 634
+    year: 2024
+    doi: 10.1038/s41586-024-07763-9
+  - type: article
+    title: "NeuroMechFly v2: simulating embodied sensorimotor control in adult Drosophila"
+    authors:
+      - family-names: Wang-Chen
+        given-names: Sibo
+    journal: Nature Methods
+    volume: 21
+    year: 2024
+    doi: 10.1038/s41592-024-02497-y

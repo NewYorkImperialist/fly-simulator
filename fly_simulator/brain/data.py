@@ -18,6 +18,7 @@ model order) so the brain process does not need to parse the 30 MB TSV at start-
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -26,7 +27,9 @@ import numpy as np
 from .schema import NEUROTRANSMITTERS
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_DATA_DIR = REPO_ROOT / "data" / "brain"
+# FLY_SIMULATOR_BRAIN_DATA overrides the location (e.g. a shared data folder, or a
+# non-existent path to exercise the "no FlyWire data" code paths as CI does).
+DEFAULT_DATA_DIR = Path(os.environ.get("FLY_SIMULATOR_BRAIN_DATA") or REPO_ROOT / "data" / "brain")
 
 COMPLETENESS = "Completeness_783.csv"
 CONNECTIVITY = "Connectivity_783.parquet"

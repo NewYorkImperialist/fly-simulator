@@ -1,0 +1,68 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: pytest (${{ matrix.os }}, py3.12, no FlyWire data)
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux renders headlessly through Mesa's EGL (software, no GPU), as
+          # FlyGym's own CI does, so the rendering tests run there.
+          - os: ubuntu-latest
+            mujoco_gl: egl
+            skip_rendering: "0"
+          # MuJoCo uses CGL on macOS, which cannot create a context on GitHub's
+          # GPU-less macOS runners: tests that create a renderer skip themselves
+          # (tests/conftest.py).
+          - os: macos-14
+            mujoco_gl: cgl
+            skip_rendering: "1"
+    env:
+      MUJOCO_GL: ${{ matrix.mujoco_gl }}
+      FLY_SIMULATOR_SKIP_RENDERING: ${{ matrix.skip_rendering }}
+      # The FlyWire connectome (CC BY-NC 4.0) is not downloaded in CI: point the
+      # brain at a missing folder so the tests that need it skip. Tests that need
+      # flyvis (vision extra), Brian2 (brain-ref) or gymnasium (rl) skip as well,
+      # because those extras are not installed.
+      FLY_SIMULATOR_BRAIN_DATA: /nonexistent
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv and Python 3.12
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install EGL / Mesa (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            libgl1 libegl1-mesa-dev libgles2-mesa-dev libosmesa6-dev
+
+      - name: Install package (dev + brain extras)
+        run: |
+          uv venv --python 3.12 .venv
+          uv pip install --python .venv/bin/python -e ".[dev,brain]"
+
+      - name: Run tests
+        run: |
+          if [ "$RUNNER_OS" = "Linux" ]; then export PYOPENGL_PLATFORM=egl; fi
+          .venv/bin/python -m pytest -q -rs --durations=25

@@ -4,7 +4,7 @@
 on a scripted handle. A crack is scripted motion of the handle **only**; the fly is moved
 exclusively by MuJoCo contact forces between the whip and fly geoms. The whip is the
 app's default hit (`--hit-mode whip`); H switches to the thorax-force shove
-(docs/PERTURBATION_CALIBRATION.md) and back.
+(docs/dev/PERTURBATION_CALIBRATION.md) and back.
 
 Units as everywhere: mm, g, s, force uN, impulse uN*s (= g*mm/s). Fly: 1.024 mg, weight
 10.05 uN, dt = 1e-4 s.
@@ -25,7 +25,7 @@ Driving a free grip through a stiff weld gives the chain real dynamics.
 
 **Why 2 mg?** A 0.4 mg chain was momentum-limited: its impulse saturated at about
 0.15 uN*s whatever the swing speed. The gentle to hard levels need 0.15-0.6 uN*s
-(docs/PERTURBATION_CALIBRATION.md), which takes an effective striking mass comparable
+(docs/dev/PERTURBATION_CALIBRATION.md), which takes an effective striking mass comparable
 to the fly's. Stiffness and damping scale with the mass, which keeps the chain's
 frequencies the same.
 
@@ -131,7 +131,7 @@ knocked over or launched and tumbled into the returning whip.
 `scripts/demo_whip.py --calibrate --phases 8 --post 2.0 --sides left right front rear
 overhead random` (headless, flat ground, default hybrid controller). For each trial: a
 fresh sim, walk 1.0 s + k x 10.5 ms (8 gait phases), crack, observe 2 s, compare with
-the unperturbed run of the same phase. Columns as in docs/PERTURBATION_CALIBRATION.md.
+the unperturbed run of the same phase. Columns as in docs/dev/PERTURBATION_CALIBRATION.md.
 Also: `cos(impulse, push)` = cosine between the measured impulse and the commanded push
 direction; `push along dir.` = displacement along the push direction 0.6 s after the
 crack, relative to the unperturbed run (lateral/longitudinal sides only). The omega
