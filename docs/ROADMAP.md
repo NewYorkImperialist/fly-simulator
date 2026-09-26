@@ -84,10 +84,15 @@ Everything discussed so far, compared. Effort assumes agents doing the work on t
 - **Obstacle courses** (`--course NAME`, docs/COURSE.md), **sensory screen** (docs/SENSORY_SCREEN.md).
 - **Real flight** (`--flight`, key L; brain escape flights; docs/FLIGHT.md).
 - **Brain playground**: virtual optogenetics, lesions, decision meters (docs/PLAYGROUND.md).
+- **Brain games 2 and 3**: Follow the Leader (`--game chase`, LC10a pursuit) and Fly Through Rings (`--game rings`, real flight).
+- **Fast brain→body path** (GF crossing → jump in ~2–3 ms).
+- **Taste patches** (`--taste-patches`: sugar → stop + proboscis via MN9; bitter suppresses feeding).
+- **Realistic doner + knife** visuals, and **kebab brain reactions** (touch per cut, event-driven taste, hunger, startle key).
+- **Looming habituation** (`--habituation`) and **brain replay** (`--brain-record`, `scripts/brain_replay.py`).
+- **Mushroom-body fear learning** (`--learning`, `--odor-zones`): brain-level learning works; no avoidance behaviour in this model (docs/FEAR_LEARNING.md).
 
 ## Queue (next)
-1. **(Pinned) Kebab brain reactions**: each cut sends a leg-touch stimulus (a visible blip per slice); taste when a shaving lands near or the proboscis touches meat, instead of a 4 s timer; a hunger/satiety state that slows carving; stress wired into jobs.
-2. **Faster brain → body latency**: publish as soon as the giant fibre spikes, and use smaller chunks while looming. Real vision is 40–80 ms too slow to dodge the swatter. (Fast dodge was deprioritised by the user.)
-3. **RL training run** (D1): recovery and righting. Needs several GB of free disk and a night of CPU.
-4. **More games** (plane through rings, Pong) and **more senses** (taste patches, odour: note the model's runaway state with olfactory input).
-5. **Research track**: BANC brain + nerve-cord connectome, and motor neurons → muscles.
+1. **RL training run** (D1): recovery and righting. Needs several GB of free disk and a night of CPU.
+2. **Olfaction without runaway**: tune the model (or add inhibition) so real antennal-lobe input works, then real odour navigation.
+3. **Research track**: BANC brain + nerve-cord connectome (whip touch through the real VNC; avoidance routes), motor neurons → muscles.
+4. **Polish**: other job scenes to the kebab's visual standard; a startle key for kebab in the main app; `--game` inside `run_sim.py`.
