@@ -8,8 +8,8 @@
     .venv/bin/python scripts/run_course.py --list
 
 Builds the app's ``Session`` (terrain pool, whip, falls, metrics, logger) exactly
-like ``perpetualfly.app.run`` and installs the course with
-``perpetualfly.course.install_course``. Results go to <run dir>/course_results.json
+like ``fly_simulator.app.run`` and installs the course with
+``fly_simulator.course.install_course``. Results go to <run dir>/course_results.json
 and finished runs to <runs dir>/leaderboard.json (keyed by course + controller).
 Window keys: Q/ESC quit, X explicit reset (to the last checkpoint), C camera.
 """
@@ -23,10 +23,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from perpetualfly.app import Session  # noqa: E402
-from perpetualfly.config import AppConfig  # noqa: E402
-from perpetualfly.course import CourseOptions, builtin_courses, install_course  # noqa: E402
-from perpetualfly.course import leaderboard as lb  # noqa: E402
+from fly_simulator.app import Session  # noqa: E402
+from fly_simulator.config import AppConfig  # noqa: E402
+from fly_simulator.course import CourseOptions, builtin_courses, install_course  # noqa: E402
+from fly_simulator.course import leaderboard as lb  # noqa: E402
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -77,7 +77,7 @@ def main(argv: list[str] | None = None) -> int:
     cfg.render.width, cfg.render.height = w, h
     brain = None
     if args.brain or args.brain_steer:
-        from perpetualfly.brain_link import BrainLink, missing_requirements
+        from fly_simulator.brain_link import BrainLink, missing_requirements
 
         cfg.brain.enabled = True
         cfg.brain.steer = args.brain_steer
@@ -106,12 +106,12 @@ def main(argv: list[str] | None = None) -> int:
     renderer = viewer = writer = None
     frame_x = sorted(float(v) for v in args.frame_x.split(",") if v.strip())
     if args.window or args.record or args.frames_dir:
-        from perpetualfly.rendering import FrameRenderer
+        from fly_simulator.rendering import FrameRenderer
 
         renderer = FrameRenderer(sim.model, cfg.render, cfg.camera)
         course.respawn_listeners.append(lambda c: renderer.camera.reset())
     if args.window:
-        from perpetualfly.interaction import LiveViewer
+        from fly_simulator.interaction import LiveViewer
 
         viewer = LiveViewer(f"PerpetualFly course: {course.spec.name}",
                             frame_size=(cfg.render.width, cfg.render.height))
@@ -148,7 +148,7 @@ def main(argv: list[str] | None = None) -> int:
                                          (frame_x and sim.thorax_position()[0] >= frame_x[0])):
                 import cv2
 
-                from perpetualfly.interaction.viewer import compose_frame
+                from fly_simulator.interaction.viewer import compose_frame
 
                 img = frame()
                 if writer is not None:

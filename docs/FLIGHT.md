@@ -2,7 +2,7 @@
 
 NeuroMechFly can now fly with flapping wings. The lift comes from MuJoCo's built-in
 ellipsoid fluid model acting on the moving wings. No external "flight force" is
-applied. The code is in `perpetualfly/flight/`, the demos are in
+applied. The code is in `fly_simulator/flight/`, the demos are in
 `scripts/demo_flight.py` and the tests in `tests/test_flight.py`. Flight is opt-in:
 the default walking `Simulation` (model, timestep 1e-4 s, Euler integrator, no air)
 does not change. `test_default_walking_model_is_unaffected` checks this.
@@ -12,7 +12,7 @@ forward flight up to about 190 mm/s, take-off from the escape jump, landing, and
 rendered frames plus a clip. Section 7 wires it into the app (`--flight`, key L,
 brain escape flight). The limits are listed at the end.
 
-## 1. Model (`perpetualfly/flight/body.py`)
+## 1. Model (`fly_simulator/flight/body.py`)
 
 `make_flight_fly()` builds FlyGym's locomotion fly (legs-only joints, 42 leg
 position actuators, adhesion) and adds the following.
@@ -61,9 +61,9 @@ position actuators, adhesion) and adds the following.
   These are flybody's cm-g-s values converted to mm-g-s. The other bodies get
   MuJoCo's inertia-box drag, which is physical body drag.
 * **The 42 leg actuators stay the only position actuators FlyGym knows**. The wing
-  actuators are added straight to the MjSpec, as in `perpetualfly/actions/body.py`.
+  actuators are added straight to the MjSpec, as in `fly_simulator/actions/body.py`.
 
-`FlightSimulation(cfg)` (`perpetualfly/flight/sim.py`) is a `Simulation` subclass.
+`FlightSimulation(cfg)` (`fly_simulator/flight/sim.py`) is a `Simulation` subclass.
 It uses a copied config with dt = **5e-5 s**, the flight fly, and air.
 * Its `step()` runs the wingbeat generator at every physics step, and the flight
   controller at 5 kHz.
@@ -80,7 +80,7 @@ It uses a copied config with dt = **5e-5 s**, the flight fly, and air.
   * the rotational part is the torque about the thorax origin, which
     `fluid_torque_com()` moves to the COM.
 
-## 2. Wingbeat generator (`perpetualfly/flight/wingbeat.py`)
+## 2. Wingbeat generator (`fly_simulator/flight/wingbeat.py`)
 
 The phase p advances at 2π·f and is integrated, so frequency changes stay
 continuous. Per wing:
@@ -160,7 +160,7 @@ the level stroke frame; used by the controller):
 Base wrench: Fz 10.03 µN, pitch torque +0.52 µN·mm (nose-down). The trim is about
 +2.9° of mean stroke.
 
-## 4. Free hover and forward flight (`perpetualfly/flight/control.py`)
+## 4. Free hover and forward flight (`fly_simulator/flight/control.py`)
 
 `HoverController` runs at 5 kHz (every 4 physics steps). All loops work in the
 *stroke frame*, which is the thorax frame rotated by β and is level in the hover
@@ -257,7 +257,7 @@ flapping climb and pitch-up → hover.
 .venv/bin/python scripts/demo_flight.py takeoff --duration 0.3 --slowmo 30 --size 400x300 --record runs/flight/takeoff.mp4
 ```
 
-## 7. Flight in the app (`--flight`; `perpetualfly/flight/mode.py`)
+## 7. Flight in the app (`--flight`; `fly_simulator/flight/mode.py`)
 
 `--flight` builds the `Session` on a `FlightSimulation`: the flight fly (stroke-plane
 wing hinges, fluid ellipsoids, the same 42 leg actuators and adhesion), dt **5e-5 s**,

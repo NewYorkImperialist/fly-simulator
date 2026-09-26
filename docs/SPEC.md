@@ -13,7 +13,7 @@ Python, FlyGym / NeuroMechFly 2.x, MuJoCo, NumPy, FlyGym's standard visualizatio
 
 ## Layout
 ```
-perpetualfly/
+fly_simulator/
     __init__.py
     app.py
     simulation.py

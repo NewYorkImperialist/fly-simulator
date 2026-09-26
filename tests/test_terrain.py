@@ -4,16 +4,16 @@ import mujoco as mj
 import numpy as np
 import pytest
 
-from perpetualfly import AppConfig, Simulation
-from perpetualfly.terrain import (
+from fly_simulator import AppConfig, Simulation
+from fly_simulator.terrain import (
     DIFFICULTY_PRESETS,
     SPAWN_KINDS,
     ProceduralTerrain,
     ProceduralTerrainConfig,
     TerrainGenerator,
 )
-from perpetualfly.terrain.chunks import FLY_BIT, TERRAIN_BIT
-from perpetualfly.terrain.generator import slab_box
+from fly_simulator.terrain.chunks import FLY_BIT, TERRAIN_BIT
+from fly_simulator.terrain.generator import slab_box
 
 
 # ------------------------------------------------------------ generator only
@@ -265,7 +265,7 @@ def test_ground_recentering_moves_the_drawn_plane():
     # geom_sameframe = 1 and ignored geom_pos: the checkerboard never moved.
     from types import SimpleNamespace
 
-    from perpetualfly.terrain import GroundRecentering
+    from fly_simulator.terrain import GroundRecentering
 
     m = mj.MjModel.from_xml_string(
         '<mujoco><worldbody><geom name="ground_plane" type="plane" size="10 10 1"/>'

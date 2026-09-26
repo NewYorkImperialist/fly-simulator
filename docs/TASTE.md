@@ -7,11 +7,11 @@ the legs "taste" it and the FlyWire brain model gets gustatory input. With
 avoidance: the connectome gives none (see below). But bitter mixed into sugar
 suppresses MN9, and with it the feeding.
 
-* Code: `perpetualfly/senses/taste.py` (patches, sensing, feeding rule). There are
+* Code: `fly_simulator/senses/taste.py` (patches, sensing, feeding rule). There are
   also small additive hooks:
-  * `perpetualfly/brain/mapping.py`: the `taste` stimulus kind and the named set
+  * `fly_simulator/brain/mapping.py`: the `taste` stimulus kind and the named set
     `leg_gustatory`.
-  * `perpetualfly/app.py` / `config.py`: `AppConfig.taste`, keys 5 / 6 / 7, the HUD
+  * `fly_simulator/app.py` / `config.py`: `AppConfig.taste`, keys 5 / 6 / 7, the HUD
     line, the summary.
 * Tests: `tests/test_taste.py`. It uses the synthetic brain or a fake MN9 and takes
   about 15 s.

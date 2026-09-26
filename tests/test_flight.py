@@ -1,4 +1,4 @@
-"""Flapping-wing flight prototype (perpetualfly/flight, docs/FLIGHT.md)."""
+"""Flapping-wing flight prototype (fly_simulator/flight, docs/FLIGHT.md)."""
 
 import math
 
@@ -6,8 +6,8 @@ import mujoco as mj
 import numpy as np
 import pytest
 
-from perpetualfly import AppConfig, Simulation
-from perpetualfly.flight import (
+from fly_simulator import AppConfig, Simulation
+from fly_simulator.flight import (
     AIR_DENSITY,
     FLIGHT_TIMESTEP,
     FlightSimulation,
@@ -15,8 +15,8 @@ from perpetualfly.flight import (
     WingbeatParams,
     measure_tethered,
 )
-from perpetualfly.flight.control import HoverController, base_wingbeat
-from perpetualfly.flight.wingbeat import DEG
+from fly_simulator.flight.control import HoverController, base_wingbeat
+from fly_simulator.flight.wingbeat import DEG
 
 
 @pytest.fixture(scope="module")

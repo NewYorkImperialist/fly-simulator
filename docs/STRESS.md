@@ -4,8 +4,8 @@ Whip hits make the fly speed up for a while, then calm down. The signal goes thr
 the nervous system: the hits drive the brain model, the model's octopaminergic (OA)
 neurons fire, a slow octopamine level integrates their spikes, and the level sets
 the walking vigour. The level also makes the fly jumpier and changes brain
-excitability. Code: `perpetualfly/brain/neuromod.py` (brain side, runs in the brain
-worker), `perpetualfly/stress.py` (body side), the PAIN/AROUSAL row of the brain
+excitability. Code: `fly_simulator/brain/neuromod.py` (brain side, runs in the brain
+worker), `fly_simulator/stress.py` (body side), the PAIN/AROUSAL row of the brain
 window, `scripts/demo_stress.py` and `tests/test_stress.py`.
 
 ## Biology, and which parts are real and which are modelled
@@ -113,7 +113,7 @@ spot checks the shift did not change the runaway rate measurably: 0/36 runs at
 level 0, 0/15 at level 0.6 with 1 mV, and 1/3 at level 0.6 with 0.5 mV. These are
 small samples.
 
-### Body effect (`perpetualfly/stress.py`, modelled, bounded)
+### Body effect (`fly_simulator/stress.py`, modelled, bounded)
 
 * CPG intrinsic frequency × `1 + 0.5 L` (max ×1.5). Implemented by scaling the
   hybrid controller's `_base_intrinsic_freqs` in place, so it survives resets.
@@ -220,7 +220,7 @@ PAIN/AROUSAL 0.71 [octopamine (model)] <- OA neurons 0.0 Hz (hits via VNC-stand-
 ## Integration API (for app.py; not wired yet)
 
 ```python
-from perpetualfly.stress import StressConfig, install_stress, METRIC_COLUMNS
+from fly_simulator.stress import StressConfig, install_stress, METRIC_COLUMNS
 # after Session(cfg, brain=link) (BrainLink.attach done):
 session.stress = install_stress(session, cfg.stress)     # cfg.stress: StressConfig
 # per physics chunk: automatic (it wraps link.update; pass hook_update=False and

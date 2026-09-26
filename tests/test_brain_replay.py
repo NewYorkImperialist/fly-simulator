@@ -1,4 +1,4 @@
-"""Brain recording + replay (perpetualfly/brain_viz/replay.py, docs/BRAIN_REPLAY.md)."""
+"""Brain recording + replay (fly_simulator/brain_viz/replay.py, docs/BRAIN_REPLAY.md)."""
 
 from __future__ import annotations
 
@@ -7,9 +7,9 @@ import json
 import numpy as np
 import pytest
 
-from perpetualfly.brain.schema import StimulusEvent
-from perpetualfly.brain_viz.mock import MockBrain
-from perpetualfly.brain_viz.replay import (TIMELINE_H, BrainRecorder, BrainRecording,
+from fly_simulator.brain.schema import StimulusEvent
+from fly_simulator.brain_viz.mock import MockBrain
+from fly_simulator.brain_viz.replay import (TIMELINE_H, BrainRecorder, BrainRecording,
                                            ReplayPlayer, event_class, render_png, render_range)
 
 SIZE = (640, 400)
@@ -113,9 +113,9 @@ def test_brain_link_records_states_stimuli_and_habituation(tmp_path):
     import time
 
     pytest.importorskip("numba")
-    from perpetualfly import AppConfig
-    from perpetualfly.app import Session
-    from perpetualfly.brain_link import BrainLink, BrainLinkConfig
+    from fly_simulator import AppConfig
+    from fly_simulator.app import Session
+    from fly_simulator.brain_link import BrainLink, BrainLinkConfig
 
     cfg = AppConfig()
     cfg.logging.runs_dir = str(tmp_path)

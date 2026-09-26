@@ -34,7 +34,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from perpetualfly.games import CONTROLS, DIFFICULTIES, GAMES
+from fly_simulator.games import CONTROLS, DIFFICULTIES, GAMES
 
 
 def parse_args(argv=None):
@@ -91,7 +91,7 @@ def parse_args(argv=None):
 
 
 def main(argv=None) -> int:
-    from perpetualfly.games.runner import play
+    from fly_simulator.games.runner import play
 
     return play(parse_args(argv))
 

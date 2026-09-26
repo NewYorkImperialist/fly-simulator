@@ -7,9 +7,9 @@ with play / pause, speed control, seeking and a timeline bar. It can also render
 time range headlessly to PNG or MP4. Recording is off by default and implies
 `--brain`.
 
-Code: `perpetualfly/brain_viz/replay.py` (`BrainRecorder`, `BrainRecording`,
+Code: `fly_simulator/brain_viz/replay.py` (`BrainRecorder`, `BrainRecording`,
 `ReplayPlayer`, `render_png`, `render_range`, `run_viewer`), the hooks in
-`perpetualfly/brain_link.py`, and `tests/test_brain_replay.py`.
+`fly_simulator/brain_link.py`, and `tests/test_brain_replay.py`.
 
 ## Recording format (`<run dir>/brain_rec/`)
 
@@ -18,7 +18,7 @@ Code: `perpetualfly/brain_viz/replay.py` (`BrainRecorder`, `BrainRecording`,
 | `layout.npz` | the static `BrainLayout` (regions, outlines, display neurons), written once, ~54 KB for the real brain |
 | `chunk_00000.npz`, ... | `np.savez_compressed` chunks of 100 stored states (10 s at 0.1 s) |
 | `events.jsonl` | one JSON line per event, appended live: `{"kind": "stim" \| "action", "t": fly run time, "label", ...}` |
-| `meta.json` | format `perpetualfly-brain-rec/1`, counts, bytes, time range, whether the size cap was hit |
+| `meta.json` | format `fly_simulator-brain-rec/1`, counts, bytes, time range, whether the size cap was hit |
 
 Per stored state:
 

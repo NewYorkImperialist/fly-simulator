@@ -1,4 +1,4 @@
-"""Taste patches (perpetualfly/senses/taste.py, docs/TASTE.md): patches, leg sensing,
+"""Taste patches (fly_simulator/senses/taste.py, docs/TASTE.md): patches, leg sensing,
 the brain mapping of ``taste`` events and the feeding rule (synthetic / fake brain)."""
 
 import json
@@ -6,15 +6,15 @@ import json
 import numpy as np
 import pytest
 
-from perpetualfly.actions import ActionManager
-from perpetualfly.actions.jump import Jump
-from perpetualfly.app import (KEY_TABLE, ConfigError, Session, build_arg_parser,
+from fly_simulator.actions import ActionManager
+from fly_simulator.actions.jump import Jump
+from fly_simulator.app import (KEY_TABLE, ConfigError, Session, build_arg_parser,
                               config_from_args)
-from perpetualfly.brain.schema import StimulusEvent
-from perpetualfly.config import AppConfig
-from perpetualfly.senses.taste import (PATCH_KINDS, TASTE_KEYS, FeedingRule, TasteConfig,
+from fly_simulator.brain.schema import StimulusEvent
+from fly_simulator.config import AppConfig
+from fly_simulator.senses.taste import (PATCH_KINDS, TASTE_KEYS, FeedingRule, TasteConfig,
                                        TastePatches)
-from perpetualfly.simulation import Simulation
+from fly_simulator.simulation import Simulation
 
 
 def _session(**taste):
@@ -134,8 +134,8 @@ def test_rate_scales_with_legs():
 
 
 def test_mapper_resolves_taste_events():
-    from perpetualfly.brain.mapping import StimulusMapper
-    from perpetualfly.brain.process import _synthetic_table
+    from fly_simulator.brain.mapping import StimulusMapper
+    from fly_simulator.brain.process import _synthetic_table
 
     table, _ = _synthetic_table(n=40)
     mp = StimulusMapper(table)
@@ -222,8 +222,8 @@ def test_feed_extends_the_proboscis_and_never_interrupts_a_jump(full_body_mgr):
 # ------------------------------------------------------------------ app + synthetic brain
 def test_headless_app_with_synthetic_brain(tmp_path):
     pytest.importorskip("numba")
-    from perpetualfly.app import run
-    from perpetualfly.brain_link import BrainLinkConfig
+    from fly_simulator.app import run
+    from fly_simulator.brain_link import BrainLinkConfig
 
     cfg = AppConfig()
     cfg.logging.runs_dir = str(tmp_path)

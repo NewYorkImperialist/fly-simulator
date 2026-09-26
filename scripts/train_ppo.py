@@ -36,9 +36,9 @@ from stable_baselines3 import PPO  # noqa: E402
 from stable_baselines3.common.callbacks import BaseCallback, CallbackList  # noqa: E402
 from stable_baselines3.common.vec_env import VecNormalize  # noqa: E402
 
-from perpetualfly.rl.env import EnvConfig, PerpetualFlyEnv  # noqa: E402
-from perpetualfly.rl.evaluation import evaluate, format_report  # noqa: E402
-from perpetualfly.rl.wrappers import make_vec_env  # noqa: E402
+from fly_simulator.rl.env import EnvConfig, PerpetualFlyEnv  # noqa: E402
+from fly_simulator.rl.evaluation import evaluate, format_report  # noqa: E402
+from fly_simulator.rl.wrappers import make_vec_env  # noqa: E402
 
 
 class CurriculumCallback(BaseCallback):

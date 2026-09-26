@@ -4,13 +4,13 @@ import json
 
 import pytest
 
-from perpetualfly import AppConfig
-from perpetualfly.app import Session
-from perpetualfly.course import (CourseOptions, CourseSpec, build_layout, builtin_courses,
+from fly_simulator import AppConfig
+from fly_simulator.app import Session
+from fly_simulator.course import (CourseOptions, CourseSpec, build_layout, builtin_courses,
                                  install_course)
-from perpetualfly.course import leaderboard as lb
-from perpetualfly.metrics import FallState
-from perpetualfly.terrain import ProceduralTerrainConfig, SectionedGenerator
+from fly_simulator.course import leaderboard as lb
+from fly_simulator.metrics import FallState
+from fly_simulator.terrain import ProceduralTerrainConfig, SectionedGenerator
 
 
 def _spec(sections, **kw):

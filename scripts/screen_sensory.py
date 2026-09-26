@@ -5,7 +5,7 @@
     .venv/bin/python scripts/screen_sensory.py --only JO,BM_    # groups whose name matches
     .venv/bin/python scripts/screen_sensory.py --list           # just list the groups
 
-Every sensory group (perpetualfly.brain.screen.sensory_groups) is driven with
+Every sensory group (fly_simulator.brain.screen.sensory_groups) is driven with
 Poisson input at each rate for ``--seconds`` x ``--trials``; the descending groups,
 MN9, key DN types and the top-20 DN cell types are written to ``--out`` (CSV).
 The engine runs in-process in ``--workers`` spawned processes (each loads the
@@ -24,8 +24,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from perpetualfly.brain.schema import DESCENDING_GROUPS  # noqa: E402
-from perpetualfly.brain.screen import (BEHAVIOUR_KEYS, KEY_DN_COLS,  # noqa: E402
+from fly_simulator.brain.schema import DESCENDING_GROUPS  # noqa: E402
+from fly_simulator.brain.screen import (BEHAVIOUR_KEYS, KEY_DN_COLS,  # noqa: E402
                                        dn_readout_index, group_hops, screen_one,
                                        sensory_groups)
 
@@ -33,8 +33,8 @@ _W: dict = {}
 
 
 def _init(seed_base: int):
-    from perpetualfly.brain.data import load_connectome, load_neuron_table
-    from perpetualfly.brain.engine import LIFEngine
+    from fly_simulator.brain.data import load_connectome, load_neuron_table
+    from fly_simulator.brain.engine import LIFEngine
 
     indptr, indices, w, _ = load_connectome()
     table = load_neuron_table()
@@ -121,7 +121,7 @@ def main():
         summarize(a.summarize)
         return
 
-    from perpetualfly.brain.data import load_connectome, load_neuron_table
+    from fly_simulator.brain.data import load_connectome, load_neuron_table
 
     table = load_neuron_table()
     groups = sensory_groups(table)
@@ -156,7 +156,7 @@ def main():
                   f"@{row['rate_hz']:.0f}", flush=True)
 
     if a.workers <= 1:  # in-process: a single brain in memory
-        from perpetualfly.brain.engine import LIFEngine
+        from fly_simulator.brain.engine import LIFEngine
 
         engine = LIFEngine(indptr, indices, w, seed=a.seed + 1)
         del indptr, indices, w

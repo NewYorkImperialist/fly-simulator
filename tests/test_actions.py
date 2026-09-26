@@ -1,11 +1,11 @@
-"""Action library (perpetualfly/actions, docs/ACTIONS.md)."""
+"""Action library (fly_simulator/actions, docs/ACTIONS.md)."""
 
 import mujoco as mj
 import numpy as np
 import pytest
 
-from perpetualfly import AppConfig, Simulation
-from perpetualfly.actions import (
+from fly_simulator import AppConfig, Simulation
+from fly_simulator.actions import (
     ActionManager,
     BackAway,
     Freeze,
@@ -255,7 +255,7 @@ def _state(t, escape=0.0, mn9=0.0, groom=0.0):
 
 
 def test_brain_triggers_jump_proboscis_groom():
-    from perpetualfly.actions.brain_triggers import BrainActionTriggers, TriggerParams
+    from fly_simulator.actions.brain_triggers import BrainActionTriggers, TriggerParams
 
     sim = Simulation(AppConfig(), fly_factory=make_action_fly_factory())
     mgr = ActionManager(sim)
@@ -295,7 +295,7 @@ def test_brain_triggers_jump_proboscis_groom():
 
 
 def test_brain_triggers_without_proboscis_joints(rig):
-    from perpetualfly.actions.brain_triggers import BrainActionTriggers
+    from fly_simulator.actions.brain_triggers import BrainActionTriggers
 
     sim, mgr = rig
     trig = BrainActionTriggers(mgr)
@@ -307,7 +307,7 @@ def test_brain_triggers_without_proboscis_joints(rig):
 
 # ------------------------------------------------------------------------ app
 def test_cli_full_body_and_brain_actions_flags():
-    from perpetualfly.app import build_arg_parser, config_from_args
+    from fly_simulator.app import build_arg_parser, config_from_args
 
     parse = lambda *a: config_from_args(build_arg_parser().parse_args(list(a)))  # noqa: E731
     assert AppConfig().fly.extra_joints is False  # library default: FlyGym's model
@@ -319,8 +319,8 @@ def test_cli_full_body_and_brain_actions_flags():
 
 
 def test_help_overlay_greys_unavailable_actions():
-    from perpetualfly.app import UNAVAILABLE_MARK, help_groups, key_help_text
-    from perpetualfly.interaction.viewer import compose_frame
+    from fly_simulator.app import UNAVAILABLE_MARK, help_groups, key_help_text
+    from fly_simulator.interaction.viewer import compose_frame
 
     legs_only = {"jump", "freeze", "groom", "back_away", "turn_left", "turn_right"}
     rows = dict(dict(help_groups(legs_only))["actions"])
@@ -337,7 +337,7 @@ def test_app_action_keys_log_and_pause_falls(tmp_path):
     import csv
     import json
 
-    from perpetualfly.app import run
+    from fly_simulator.app import run
 
     cfg = AppConfig()
     cfg.fly.extra_joints = True
@@ -358,8 +358,8 @@ def test_app_action_keys_log_and_pause_falls(tmp_path):
 
 
 def test_session_jump_pauses_auto_hits_and_fall_detector():
-    from perpetualfly.app import Session
-    from perpetualfly.metrics import FallState
+    from fly_simulator.app import Session
+    from fly_simulator.metrics import FallState
 
     cfg = AppConfig()
     s = Session(cfg, log=False, say=lambda m: None)
@@ -391,7 +391,7 @@ def test_session_jump_pauses_auto_hits_and_fall_detector():
 
 
 def test_full_body_walking_stats_match_default():
-    from perpetualfly.app import run
+    from fly_simulator.app import run
 
     out = []
     for extra in (False, True):
@@ -406,8 +406,8 @@ def test_full_body_walking_stats_match_default():
 
 def test_brain_link_installs_action_triggers_synthetic(tmp_path):
     pytest.importorskip("numba")
-    from perpetualfly.app import Session
-    from perpetualfly.brain_link import BrainLink, BrainLinkConfig
+    from fly_simulator.app import Session
+    from fly_simulator.brain_link import BrainLink, BrainLinkConfig
 
     cfg = AppConfig()
     cfg.fly.extra_joints = True

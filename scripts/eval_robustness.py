@@ -230,7 +230,7 @@ def aggregate(runs: list[dict[str, Any]], horizons=DEFAULT_HORIZONS) -> dict[str
         "n_runs": len(runs),
         "total_sim_time_s": total_t,
         "total_distance_mm": dist,  # thorax path incl. flights after hits
-        "total_walked_mm": walked,  # walking only (see perpetualfly/metrics/run_metrics.py)
+        "total_walked_mm": walked,  # walking only (see fly_simulator/metrics/run_metrics.py)
         "total_forward_mm": fwd,
         "avg_forward_speed_mm_s": fwd / total_t if total_t else None,
         "n_falls": n_falls,

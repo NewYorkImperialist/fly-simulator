@@ -9,9 +9,9 @@ from flygym_demo.complex_terrain import (
     make_tripod_cpg_network,
 )
 
-from perpetualfly import AppConfig, Simulation, SimulationInstabilityError
-from perpetualfly.app import run
-from perpetualfly.metrics import LocomotionStats
+from fly_simulator import AppConfig, Simulation, SimulationInstabilityError
+from fly_simulator.app import run
+from fly_simulator.metrics import LocomotionStats
 
 
 @pytest.fixture(scope="module")
@@ -134,7 +134,7 @@ def test_fast_turning_controller_is_bitwise_flygym():
     HybridTurningController + from_sim *bit for bit* (not just to 1e-12)."""
     from flygym_demo.complex_terrain import HybridTurningController
 
-    from perpetualfly.controllers.hybrid import _VectorizedSteps
+    from fly_simulator.controllers.hybrid import _VectorizedSteps
 
     steps = PreprogrammedSteps()
     vec = _VectorizedSteps(steps, tuple(steps.legs))
@@ -173,7 +173,7 @@ def test_fast_turning_controller_is_bitwise_flygym():
 def test_physics_thread_is_deterministic():
     """Stepping in the worker thread (while the main thread reads the state under
     the lock) gives exactly the same trajectory as plain sim.step()."""
-    from perpetualfly.physics_thread import PhysicsThread
+    from fly_simulator.physics_thread import PhysicsThread
 
     a, b = Simulation(AppConfig()), Simulation(AppConfig())
     try:

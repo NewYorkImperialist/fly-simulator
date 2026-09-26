@@ -9,16 +9,16 @@ uv pip install --python .venv/bin/python -e ".[rl,dev]"     # gymnasium, stable-
 .venv/bin/python -m pytest -q tests/test_rl_env.py
 ```
 
-The core package never imports `perpetualfly.rl`. gymnasium, SB3 and torch are only
+The core package never imports `fly_simulator.rl`. gymnasium, SB3 and torch are only
 needed for RL (a test checks this).
 
 ## Files
 
 | file | what |
 |---|---|
-| `perpetualfly/rl/env.py` | `PerpetualFlyEnv(gymnasium.Env)`, `EnvConfig`, `RewardConfig`, `CurriculumStage`, `default_curriculum()` |
-| `perpetualfly/rl/wrappers.py` | `make_env(cfg, rank, seed)` (picklable thunk + SB3 `Monitor`), `make_vec_env(cfg, n_envs, seed)` (SubprocVecEnv, spawn) |
-| `perpetualfly/rl/evaluation.py` | `evaluate(env, policy, sim_seconds)`: long-horizon metrics through the app's `RunMetrics` |
+| `fly_simulator/rl/env.py` | `PerpetualFlyEnv(gymnasium.Env)`, `EnvConfig`, `RewardConfig`, `CurriculumStage`, `default_curriculum()` |
+| `fly_simulator/rl/wrappers.py` | `make_env(cfg, rank, seed)` (picklable thunk + SB3 `Monitor`), `make_vec_env(cfg, n_envs, seed)` (SubprocVecEnv, spawn) |
+| `fly_simulator/rl/evaluation.py` | `evaluate(env, policy, sim_seconds)`: long-horizon metrics through the app's `RunMetrics` |
 | `scripts/train_ppo.py` | SB3 PPO + VecNormalize, curriculum, checkpoints, periodic long evaluation, TensorBoard |
 | `scripts/eval_policy.py` | headless long evaluation of a checkpoint or `--baseline` (zero residual) |
 | `tests/test_rl_env.py` | check_env, exact baseline equivalence, obs sanity / no hit leakage, reward ordering, termination, seeding, stages, instability |
@@ -26,7 +26,7 @@ needed for RL (a test checks this).
 ## Environment design
 
 ```python
-from perpetualfly.rl import PerpetualFlyEnv, EnvConfig
+from fly_simulator.rl import PerpetualFlyEnv, EnvConfig
 env = PerpetualFlyEnv(EnvConfig(stage="normal"))       # render_mode="rgb_array" optional
 obs, info = env.reset(seed=0, options={"stage": "flat"})
 obs, reward, terminated, truncated, info = env.step(action)   # action in [-1, 1]^42

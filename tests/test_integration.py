@@ -1,5 +1,5 @@
 """Integration pass: --swatter / --stress / --whip-vision / --course / --job wired into
-the app (perpetualfly/app.py Session + CLI + keys + HUD + logging)."""
+the app (fly_simulator/app.py Session + CLI + keys + HUD + logging)."""
 
 import csv
 import json
@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from perpetualfly import AppConfig
-from perpetualfly.app import (
+from fly_simulator import AppConfig
+from fly_simulator.app import (
     ConfigError,
     Session,
     _make_renderer,
@@ -17,7 +17,7 @@ from perpetualfly.app import (
     main,
     run,
 )
-from perpetualfly.interaction.keyboard import decode_key
+from fly_simulator.interaction.keyboard import decode_key
 
 SYN = {"n": 60, "p_conn": 0.1, "seed": 0}
 

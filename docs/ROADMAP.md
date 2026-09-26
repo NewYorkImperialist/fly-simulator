@@ -17,7 +17,7 @@ Everything discussed so far, compared. Effort assumes agents doing the work on t
 | # | Item | Effort | Needs code | Brain-real | Visible impact |
 |---|---|---|---|---|---|
 | A1 | Looming makes fly back up (`--brain-backup`, MDN threshold 40→20 Hz) — **done: `--brain-backup` (0.5–1.2 s after O: vx mean −4.2, min −21 mm/s vs +2.3 without it)** | minutes | tiny | ★★ | High |
-| A2 | Fly window Retina scaling (half-size text fix) — **done: automatic ×2 on Retina, `PERPETUALFLY_FLY_SCALE` override, shared `perpetualfly/display.py`** | < 1 h | small | – | High |
+| A2 | Fly window Retina scaling (half-size text fix) — **done: automatic ×2 on Retina, `FLY_SIMULATOR_FLY_SCALE` override, shared `fly_simulator/display.py`** | < 1 h | small | – | High |
 | A3 | Floor-reflection toggle (14→8 ms/frame) — **done: `--no-reflections`, draw 10.6–11.2 → 5.5–6.4 ms** | < 1 h | small | – | Medium |
 | A4 | Change terrain difficulty live (`[` / `]`) — **done: `[` / `]`, `ProceduralTerrain.set_difficulty()`** | < 1 h | small | – | Medium |
 | A5 | Screenshot key (renderer frames, never screen capture) — **done: `I` saves the fly PNG (clean + HUD) and a brain PNG** | < 1 h | small | – | Medium |
@@ -66,7 +66,7 @@ Everything discussed so far, compared. Effort assumes agents doing the work on t
 | # | Item | Who |
 |---|---|---|
 | E1 | Strip Claude co-author lines from first two commits (commands in chat) | You (permission-gated) |
-| E2 | Rename Python package `perpetualfly` → match `fly-runner` repo | Agent, ~30 min |
+| E2 | Rename Python package `fly_simulator` → match `fly-simulator` repo | Agent, ~30 min |
 
 ## Suggested agenda
 1. **Session 1 (≈1–2 h):** A1, A2, A5, A7, A8 + C3 — polish + first reactive behaviour.

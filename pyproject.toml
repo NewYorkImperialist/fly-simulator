@@ -3,7 +3,7 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "perpetualfly"
+name = "fly-simulator"
 version = "0.1.0"
 description = "NeuroMechFly (FlyGym 2.x) jogging forever through procedural terrain"
 requires-python = ">=3.12,<3.15"
@@ -15,14 +15,14 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
-# Residual-RL env + PPO training (perpetualfly.rl, scripts/train_ppo.py). torch comes
+# Residual-RL env + PPO training (fly_simulator.rl, scripts/train_ppo.py). torch comes
 # in through stable-baselines3; tensorboard is optional (--tensorboard).
 rl = [
     "gymnasium>=1.0",
     "stable-baselines3>=2.4",
     "tensorboard>=2.15",
 ]
-# Whole-brain connectome model (perpetualfly.brain, docs/BRAIN.md). numba runs the
+# Whole-brain connectome model (fly_simulator.brain, docs/BRAIN.md). numba runs the
 # engine; pyarrow reads the FlyWire parquet/feather files; brian2 is only needed for
 # the reference cross-check in scripts/bench_brain.py and tests.
 brain = [
@@ -33,7 +33,7 @@ brain = [
 brain-ref = [
     "brian2>=2.7",
 ]
-# Real vision (--real-vision; perpetualfly/vision/flyvis_net.py, docs/VISION.md):
+# Real vision (--real-vision; fly_simulator/vision/flyvis_net.py, docs/VISION.md):
 # flyvis connectome-constrained visual system (Lappalainen et al. 2024; ~230 MB of
 # dependencies, torch included). Then fetch the pretrained models (~10 MB):
 #   .venv/bin/flyvis download-pretrained --skip_large_files
@@ -42,16 +42,16 @@ vision = [
 ]
 
 [project.scripts]
-perpetualfly = "perpetualfly.app:main"
+fly-simulator = "fly_simulator.app:main"
 
 [tool.setuptools.packages.find]
-include = ["perpetualfly*"]
+include = ["fly_simulator*"]
 
 # Non-Python files needed at runtime (the brain window's neuropil atlas). The
 # preview image in the same folder is documentation only and stays out of wheels.
 [tool.setuptools.package-data]
-"perpetualfly.brain_viz" = ["assets/*.json"]
-"perpetualfly.actions" = ["data/*.npz"]  # recorded grooming kinematics (Groom action)
+"fly_simulator.brain_viz" = ["assets/*.json"]
+"fly_simulator.actions" = ["data/*.npz"]  # recorded grooming kinematics (Groom action)
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

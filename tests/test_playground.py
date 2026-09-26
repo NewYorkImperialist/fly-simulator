@@ -8,8 +8,8 @@ import time
 import numpy as np
 import pytest
 
-from perpetualfly.brain.schema import StimulusEvent
-from perpetualfly.brain_viz.playground import (PRESETS, canonical_label, decision_meters,
+from fly_simulator.brain.schema import StimulusEvent
+from fly_simulator.brain_viz.playground import (PRESETS, canonical_label, decision_meters,
                                                describe_command, parse_lesion_specs,
                                                parse_stim_specs)
 
@@ -19,7 +19,7 @@ SYN = {"n": 60, "seed": 1}
 
 
 def _model(**kw):
-    from perpetualfly.brain.process import _Model
+    from fly_simulator.brain.process import _Model
 
     return _Model({"synthetic": dict(SYN, **kw)})
 
@@ -48,7 +48,7 @@ def test_parse_specs():
 
 
 def test_resolve_target_synthetic():
-    from perpetualfly.brain.mapping import resolve_target
+    from fly_simulator.brain.mapping import resolve_target
 
     m = _model()
     t = m.table
@@ -78,7 +78,7 @@ def _spikes(eng, drive_idx, steps=3000, chunks=3):
 
 
 def test_engine_bit_identical_when_unused():
-    from perpetualfly.brain.engine import LIFEngine, random_network
+    from fly_simulator.brain.engine import LIFEngine, random_network
 
     indptr, indices, w, _ = random_network(80, 0.1, 3)
     a = LIFEngine(indptr, indices, w, seed=5)
@@ -96,7 +96,7 @@ def test_engine_bit_identical_when_unused():
 
 
 def test_lesion_silences_and_blocks_output():
-    from perpetualfly.brain.engine import LIFEngine, random_network
+    from fly_simulator.brain.engine import LIFEngine, random_network
 
     indptr, indices, w, _ = random_network(80, 0.1, 3)
     eng = LIFEngine(indptr, indices, w, seed=5)
@@ -117,7 +117,7 @@ def test_lesion_silences_and_blocks_output():
 def test_lesion_with_neuromod_thresholds():
     """Lesions and the octopamine threshold array compose; clearing either keeps
     the other."""
-    from perpetualfly.brain.engine import LIFEngine, random_network
+    from fly_simulator.brain.engine import LIFEngine, random_network
 
     indptr, indices, w, _ = random_network(60, 0.1, 2)
     eng = LIFEngine(indptr, indices, w, seed=1)
@@ -208,7 +208,7 @@ def _states(m, n=4, lesion=True):
 
 
 def test_renderer_palette_clicks_and_overlays():
-    from perpetualfly.brain_viz.window import BrainRenderer, render_frame
+    from fly_simulator.brain_viz.window import BrainRenderer, render_frame
 
     m = _model()
     states = _states(m)
@@ -261,7 +261,7 @@ def test_renderer_palette_clicks_and_overlays():
 
 def test_presets_resolve_on_real_names():
     """Every palette target resolves on the synthetic table or is a known name."""
-    from perpetualfly.brain.mapping import TARGET_ALIASES, resolve_target
+    from fly_simulator.brain.mapping import TARGET_ALIASES, resolve_target
 
     m = _model()
     known = {"MN9", "sugar", "bitter", "LC4_L", "LPLC2", "an_walk", "OA-VUMa1",
@@ -274,7 +274,7 @@ def test_presets_resolve_on_real_names():
 
 # ------------------------------------------------------------------ app wiring
 def test_cli_flags():
-    from perpetualfly.app import ConfigError, build_arg_parser, config_from_args
+    from fly_simulator.app import ConfigError, build_arg_parser, config_from_args
 
     parse = lambda *a: config_from_args(build_arg_parser().parse_args(list(a))).brain  # noqa: E731
     b = parse("--stim", "DNa02_L:120:1@3")
@@ -286,9 +286,9 @@ def test_cli_flags():
 
 
 def test_brain_link_playground(tmp_path):
-    from perpetualfly import AppConfig
-    from perpetualfly.app import Session
-    from perpetualfly.brain_link import BrainLink, BrainLinkConfig
+    from fly_simulator import AppConfig
+    from fly_simulator.app import Session
+    from fly_simulator.brain_link import BrainLink, BrainLinkConfig
 
     cfg = AppConfig()
     cfg.logging.runs_dir = str(tmp_path)

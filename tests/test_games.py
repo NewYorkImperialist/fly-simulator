@@ -9,8 +9,8 @@ import math
 import numpy as np
 import pytest
 
-from perpetualfly.brain.schema import StimulusEvent
-from perpetualfly.games import (
+from fly_simulator.brain.schema import StimulusEvent
+from fly_simulator.games import (
     HONEST_LABEL,
     AsteroidConfig,
     GameBrain,
@@ -18,9 +18,9 @@ from perpetualfly.games import (
     asteroid_response,
     wave_params,
 )
-from perpetualfly.games.experiment import format_summary, make_specs, summarize
-from perpetualfly.games.runner import HighScores, parse_script_keys
-from perpetualfly.vision.looming import loom_response
+from fly_simulator.games.experiment import format_summary, make_specs, summarize
+from fly_simulator.games.runner import HighScores, parse_script_keys
+from fly_simulator.vision.looming import loom_response
 
 
 # ----------------------------------------------------------------- pure logic
@@ -125,7 +125,7 @@ def test_experiment_summary_counts():
 # ----------------------------------------------------------------- MuJoCo
 @pytest.fixture(scope="module")
 def session():
-    from perpetualfly.games.session import AsteroidSession
+    from fly_simulator.games.session import AsteroidSession
 
     cfg = AsteroidConfig(spawn_dist_mm=9.0, lives=2, ready_s=0.2)
     s = AsteroidSession(GameBrain("none"), cfg, seed=0)
@@ -203,8 +203,8 @@ def test_waves_spawn_rocks(session):
 
 
 def test_hud_frame(session, tmp_path):
-    from perpetualfly.games.hud import compose
-    from perpetualfly.games.session import make_renderer, render_frame
+    from fly_simulator.games.hud import compose
+    from fly_simulator.games.session import make_renderer, render_frame
 
     r = make_renderer(session.sim, 320, 240)
     try:
@@ -235,7 +235,7 @@ def test_play_script_synthetic_headless(tmp_path):
 
 
 def test_synthetic_brain_paces_and_stops():
-    from perpetualfly.games.session import AsteroidSession
+    from fly_simulator.games.session import AsteroidSession
 
     b = GameBrain("brain", synthetic={"n": 60, "p_conn": 0.1, "seed": 0}).start()
     try:
@@ -252,13 +252,13 @@ def test_synthetic_brain_paces_and_stops():
 
 
 # =================================================================== game 2: CHASE
-from perpetualfly.games import (  # noqa: E402
+from fly_simulator.games import (  # noqa: E402
     ChaseConfig,
     PursuitResponse,
     level_params,
     pursuit_response,
 )
-from perpetualfly.games.chase_experiment import (  # noqa: E402
+from fly_simulator.games.chase_experiment import (  # noqa: E402
     format_chase_summary,
     make_chase_specs,
     summarize_chase,
@@ -326,12 +326,12 @@ def test_chase_experiment_summary():
 
 
 def test_lc10a_named_set_real_data():
-    from perpetualfly.brain.data import data_available
+    from fly_simulator.brain.data import data_available
 
     if not data_available():
         pytest.skip("data/brain not downloaded")
-    from perpetualfly.brain.data import load_neuron_table
-    from perpetualfly.brain.mapping import named_sets
+    from fly_simulator.brain.data import load_neuron_table
+    from fly_simulator.brain.mapping import named_sets
 
     t = load_neuron_table()
     idx = named_sets(t)["LC10a"]
@@ -341,7 +341,7 @@ def test_lc10a_named_set_real_data():
 
 @pytest.fixture(scope="module")
 def chase():
-    from perpetualfly.games.session import ChaseSession
+    from fly_simulator.games.session import ChaseSession
 
     s = ChaseSession(GameBrain("none"), ChaseConfig(lives=2, ready_s=0.1), seed=0)
     yield s
@@ -399,8 +399,8 @@ def test_catch_dash_lost_and_gameover(chase):
 
 
 def test_chase_hud_frame(chase, tmp_path):
-    from perpetualfly.games.hud import compose
-    from perpetualfly.games.session import make_renderer, render_frame
+    from fly_simulator.games.hud import compose
+    from fly_simulator.games.session import make_renderer, render_frame
 
     chase.restart()
     _steps(chase, 0.3)
@@ -433,14 +433,14 @@ def test_play_script_chase_synthetic(tmp_path):
 # game 3: FLY THROUGH RINGS (real flapping-wing flight)
 # ---------------------------------------------------------------------------
 
-from perpetualfly.games import (  # noqa: E402
+from fly_simulator.games import (  # noqa: E402
     RINGS_DIFFICULTIES,
     RingCourse,
     RingsConfig,
     rings_level_params,
     turn_command,
 )
-from perpetualfly.games.rings_experiment import (  # noqa: E402
+from fly_simulator.games.rings_experiment import (  # noqa: E402
     format_rings_summary,
     make_ring_specs,
     summarize_rings,
@@ -505,7 +505,7 @@ def test_rings_experiment_summary():
 
 @pytest.fixture(scope="module")
 def rings():
-    from perpetualfly.games.session import RingsSession
+    from fly_simulator.games.session import RingsSession
 
     s = RingsSession(GameBrain("none"), RingsConfig(lives=2, takeoff=False, ready_s=0.3),
                      seed=0)
@@ -592,8 +592,8 @@ def test_rings_miss_costs_lives_gameover_restart(rings):
 
 
 def test_rings_hud_frame(rings):
-    from perpetualfly.games.hud import compose
-    from perpetualfly.games.session import make_renderer
+    from fly_simulator.games.hud import compose
+    from fly_simulator.games.session import make_renderer
 
     rings.restart()
     _steps(rings, rings.cfg.ready_s + 0.1)

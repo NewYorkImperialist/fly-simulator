@@ -1,4 +1,4 @@
-"""Tests for the residual-RL Gymnasium env (perpetualfly.rl). Needs the ``rl`` extra."""
+"""Tests for the residual-RL Gymnasium env (fly_simulator.rl). Needs the ``rl`` extra."""
 
 from __future__ import annotations
 
@@ -10,11 +10,11 @@ import pytest
 
 pytest.importorskip("gymnasium")
 
-from perpetualfly.config import AppConfig  # noqa: E402
-from perpetualfly.interaction.perturbation import AutoPerturber, Perturbation  # noqa: E402
-from perpetualfly.rl import CurriculumStage, EnvConfig, PerpetualFlyEnv  # noqa: E402
-from perpetualfly.simulation import Simulation  # noqa: E402
-from perpetualfly.terrain import ProceduralTerrain, ProceduralTerrainConfig  # noqa: E402
+from fly_simulator.config import AppConfig  # noqa: E402
+from fly_simulator.interaction.perturbation import AutoPerturber, Perturbation  # noqa: E402
+from fly_simulator.rl import CurriculumStage, EnvConfig, PerpetualFlyEnv  # noqa: E402
+from fly_simulator.simulation import Simulation  # noqa: E402
+from fly_simulator.terrain import ProceduralTerrain, ProceduralTerrainConfig  # noqa: E402
 
 # Frequent hits on normal terrain, so short runs exercise the perturbation path.
 BUSY = CurriculumStage("busy", "normal", True, (1, 2), (0.5, 0.5), (0.3, 0.6),
@@ -222,6 +222,6 @@ def test_instability_terminates_loudly(capsys, tmp_path, monkeypatch):
 
 
 def test_core_package_does_not_import_rl_deps():
-    code = ("import sys, perpetualfly.app, perpetualfly.simulation; "
+    code = ("import sys, fly_simulator.app, fly_simulator.simulation; "
             "assert 'gymnasium' not in sys.modules and 'torch' not in sys.modules")
     subprocess.run([sys.executable, "-c", code], check=True)

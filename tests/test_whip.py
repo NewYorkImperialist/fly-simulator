@@ -7,10 +7,10 @@ import math
 import numpy as np
 import pytest
 
-from perpetualfly import AppConfig, Simulation
-from perpetualfly.app import Session
-from perpetualfly.interaction.whip import Whip, WhipConfig
-from perpetualfly.metrics import ContactClassifier, FallDetector
+from fly_simulator import AppConfig, Simulation
+from fly_simulator.app import Session
+from fly_simulator.interaction.whip import Whip, WhipConfig
+from fly_simulator.metrics import ContactClassifier, FallDetector
 
 
 def _sim(whip_cfg: WhipConfig | None = None):

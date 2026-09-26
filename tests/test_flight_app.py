@@ -8,8 +8,8 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from perpetualfly import AppConfig
-from perpetualfly.app import (
+from fly_simulator import AppConfig
+from fly_simulator.app import (
     ConfigError,
     KEY_TABLE,
     Session,
@@ -17,7 +17,7 @@ from perpetualfly.app import (
     build_arg_parser,
     config_from_args,
 )
-from perpetualfly.metrics import FallState
+from fly_simulator.metrics import FallState
 
 
 def test_flight_cli_config():
@@ -108,7 +108,7 @@ def _gf(t, hz):
 
 
 def test_brain_escape_hands_over_to_real_flight(session):
-    from perpetualfly.actions.brain_triggers import BrainActionTriggers, TriggerParams
+    from fly_simulator.actions.brain_triggers import BrainActionTriggers, TriggerParams
 
     s = session
     sim, fl = s.sim, s.flight

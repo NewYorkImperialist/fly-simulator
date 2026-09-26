@@ -4,10 +4,10 @@
     .venv/bin/python scripts/demo_brain_window.py --mock --process  # child process
     .venv/bin/python scripts/demo_brain_window.py --record brain.mp4 --seconds 12
 
-See perpetualfly/brain_viz/demo.py for all options.
+See fly_simulator/brain_viz/demo.py for all options.
 """
 
-from perpetualfly.brain_viz.demo import main
+from fly_simulator.brain_viz.demo import main
 
 if __name__ == "__main__":
     main()

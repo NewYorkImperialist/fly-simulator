@@ -1,12 +1,12 @@
 # Brain window
 
 A second live window, next to the fly, that shows what the connectome model
-(`perpetualfly/brain/`, Shiu et al. 2024 LIF on FlyWire) is doing. Code:
-`perpetualfly/brain_viz/`. It only consumes the messages in
-`perpetualfly/brain/schema.py` (`BrainLayout` once, then `BrainState`s, optionally
+(`fly_simulator/brain/`, Shiu et al. 2024 LIF on FlyWire) is doing. Code:
+`fly_simulator/brain_viz/`. It only consumes the messages in
+`fly_simulator/brain/schema.py` (`BrainLayout` once, then `BrainState`s, optionally
 `StimulusEvent`s), so it runs against the real engine or the built-in mock.
 
-![brain window after a left whip (mock brain)](../perpetualfly/brain_viz/assets/preview_whip.jpg)
+![brain window after a left whip (mock brain)](../fly_simulator/brain_viz/assets/preview_whip.jpg)
 
 ## Panels
 
@@ -83,26 +83,26 @@ between the playground and classic panels. Mouse clicks become command dicts on
 ```bash
 # live window on the mock brain (keys: l/r whip left/right, f shove front, x fall,
 # g regroup raster, q/Esc quit); random stimuli every few s unless --no-auto
-.venv/bin/python -m perpetualfly.brain_viz
+.venv/bin/python -m fly_simulator.brain_viz
 .venv/bin/python scripts/demo_brain_window.py --mock --rtf 0.05 --publish-hz 1   # slow brain
 .venv/bin/python scripts/demo_brain_window.py --mock --process   # window in a child process
 # headless
-.venv/bin/python -m perpetualfly.brain_viz --record /tmp/brain.mp4 --seconds 12
-.venv/bin/python -m perpetualfly.brain_viz --record /tmp/brain.png --seconds 3
+.venv/bin/python -m fly_simulator.brain_viz --record /tmp/brain.mp4 --seconds 12
+.venv/bin/python -m fly_simulator.brain_viz --record /tmp/brain.png --seconds 3
 ```
 
 `--size WxH` changes the render size (default 1280×800). On macOS the frame is
 upscaled for display (OpenCV's Cocoa backend shows 1 image px per *physical* pixel,
 so on Retina a 1280×800 frame would be 640×400 pt with 6-pt text); the scale is
 auto-detected (≈1.6 on a 1440×900-pt MacBook screen → ~1040×650 pt window).
-Override with `PERPETUALFLY_BRAIN_SCALE=1.0`. (The fly window is currently shown at
+Override with `FLY_SIMULATOR_BRAIN_SCALE=1.0`. (The fly window is currently shown at
 half size on Retina for the same reason.) The OS window title is ASCII
 (`PerpetualFly - Brain`) because Cocoa mangles the em dash.
 
 ## API
 
 ```python
-from perpetualfly.brain_viz import (render_frame, render_timeline, BrainRenderer,
+from fly_simulator.brain_viz import (render_frame, render_timeline, BrainRenderer,
                                     BrainWindow, run_window, BrainWindowProcess, MockBrain)
 
 img = render_frame(layout, state_or_list_of_states)      # BGR uint8 (H, W, 3), headless
@@ -131,7 +131,7 @@ behind, so closing the brain window cannot affect the fly app.
 ## Wiring into the app (integration step)
 
 ```python
-from perpetualfly.brain_viz import BrainWindowProcess
+from fly_simulator.brain_viz import BrainWindowProcess
 
 brain_win = None
 # once the brain process has published its BrainLayout:
@@ -153,16 +153,16 @@ Alternatively the brain engine process can own the `BrainWindowProcess` and send
 states directly, saving one pickle hop; either works because the window only sees
 schema messages.
 
-## Atlas asset (`perpetualfly/brain_viz/assets/flywire_neuropils_frontal.json`, 33 KB)
+## Atlas asset (`fly_simulator/brain_viz/assets/flywire_neuropils_frontal.json`, 33 KB)
 
-Generated once by `python -m perpetualfly.brain_viz.build_atlas --fafbseg-whl ...
+Generated once by `python -m fly_simulator.brain_viz.build_atlas --fafbseg-whl ...
 --flybrains-whl ...` from `fafbseg`'s `JFRC2NP.surf.fw` (78 neuropil meshes already
 transformed into FlyWire space) and `flybrains`' `FLYWIRE_whole_brain.ply` — the two
 wheels are only downloaded and unzipped (no navis/trimesh install). Each mesh is
 projected to (x, y), rasterised at 2 µm/px and traced into polygons.
 
 ```json
-{"format": "perpetualfly-neuropil-atlas-v1",
+{"format": "fly_simulator-neuropil-atlas-v1",
  "units": "micrometres, FlyWire/FAFB14.1 space (nm / 1000)",
  "projection": "along z: u = x_nm/1000, v = y_nm/1000 (*_L on image left, ventral down)",
  "bounds": [u_min, v_min, u_max, v_max],
@@ -198,7 +198,7 @@ canvas (outlines from `region_outline_xy` if given, otherwise circles).
 
 ## Mock brain
 
-`MockBrain` (`perpetualfly/brain_viz/mock.py`) is phenomenological, not a
+`MockBrain` (`fly_simulator/brain_viz/mock.py`) is phenomenological, not a
 simulation: 78 atlas neuropils; ~2000 display neurons scattered inside their
 silhouettes with region-specific transmitter mixes; OU-drifting baselines (optic
 lobes hotter, CX rhythmic, DN walk tonic); stimuli launch a delayed ripple — e.g. a

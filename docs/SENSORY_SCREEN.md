@@ -6,7 +6,7 @@ two questions: does any touch-like input a whip could plausibly excite reach the
 walking, turning or escape DNs? And which inputs make the fly *speed up*, for a
 "pain" response to whip hits?
 
-* Code: `perpetualfly/brain/screen.py` (group enumeration, stimulation, readout, hop
+* Code: `fly_simulator/brain/screen.py` (group enumeration, stimulation, readout, hop
   analysis) and `scripts/screen_sensory.py` (runner and `--summarize` markdown tables).
   Test: `tests/test_screen.py` runs on the synthetic network.
 * Data: `docs/sensory_screen.csv` covers the full screen: 516 groups × {100, 200} Hz,

@@ -26,8 +26,8 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from perpetualfly.brain.data import data_available, load_connectome, load_neuron_table  # noqa: E402
-from perpetualfly.brain.mapping import MN9_IDS, named_sets  # noqa: E402
+from fly_simulator.brain.data import data_available, load_connectome, load_neuron_table  # noqa: E402
+from fly_simulator.brain.mapping import MN9_IDS, named_sets  # noqa: E402
 
 RATE = 200.0  # Hz, sugar GRN drive (Shiu et al. example result)
 
@@ -38,7 +38,7 @@ def _stim(tab, name):
 
 # ----------------------------------------------------------------------------- engine
 def bench_engine(seconds: float = 2.0) -> dict:
-    from perpetualfly.brain.engine import LIFEngine
+    from fly_simulator.brain.engine import LIFEngine
 
     t0 = time.time()
     indptr, indices, w, n = load_connectome()
@@ -84,7 +84,7 @@ def _brian2_child(mode: str, seconds: float, trials: int, workdir: str) -> dict:
     import brian2 as b2
     from brian2 import ms
 
-    from perpetualfly.brain.brian2_ref import build_network
+    from fly_simulator.brain.brian2_ref import build_network
 
     b2.prefs.codegen.target = "cython"
     b2.BrianLogger.suppress_name("resolution_conflict")
@@ -157,7 +157,7 @@ def run_brian2(mode: str, seconds: float = 1.0, trials: int = 0, workdir: str | 
 
 # ----------------------------------------------------------------------------- validation
 def validate(trials: int) -> dict:
-    from perpetualfly.brain.engine import LIFEngine
+    from fly_simulator.brain.engine import LIFEngine
 
     work = tempfile.mkdtemp(prefix="brian2_val_")
     b = run_brian2("validate", trials=trials, workdir=work)

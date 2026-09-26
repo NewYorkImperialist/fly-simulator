@@ -1,5 +1,5 @@
 """Looming habituation: short-term synaptic depression in the brain engine
-(perpetualfly/brain/habituation.py, docs/HABITUATION.md). Synthetic brain only."""
+(fly_simulator/brain/habituation.py, docs/HABITUATION.md). Synthetic brain only."""
 
 from __future__ import annotations
 
@@ -10,11 +10,11 @@ import pytest
 
 pytest.importorskip("numba")
 
-from perpetualfly.app import build_arg_parser, config_from_args  # noqa: E402
-from perpetualfly.brain.engine import LIFEngine, csr_from_edges, random_network  # noqa: E402
-from perpetualfly.brain.habituation import HabituationConfig, LoomHabituation  # noqa: E402
-from perpetualfly.brain.process import _Model  # noqa: E402
-from perpetualfly.brain.schema import StimulusEvent  # noqa: E402
+from fly_simulator.app import build_arg_parser, config_from_args  # noqa: E402
+from fly_simulator.brain.engine import LIFEngine, csr_from_edges, random_network  # noqa: E402
+from fly_simulator.brain.habituation import HabituationConfig, LoomHabituation  # noqa: E402
+from fly_simulator.brain.process import _Model  # noqa: E402
+from fly_simulator.brain.schema import StimulusEvent  # noqa: E402
 
 SYN = {"n": 60, "p_conn": 0.1, "seed": 2}
 
@@ -131,7 +131,7 @@ def test_config_from_dict_and_cli_flags():
     assert b.enabled and b.habituation and not b.record
     b = parse("--brain-record")
     assert b.enabled and b.record
-    from perpetualfly.brain_link import BrainLink
+    from fly_simulator.brain_link import BrainLink
 
     link = BrainLink(b, headless=True, start=False)
     assert link.brain_cfg.habituation is None

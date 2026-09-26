@@ -1,4 +1,4 @@
-"""The doner kebab job (perpetualfly/jobs/kebab.py): props, visual-only knife, the
+"""The doner kebab job (fly_simulator/jobs/kebab.py): props, visual-only knife, the
 recorded carving stroke, cutting / shavings / regrowth, explicit reset, and the
 optional brain reactions (touch per cut, event-driven taste, hunger / satiety,
 startle; MN9 -> proboscis) and stress tie-ins with fakes."""
@@ -12,12 +12,12 @@ import mujoco as mj
 import numpy as np
 import pytest
 
-from perpetualfly.actions.behaviours import load_grooming_clip
-from perpetualfly.config import AppConfig
-from perpetualfly.jobs import JobRunner, available_jobs, create_job_session, make_job
-from perpetualfly.jobs.geometry import PROP_BIT
-from perpetualfly.jobs.kebab import CarveStroke, KebabJob
-from perpetualfly.terrain import FLY_BIT, TERRAIN_BIT
+from fly_simulator.actions.behaviours import load_grooming_clip
+from fly_simulator.config import AppConfig
+from fly_simulator.jobs import JobRunner, available_jobs, create_job_session, make_job
+from fly_simulator.jobs.geometry import PROP_BIT
+from fly_simulator.jobs.kebab import CarveStroke, KebabJob
+from fly_simulator.terrain import FLY_BIT, TERRAIN_BIT
 
 
 def _cfg() -> AppConfig:
@@ -69,10 +69,10 @@ def test_props_knife_is_visual_only(kebab):
 
 
 def test_visual_assets_build(kebab):
-    """Procedural meshes / textures (perpetualfly/jobs/kebab_assets.py) are closed,
+    """Procedural meshes / textures (fly_simulator/jobs/kebab_assets.py) are closed,
     outward-facing meshes and valid images, and the compiled scene uses them: meat
     slabs are massless visual meshes, the cutting reference box is hidden."""
-    from perpetualfly.jobs import kebab_assets as A
+    from fly_simulator.jobs import kebab_assets as A
 
     tex = A.meat_textures(0)
     assert set(A.MEAT_STAGES) <= set(tex) and "inner" in tex

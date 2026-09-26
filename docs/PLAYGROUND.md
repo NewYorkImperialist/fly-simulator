@@ -5,10 +5,10 @@ model, docs/BRAIN.md) while it drives the fly. You can switch neurons on
 (optogenetics), switch them off (lesions), and watch the decision form in the
 descending neurons before the body acts. It covers roadmap items C1 and C2.
 
-Code: `perpetualfly/brain_viz/playground.py` (palette, spec parsers, decision meters,
-clicks), `perpetualfly/brain/mapping.py` (`resolve_target`, the `opto` stimulus),
-`perpetualfly/brain/engine.py` (`set_silenced`), `perpetualfly/brain/process.py`
-(`set_lesions`, the `BrainState.playground` readout) and `perpetualfly/brain_link.py`
+Code: `fly_simulator/brain_viz/playground.py` (palette, spec parsers, decision meters,
+clicks), `fly_simulator/brain/mapping.py` (`resolve_target`, the `opto` stimulus),
+`fly_simulator/brain/engine.py` (`set_silenced`), `fly_simulator/brain/process.py`
+(`set_lesions`, the `BrainState.playground` readout) and `fly_simulator/brain_link.py`
 (scheduling, keys, window commands, logging). Tests: `tests/test_playground.py`.
 
 ## Using it

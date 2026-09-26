@@ -1,4 +1,4 @@
-"""Octopamine stress / arousal layer (perpetualfly/brain/neuromod.py, perpetualfly/stress.py)."""
+"""Octopamine stress / arousal layer (fly_simulator/brain/neuromod.py, fly_simulator/stress.py)."""
 
 import math
 
@@ -7,12 +7,12 @@ import pytest
 
 pytest.importorskip("numba")
 
-from perpetualfly.brain.engine import LIFEngine, random_network  # noqa: E402
-from perpetualfly.brain.neuromod import (NeuromodConfig, OctopamineModel, oa_targets,  # noqa: E402
+from fly_simulator.brain.engine import LIFEngine, random_network  # noqa: E402
+from fly_simulator.brain.neuromod import (NeuromodConfig, OctopamineModel, oa_targets,  # noqa: E402
                                          select_oa_neurons, step_level)
-from perpetualfly.brain.process import _Model  # noqa: E402
-from perpetualfly.brain.schema import BrainState, StimulusEvent  # noqa: E402
-from perpetualfly.stress import (StressConfig, amp_multiplier, freq_multiplier,  # noqa: E402
+from fly_simulator.brain.process import _Model  # noqa: E402
+from fly_simulator.brain.schema import BrainState, StimulusEvent  # noqa: E402
+from fly_simulator.stress import (StressConfig, amp_multiplier, freq_multiplier,  # noqa: E402
                                  install_stress, jump_threshold)
 
 SYN = {"n": 60, "p_conn": 0.15, "seed": 3}
@@ -270,7 +270,7 @@ def test_neuromod_config_roundtrip():
 
 
 def test_window_gauge_renders():
-    from perpetualfly.brain_viz.window import BrainRenderer, render_frame
+    from fly_simulator.brain_viz.window import BrainRenderer, render_frame
 
     m = _Model({"synthetic": SYN, "seed": 0, "neuromod": {"enabled": True}})
     states = []

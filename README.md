@@ -56,7 +56,7 @@ controllers and `imageio`, used for `--record`), `mujoco`, `opencv-python` and `
 
 With the venv activated (`source .venv/bin/activate.fish` in fish, or
 `source .venv/bin/activate` in bash/zsh), `python scripts/run_sim.py` or the
-`perpetualfly` console script does the same thing.
+`fly_simulator` console script does the same thing.
 
 ## Keys (window focused)
 
@@ -121,7 +121,7 @@ long it has been down.
 | `--headless` | no window |
 | `--max-seconds S` | stop after S simulated seconds of run time (counted across resets) |
 | `--record out.mp4` | also write a video (real-time playback, one frame per `--render-every` steps) |
-| `--config file.json` | load any fields of `perpetualfly.config.AppConfig` (same layout as `config.json["app"]` in a run folder) |
+| `--config file.json` | load any fields of `fly_simulator.config.AppConfig` (same layout as `config.json["app"]` in a run folder) |
 | `--terrain {flat,easy,normal,hard,chaos}` | terrain difficulty (default `normal`). `flat` still lets you spawn obstacles |
 | `--terrain-seed N` | terrain layout seed (default 42) |
 | `--spawn-distance MM` | how far ahead key-spawned obstacles appear |
@@ -141,7 +141,7 @@ long it has been down.
 | `--camera {follow,side,top}` | initial camera |
 | `--render-every N` | physics steps per recorded frame (default 150 = 66.7 fps) |
 | `--no-thread` | window mode: step physics on the main thread (slower; debugging) |
-| env `PERPETUALFLY_FLY_SCALE=1.5` | fly window display scale. The default is automatic: on a Retina Mac the frame is upscaled ×2, because OpenCV shows one image pixel per physical pixel, and the HUD is drawn after the upscale so it stays sharp. `PERPETUALFLY_BRAIN_SCALE` does the same for the brain window |
+| env `FLY_SIMULATOR_FLY_SCALE=1.5` | fly window display scale. The default is automatic: on a Retina Mac the frame is upscaled ×2, because OpenCV shows one image pixel per physical pixel, and the HUD is drawn after the upscale so it stays sharp. `FLY_SIMULATOR_BRAIN_SCALE` does the same for the brain window |
 | `--print-interval S` | simulated seconds between terminal lines (default 1) |
 | `--script-keys '2:left,5:o'` | press keys at the given run times (sim s); works headless too (P is ignored headless) |
 | `--brain` | run the connectome brain model next to the fly, plus the brain window (see below) |
@@ -367,7 +367,7 @@ crashes/instabilities and peak RSS per process.
 ## Layout
 
 ```
-perpetualfly/
+fly_simulator/
   config.py        dataclass configs (JSON load/save); AppConfig holds all sub-configs
   simulation.py    Simulation: FlyGym sim + controller, hooks, world extensions, NaN checks
   app.py           Session (wires terrain/whip/falls/metrics/logging) + main loop / CLI
@@ -396,7 +396,7 @@ tests/
 
 ## The whip in one paragraph
 
-`perpetualfly/interaction/whip.py`: a mocap "hand" drives a free wooden grip through
+`fly_simulator/interaction/whip.py`: a mocap "hand" drives a free wooden grip through
 a stiff weld; 12 tapered capsules (6 mm, 2 mg, leather brown with a red tip) hang
 from it on pairs of stiff, damped hinges. The capsules collide only with the fly. A
 crack raises the whip, cocks it beside the fly, swings the handle and **stops** it
@@ -428,7 +428,7 @@ Demo: `.venv/bin/python scripts/demo_whip.py` (table), `--calibrate --phases 8`,
   presses, not held keys. On a Retina display the ×2 upscale costs the main thread
   about 10 ms per frame (resize ~3 ms, then `imshow` of 4× the pixels). The window then
   shows ~24 fps instead of ~30. The physics thread isn't affected: RTF was 0.48–0.49
-  vs 0.50–0.52 at ×1. `PERPETUALFLY_FLY_SCALE=1` restores the old size.
+  vs 0.50–0.52 at ×1. `FLY_SIMULATOR_FLY_SCALE=1` restores the old size.
 - **What was checked:** the windowed, threaded mode was driven by a script that
   injected every key listed above into the real app loop. It didn't deadlock, and each
   key had the expected effect. Window close, Ctrl-C and an injected NaN each shut

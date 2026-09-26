@@ -68,7 +68,7 @@ Top-level options (`CourseSpec`, all optional):
 | `steer`, `steer_lookahead` | true, 6 | the heading-hold target follows the racing line (hybrid only); pure-pursuit look-ahead in mm |
 | `after_finish` | stop | `stop` or `loop` (new lap from the start after `loop_delay_s`) |
 
-Section types and params (defaults in `perpetualfly/course/spec.py: SECTION_DEFAULTS`):
+Section types and params (defaults in `fly_simulator/course/spec.py: SECTION_DEFAULTS`):
 
 | type | params | notes |
 |---|---|---|
@@ -132,7 +132,7 @@ at 2.6 mm and a stripe on the floor.
 
 ## Terrain
 
-`perpetualfly/terrain/sectioned.py: SectionedGenerator` is a drop-in replacement
+`fly_simulator/terrain/sectioned.py: SectionedGenerator` is a drop-in replacement
 for `ProceduralTerrain.generator`. It serves the fixed layout chunk by chunk: each
 chunk gets the geoms whose centre lies in it. While a course is installed, the
 chunk length is 6 mm and the window is 1 chunk behind and 5 ahead. That's the same
@@ -152,7 +152,7 @@ Additive changes to `chunks.py`:
 ## Integration API (for app.py)
 
 ```python
-from perpetualfly.course import install_course, CourseOptions
+from fly_simulator.course import install_course, CourseOptions
 course = install_course(session, args.course, cfg,
                         options=CourseOptions(after_finish="loop" if args.course_loop else None))
 # with --course, set cfg.session.auto_reset_after_s = None (the course respawns instead)

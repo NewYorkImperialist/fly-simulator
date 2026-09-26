@@ -1,7 +1,7 @@
 """Offline fear-conditioning experiment on the whole-brain model (docs/FEAR_LEARNING.md).
 
 Runs the LIF engine in-process with the KC -> MBON plasticity add-on
-(perpetualfly/brain/plasticity.py):
+(fly_simulator/brain/plasticity.py):
 
   1. pre-test: odour A and odour B alone (KC code, Poisson) -> MBON / DN / DAN rates
   2. training: ``--trials`` x [odour A + punishment] interleaved with odour B alone.
@@ -30,10 +30,10 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from perpetualfly.brain.data import load_connectome, load_neuron_table  # noqa: E402
-from perpetualfly.brain.engine import LIFEngine  # noqa: E402
-from perpetualfly.brain.mapping import descending_indices, named_sets  # noqa: E402
-from perpetualfly.brain.plasticity import KCMBONPlasticity, PlasticityConfig  # noqa: E402
+from fly_simulator.brain.data import load_connectome, load_neuron_table  # noqa: E402
+from fly_simulator.brain.engine import LIFEngine  # noqa: E402
+from fly_simulator.brain.mapping import descending_indices, named_sets  # noqa: E402
+from fly_simulator.brain.plasticity import KCMBONPlasticity, PlasticityConfig  # noqa: E402
 
 CHUNK_S = 0.02
 

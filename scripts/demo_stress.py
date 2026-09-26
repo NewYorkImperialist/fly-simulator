@@ -29,7 +29,7 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from perpetualfly.brain.schema import StimulusEvent as E  # noqa: E402
+from fly_simulator.brain.schema import StimulusEvent as E  # noqa: E402
 
 
 # ============================================================================ part A
@@ -37,7 +37,7 @@ class BrainBench:
     """_Model driven in-process, chunked like the worker (20 ms chunks)."""
 
     def __init__(self, neuromod: dict | None, seed: int = 0):
-        from perpetualfly.brain.process import _Model
+        from fly_simulator.brain.process import _Model
 
         self.m = _Model({"seed": seed, "neuromod": neuromod})
         self.eng = self.m.engine
@@ -81,7 +81,7 @@ class BrainBench:
 
 
 def part_brain(args) -> None:
-    from perpetualfly.brain.neuromod import select_oa_neurons
+    from fly_simulator.brain.neuromod import select_oa_neurons
 
     b = BrainBench({"enabled": True, "tau_decay_s": args.tau_decay})
     t = b.m.table
@@ -201,7 +201,7 @@ def part_brain(args) -> None:
 
     # 4) jump probability = P(some 0.1 s state has GF > threshold(level)), brain effect
     #    (threshold shift) + body effect (lower trigger threshold) combined
-    from perpetualfly.stress import StressConfig, jump_threshold
+    from fly_simulator.stress import StressConfig, jump_threshold
 
     sc = StressConfig(enabled=True)
     print(f"\n4) weak-loom jump probability over {args.trials} trials (LC4 R Hz, 0.5 s; "
@@ -226,10 +226,10 @@ def part_brain(args) -> None:
 
 # ============================================================================ part B
 def part_body(args) -> None:
-    from perpetualfly import AppConfig
-    from perpetualfly.app import Session
-    from perpetualfly.brain_link import BrainLink, BrainLinkConfig
-    from perpetualfly.stress import StressConfig, install_stress
+    from fly_simulator import AppConfig
+    from fly_simulator.app import Session
+    from fly_simulator.brain_link import BrainLink, BrainLinkConfig
+    from fly_simulator.stress import StressConfig, install_stress
 
     out = Path(args.out) if args.out else None
     if out:

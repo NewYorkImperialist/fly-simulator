@@ -1,11 +1,11 @@
 # Brain engine: Shiu et al. 2024 whole-brain LIF model of FlyWire, in its own process
 
-`perpetualfly/brain/` runs the leaky integrate-and-fire (LIF) model of the whole
+`fly_simulator/brain/` runs the leaky integrate-and-fire (LIF) model of the whole
 adult *Drosophila* central brain from Shiu et al. (2024, *Nature* 634:210), which is
 built on the FlyWire v783 connectome. It runs in a separate process. Body events
 (whip hits, falls, and so on) become Poisson input to sensory neurons, and the
 process publishes activity snapshots (`BrainState`) a few times per second for the
-brain window and the app. The message contract is `perpetualfly/brain/schema.py`. The app integration
+brain window and the app. The message contract is `fly_simulator/brain/schema.py`. The app integration
 added optional fields to it (see *Integration* below).
 
 ## What the model is, and what it is not
@@ -46,7 +46,7 @@ added optional fields to it (see *Integration* below).
 
 ## Engine: why a numba port, and how it was checked
 
-`perpetualfly/brain/engine.py` is a from-scratch, event-driven reimplementation of
+`fly_simulator/brain/engine.py` is a from-scratch, event-driven reimplementation of
 those equations, compiled with numba. It keeps state between calls, so it can
 advance in arbitrary chunks, with stimuli changed between chunks.
 
@@ -195,10 +195,10 @@ whether to use it; `DriveGains` holds the gains.
   for ≥ 100 ms → groom; MN9 > 30 Hz → proboscis extension). See "Brain → actions"
   below and docs/ACTIONS.md §4.
 
-## Process API (`perpetualfly/brain/process.py`)
+## Process API (`fly_simulator/brain/process.py`)
 
 ```python
-from perpetualfly.brain import BrainConfig, BrainProcess, StimulusEvent, descending_to_drive
+from fly_simulator.brain import BrainConfig, BrainProcess, StimulusEvent, descending_to_drive
 
 brain = BrainProcess(BrainConfig(subscribers=("app", "window")))  # spawn-context worker
 brain.wait_ready()                      # ~2 s (load 1 s + layout + cached JIT)
@@ -240,7 +240,7 @@ brain.reset_state(sim_time=t)
 * `BrainConfig(synthetic={"n": 50, ...})` runs a tiny random annotated network with
   no data files, for tests and UI work.
 
-## Integration with the fly app (`perpetualfly/brain_link.py`)
+## Integration with the fly app (`fly_simulator/brain_link.py`)
 
 `scripts/run_sim.py --brain` (window), `--brain-headless` (no window),
 `--no-brain-window`, `--brain-steer` (implies `--brain`), `--brain-backup` (implies
@@ -381,7 +381,7 @@ fly jump (next section).
 ### Brain → actions (`--brain-actions`)
 
 `BrainLinkConfig.actions` (the flag also implies `--brain-steer`) installs
-`perpetualfly.actions.brain_triggers.BrainActionTriggers`, which checks every new
+`fly_simulator.actions.brain_triggers.BrainActionTriggers`, which checks every new
 BrainState. Real brain, flat, headless, full body:
 
 * **O (looming)**: the giant fiber reaches 115–120 Hz in the first 0.1 s state, and

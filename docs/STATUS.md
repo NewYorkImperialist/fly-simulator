@@ -11,7 +11,7 @@
 | RL (phase 10) | A residual Gymnasium env, a curriculum, `scripts/train_ppo.py` and `scripts/eval_policy.py` exist and have been smoke-tested. **No real training run has been done yet** (docs/RL.md). |
 | connectome brain | `--brain` runs the Shiu et al. 2024 LIF model of the whole FlyWire v783 brain (138,639 neurons) in its own process, paced to the fly's *simulated* time (lag ~0.1 s), plus a brain window. Whip hits, shoves, falls and resets become sensory input; O (looming), T (sugar), K (bitter) inject stimuli. `--brain-steer` feeds the descending neurons back into the walking controller: looming (giant fiber 120-150 Hz, MDN 15-45 Hz) stops the fly for ~1 s. Whip hits never reach the walking DNs in this model. See docs/BRAIN.md, *Integration*. |
 | quick wins (ROADMAP A) | `--brain-backup` (looming makes the fly walk backward), automatic Retina ×2 fly window, `--no-reflections`, `[` / `]` live terrain difficulty, `I` screenshot (fly + brain PNG, renderer frames only), `M` live MP4 with a REC badge, `?` on-screen help, auto hits paused while the fly is down, walked distance separate from total path, brain atlas in the wheel. See "Quick wins" below. |
-| actions | `perpetualfly/actions/`: jump (J), freeze (Z), groom (Y, a recorded NeuroMechFly grooming bout), back away (E), turn in place (, .), wing raise (W), proboscis extension (N). They blend back into walking, are logged to events.csv and shown in the HUD. Auto hits and fall counting pause during a jump. `--full-body` (default in the CLI) adds wing and proboscis joints with walking unchanged. `--brain-actions`: giant fiber → jump (0.12 s after O), MN9 → proboscis (T), DNg12 → groom (not reached by natural input in this model). The unboosted jump is +3.0 ± 0.2 mm and lands upright in 16/16 gait phases. See docs/ACTIONS.md. |
+| actions | `fly_simulator/actions/`: jump (J), freeze (Z), groom (Y, a recorded NeuroMechFly grooming bout), back away (E), turn in place (, .), wing raise (W), proboscis extension (N). They blend back into walking, are logged to events.csv and shown in the HUD. Auto hits and fall counting pause during a jump. `--full-body` (default in the CLI) adds wing and proboscis joints with walking unchanged. `--brain-actions`: giant fiber → jump (0.12 s after O), MN9 → proboscis (T), DNg12 → groom (not reached by natural input in this model). The unboosted jump is +3.0 ± 0.2 mm and lands upright in 16/16 gait phases. See docs/ACTIONS.md. |
 | integration pass (2026-09-26) | The standalone features are now app flags that compose: `--swatter` (V / Shift+V), `--stress`, `--whip-vision`, `--course NAME` (+ `--course-loop`), `--job NAME` (+ `--job-config`). Session wiring, HUD lines, `?` overlay (new "swatter" group), events / metrics / summary logging, refused combos. See "Integration pass" below. |
 | real flight in the app (2026-09-26) | `--flight`: the flight fly (flapping wings, MuJoCo fluid model, dt 5e-5) walks as usual; **L** take off / hover / land, arrows steer while airborne, HUD `FLIGHT` line. `--flight --brain-actions`: giant fibre → short-mode jump → wings at take-off → escape flight away from the swatter → landing → walking, with no external force. Real brain, L1–L2 swats (rear + left, 12): 6 dodged / 4 grazed (≤1.6 µN·s) / 2 hits, 2 falls, 10/12 upright landings, vs the short jump alone: 5 / 4 / 3, 9 falls. See docs/FLIGHT.md §7. |
 | robustness eval | `scripts/eval_robustness.py` runs N headless sessions in parallel, or aggregates existing run folders, and writes `report.md` and `report.json` with the spec's long-horizon metrics. |
@@ -35,7 +35,7 @@ Tests: `.venv/bin/python -m pytest -q`: 262 passed, ~5.5 min (15 in `tests/test_
 
 ## Flight in the app (2026-09-26)
 
-`--flight` (perpetualfly/flight/mode.py `FlightMode`, `FlightModeConfig` = `AppConfig.flight`),
+`--flight` (fly_simulator/flight/mode.py `FlightMode`, `FlightModeConfig` = `AppConfig.flight`),
 key L, arrows steer while flying, brain escape flight through
 `BrainActionTriggers.flight`. Evidence and numbers: docs/FLIGHT.md §7. Summary:
 
@@ -55,7 +55,7 @@ key L, arrows steer while flying, brain escape flight through
 
 ## Integration pass (2026-09-26)
 
-Flags (all in `perpetualfly/app.py`; config blocks `swatter`, `stress`, `whip_vision`,
+Flags (all in `fly_simulator/app.py`; config blocks `swatter`, `stress`, `whip_vision`,
 `course`, `job` in `AppConfig`, so `--config` files work too):
 
 | flag | wiring | evidence (headless unless noted) |
@@ -92,10 +92,10 @@ Small changes outside app/config: `decode_key(code, shift_names=False)` and
 | item | what changed | evidence |
 |---|---|---|
 | A1 `--brain-backup` | `BrainLinkConfig.backup` / `backup_ref_hz` (20 Hz) override `DriveGains.backward_ref`; the flag implies `--brain-steer` | Headless, flat, O at 3 s (real brain): 0.5-1.2 s after O, vx mean **-4.2 mm/s, min -21.0**, net -1.8 mm, control drive -0.43. Without the flag: +2.3 mm/s, drive +0.13 (table in docs/BRAIN.md) |
-| A2 Retina | `perpetualfly/display.py` (CoreGraphics backing scale, shared with the brain window). `LiveViewer` upscales ×2 and draws the HUD after the upscale. Env `PERPETUALFLY_FLY_SCALE` / `RenderConfig.display_scale` override it | Window frames saved from `LiveViewer.last_shown` are 1920×1280 with sharp HUD text. The window runs ~24 fps (was ~30) and physics RTF is unchanged (0.48-0.49 vs 0.50-0.52) |
+| A2 Retina | `fly_simulator/display.py` (CoreGraphics backing scale, shared with the brain window). `LiveViewer` upscales ×2 and draws the HUD after the upscale. Env `FLY_SIMULATOR_FLY_SCALE` / `RenderConfig.display_scale` override it | Window frames saved from `LiveViewer.last_shown` are 1920×1280 with sharp HUD text. The window runs ~24 fps (was ~30) and physics RTF is unchanged (0.48-0.49 vs 0.50-0.52) |
 | A3 reflections | `RenderConfig.reflections`, `--no-reflections` (the `mjRND_REFLECTION` scene flag) | Draw at 960×640: 10.6-11.2 ms → 5.5-6.4 ms |
 | A4 `[` / `]` | `ProceduralTerrain.set_difficulty(name)` regenerates loaded chunks ≥ 2 ahead (12-24 mm), with no model rebuild; the RL env can use it too. Printed, shown in the HUD, logged as `terrain_difficulty` | Test: regenerated chunks match a fresh generator of the new preset, and nearer chunks are untouched |
-| A5 `I` | `perpetualfly/media.py`: `shotNNN_t<rt>s_fly.png` (clean), `_fly_hud.png`, and with a brain `_brain.png` rendered in-process from the last 30 BrainStates (~40-60 ms). Saved to the run dir or `runs/screenshots/` | Real-brain run: GF 135 Hz / MDN / MANUAL LC4 visible in the brain PNG. Window and headless runs checked |
+| A5 `I` | `fly_simulator/media.py`: `shotNNN_t<rt>s_fly.png` (clean), `_fly_hud.png`, and with a brain `_brain.png` rendered in-process from the last 30 BrainStates (~40-60 ms). Saved to the run dir or `runs/screenshots/` | Real-brain run: GF 135 Hz / MDN / MANUAL LC4 visible in the brain PNG. Window and headless runs checked |
 | A6 `M` | MP4 at 30 frames per *sim* second (real-time playback, like `--record`). The live window writes its latest displayed frame when one is due, on the main thread outside the lock. Red `REC <s>` badge | `append_data` 0.5-0.6 ms/frame. 1.5 s of sim → 45 frames. Physics RTF not affected |
 | A7 `?` | Grouped overlay (hits, obstacles / terrain, brain, view / run); still printed in the terminal | Overlay checked at ×1 and ×2 |
 | A8 auto hits | `AutoPerturber.gate` + `skip_listeners`. Hits wait while FALLEN / RECOVERING and for `session.auto_perturb_resume_after_s` (1 s) after "recovered". `auto_hit_skipped` events, `n_auto_hits_skipped` in summary.json | 20 s shove L3 run: 2 hits skipped while fallen |
@@ -138,7 +138,7 @@ are in `runs/soak/report_*/report.md`, `runs/soak/chaos/report.md` and
 1. **The checkerboard ground never followed the fly (visible after ~1 m, i.e. about
    70 s of walking).** MuJoCo compiles a geom that sits at its body's origin with
    `geom_sameframe = 1` and then ignores `geom_pos`, so `GroundRecentering` had no
-   effect. It now clears the flag (`perpetualfly/terrain/flat.py`). Physics wasn't
+   effect. It now clears the flag (`fly_simulator/terrain/flat.py`). Physics wasn't
    affected, because the collision plane is infinite. Regression test:
    `tests/test_terrain.py::test_ground_recentering_moves_the_drawn_plane`.
 2. **CSV precision in long runs.** Every float column was written with 5 significant

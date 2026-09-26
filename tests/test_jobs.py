@@ -1,4 +1,4 @@
-"""Eternal jobs framework (perpetualfly/jobs): registry, steering, recording helpers,
+"""Eternal jobs framework (fly_simulator/jobs): registry, steering, recording helpers,
 and short runs of the sisyphus / hamster_wheel jobs (props compiled in, contacts,
 counters, explicit recovery, NaN recovery)."""
 
@@ -9,8 +9,8 @@ import math
 import numpy as np
 import pytest
 
-from perpetualfly.config import AppConfig
-from perpetualfly.jobs import (
+from fly_simulator.config import AppConfig
+from fly_simulator.jobs import (
     EternalJob,
     JobRunner,
     Steering,
@@ -22,8 +22,8 @@ from perpetualfly.jobs import (
     job_props_present,
     make_job,
 )
-from perpetualfly.jobs.geometry import PROP_BIT, contact_kwargs, wrap_angle
-from perpetualfly.terrain import FLY_BIT, TERRAIN_BIT
+from fly_simulator.jobs.geometry import PROP_BIT, contact_kwargs, wrap_angle
+from fly_simulator.terrain import FLY_BIT, TERRAIN_BIT
 
 
 def _cfg() -> AppConfig:
@@ -98,7 +98,7 @@ def test_steering_signal():
 
 
 def test_rolling_recorder_and_timelapse(tmp_path):
-    from perpetualfly.jobs.recording import RollingRecorder, Timelapse
+    from fly_simulator.jobs.recording import RollingRecorder, Timelapse
 
     rec = RollingRecorder(tmp_path / "seg", segment_s=0.5, keep=2, fps=10)
     tl = Timelapse(tmp_path / "tl", every_s=0.3, fps=10, frames_per_file=3, keep=2)

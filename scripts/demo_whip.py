@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Headless demo / calibration of the physical whip (perpetualfly.interaction.whip).
+"""Headless demo / calibration of the physical whip (fly_simulator.interaction.whip).
 
 Examples::
 
@@ -39,9 +39,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from demo_perturbation import _response_metrics  # noqa: E402
 
-from perpetualfly.config import AppConfig  # noqa: E402
-from perpetualfly.interaction.whip import WHIP_SIDES, Whip, WhipConfig  # noqa: E402
-from perpetualfly.simulation import Simulation, SimulationInstabilityError  # noqa: E402
+from fly_simulator.config import AppConfig  # noqa: E402
+from fly_simulator.interaction.whip import WHIP_SIDES, Whip, WhipConfig  # noqa: E402
+from fly_simulator.simulation import Simulation, SimulationInstabilityError  # noqa: E402
 
 SAMPLE_EVERY = 10  # physics steps (1 ms)
 
@@ -51,7 +51,7 @@ def make_sim(terrain: str, whip: Whip, terrain_seed: int = 42):
     if terrain == "plain":
         sim = Simulation(cfg, world_extensions=[whip.extension])
     else:
-        from perpetualfly.terrain import ProceduralTerrain, ProceduralTerrainConfig
+        from fly_simulator.terrain import ProceduralTerrain, ProceduralTerrainConfig
 
         tr = ProceduralTerrain(ProceduralTerrainConfig(difficulty=terrain, seed=terrain_seed))
         sim = Simulation(cfg, world_factory=tr.build_world, world_extensions=[whip.extension])
@@ -188,7 +188,7 @@ def record_sequence(out: Path, sequence: list[tuple[int, str]], gap_s: float, le
     import cv2
     import imageio.v2 as iio
 
-    from perpetualfly.rendering import FrameRenderer
+    from fly_simulator.rendering import FrameRenderer
 
     cfg = AppConfig()
     whip = Whip(WhipConfig(seed=seed))

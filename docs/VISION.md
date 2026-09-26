@@ -3,7 +3,7 @@
 The connectome brain gets visual input in one of two ways. You pick one; they never
 both drive the brain:
 
-* **Geometric sense** (`perpetualfly/vision/looming.py`; `--whip-vision`, and the
+* **Geometric sense** (`fly_simulator/vision/looming.py`; `--whip-vision`, and the
   swatter's paddle source, docs/SWATTER.md §2). For each registered object and each
   eye, it computes the object's angular size θ and expansion rate dθ/dt from the
   object's geometry. A response function turns these into LC4 / LPLC2 rates. It is
@@ -20,11 +20,11 @@ both drive the brain:
 
 ```
 MuJoCo scene ──> FlyGym eye cameras (l/r, 157°, fisheye) ──> 721 ommatidia / eye
-      (perpetualfly/vision/eyes.py, every 10 ms of sim time)
+      (fly_simulator/vision/eyes.py, every 10 ms of sim time)
   ──> flyvis network, 45 669 neurons / eye, one Euler step per frame
-      (perpetualfly/vision/flyvis_net.py)
+      (fly_simulator/vision/flyvis_net.py)
   ──> T4a-d (ON) / T5a-d (OFF) activity per column
-  ──> bridge: LPLC2 / LC4 model units (perpetualfly/vision/bridge.py)
+  ──> bridge: LPLC2 / LC4 model units (fly_simulator/vision/bridge.py)
   ──> StimulusEvent("loom", side, lc4_hz, lplc2_hz) ──> FlyWire LC4 / LPLC2 of that
       side ──> giant fibre (DNp01) ──> jump (--brain-actions)
 ```

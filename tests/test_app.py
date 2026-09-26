@@ -8,12 +8,12 @@ import numpy as np
 import pytest
 from flygym.compose import ContactParams
 
-from perpetualfly import AppConfig, Simulation, SimulationInstabilityError
-from perpetualfly.app import Session, build_arg_parser, config_from_args
-from perpetualfly.config import CameraConfig
-from perpetualfly.metrics import FallState
-from perpetualfly.rendering import SmoothFollowCamera
-from perpetualfly.terrain import FLY_BIT, TERRAIN_BIT
+from fly_simulator import AppConfig, Simulation, SimulationInstabilityError
+from fly_simulator.app import Session, build_arg_parser, config_from_args
+from fly_simulator.config import CameraConfig
+from fly_simulator.metrics import FallState
+from fly_simulator.rendering import SmoothFollowCamera
+from fly_simulator.terrain import FLY_BIT, TERRAIN_BIT
 
 _CP = ContactParams()
 

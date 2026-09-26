@@ -1,5 +1,5 @@
-"""Fear learning: dopamine-gated KC -> MBON plasticity (perpetualfly/brain/plasticity.py)
-and odour zones (perpetualfly/senses/odor.py). docs/FEAR_LEARNING.md. Synthetic only."""
+"""Fear learning: dopamine-gated KC -> MBON plasticity (fly_simulator/brain/plasticity.py)
+and odour zones (fly_simulator/senses/odor.py). docs/FEAR_LEARNING.md. Synthetic only."""
 
 from __future__ import annotations
 
@@ -8,9 +8,9 @@ import pytest
 
 pytest.importorskip("numba")
 
-from perpetualfly.brain.data import NeuronTable  # noqa: E402
-from perpetualfly.brain.engine import LIFEngine, csr_from_edges  # noqa: E402
-from perpetualfly.brain.plasticity import (KCMBONPlasticity, PlasticityConfig,  # noqa: E402
+from fly_simulator.brain.data import NeuronTable  # noqa: E402
+from fly_simulator.brain.engine import LIFEngine, csr_from_edges  # noqa: E402
+from fly_simulator.brain.plasticity import (KCMBONPlasticity, PlasticityConfig,  # noqa: E402
                                            compartments, odor_kc_code)
 
 N_KC = 20
@@ -182,8 +182,8 @@ def test_odor_code_is_sparse_and_deterministic():
 
 
 def test_model_integration_sets_readout_and_lesions():
-    from perpetualfly.brain.process import _Model
-    from perpetualfly.brain.schema import StimulusEvent
+    from fly_simulator.brain.process import _Model
+    from fly_simulator.brain.schema import StimulusEvent
 
     syn = {"n": 60, "p_conn": 0.1, "seed": 2}
     m0 = _Model({"synthetic": syn})
@@ -200,8 +200,8 @@ def test_model_integration_sets_readout_and_lesions():
 
 
 def test_cli_flags():
-    from perpetualfly.app import build_arg_parser, config_from_args
-    from perpetualfly.brain_link import BrainLink
+    from fly_simulator.app import build_arg_parser, config_from_args
+    from fly_simulator.brain_link import BrainLink
 
     parse = lambda *a: config_from_args(build_arg_parser().parse_args(list(a)))  # noqa: E731
     c = parse("--odor-zones")
@@ -227,8 +227,8 @@ class _FakeLink:
 
 
 def test_odor_zones_sense_and_punish():
-    from perpetualfly.app import Session
-    from perpetualfly.config import AppConfig
+    from fly_simulator.app import Session
+    from fly_simulator.config import AppConfig
 
     cfg = AppConfig()
     cfg.logging.enabled = False

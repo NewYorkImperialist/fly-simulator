@@ -1,6 +1,6 @@
 # Perturbation ("whip") calibration
 
-Strength levels used by `perpetualfly.interaction.Perturbation` (defaults in
+Strength levels used by `fly_simulator.interaction.Perturbation` (defaults in
 `perturbation.py::_default_levels`). Forces act on the thorax body COM
 (`data.xfrc_applied`, world frame) as a constant force for the given duration.
 Body weight (BW) = `fly_mass * 9810 mm/s^2` = 1.024e-3 g x 9810 = **10.05 uN**.

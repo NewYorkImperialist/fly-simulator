@@ -10,16 +10,16 @@ import time
 import numpy as np
 import pytest
 
-from perpetualfly.brain.schema import (
+from fly_simulator.brain.schema import (
     DESCENDING_GROUPS,
     NEUROTRANSMITTERS,
     BrainLayout,
     BrainState,
     StimulusEvent,
 )
-from perpetualfly.brain_viz.atlas import load_atlas, normalize_region_name
-from perpetualfly.brain_viz.mock import MockBrain, mock_scenario
-from perpetualfly.brain_viz.window import (
+from fly_simulator.brain_viz.atlas import load_atlas, normalize_region_name
+from fly_simulator.brain_viz.mock import MockBrain, mock_scenario
+from fly_simulator.brain_viz.window import (
     DEFAULT_SIZE,
     BrainRenderer,
     BrainWindowProcess,
@@ -198,8 +198,8 @@ def test_window_process_starts_and_stops(whip):
 def test_window_process_exits_when_parent_dies():
     code = (
         "import time, os\n"
-        "from perpetualfly.brain_viz.mock import MockBrain\n"
-        "from perpetualfly.brain_viz.window import BrainWindowProcess\n"
+        "from fly_simulator.brain_viz.mock import MockBrain\n"
+        "from fly_simulator.brain_viz.window import BrainWindowProcess\n"
         "if __name__ == '__main__':\n"
         "    p = BrainWindowProcess(MockBrain(n_display=200).layout, max_seconds=30,\n"
         "                           display_scale=0.5).start()\n"

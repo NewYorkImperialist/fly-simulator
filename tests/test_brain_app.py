@@ -1,4 +1,4 @@
-"""App <-> brain integration (perpetualfly/brain_link.py), with the synthetic brain."""
+"""App <-> brain integration (fly_simulator/brain_link.py), with the synthetic brain."""
 
 import csv
 import json
@@ -13,9 +13,9 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from perpetualfly import AppConfig
-from perpetualfly.app import Session, build_arg_parser, config_from_args, main, parse_script_keys
-from perpetualfly.brain_link import (FETCH_COMMAND, BrainLink, BrainLinkConfig, combine_drive,
+from fly_simulator import AppConfig
+from fly_simulator.app import Session, build_arg_parser, config_from_args, main, parse_script_keys
+from fly_simulator.brain_link import (FETCH_COMMAND, BrainLink, BrainLinkConfig, combine_drive,
                                      hit_side, missing_requirements)
 
 pytest.importorskip("numba")

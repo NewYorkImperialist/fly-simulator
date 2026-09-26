@@ -23,9 +23,9 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from perpetualfly.flight import FlightSimulation, WingbeatParams, measure_tethered  # noqa: E402
-from perpetualfly.flight.control import HoverController, base_wingbeat  # noqa: E402
-from perpetualfly.flight.wingbeat import DEG  # noqa: E402
+from fly_simulator.flight import FlightSimulation, WingbeatParams, measure_tethered  # noqa: E402
+from fly_simulator.flight.control import HoverController, base_wingbeat  # noqa: E402
+from fly_simulator.flight.wingbeat import DEG  # noqa: E402
 
 
 # ---------------------------------------------------------------- rendering
@@ -259,8 +259,8 @@ def cmd_hover(args) -> None:
 
 
 def cmd_takeoff(args) -> None:
-    from perpetualfly.actions.base import ActionManager
-    from perpetualfly.actions.jump import Jump
+    from fly_simulator.actions.base import ActionManager
+    from fly_simulator.actions.jump import Jump
 
     sim = FlightSimulation()
     viz = Viz(sim, args)

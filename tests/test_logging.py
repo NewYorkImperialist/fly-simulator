@@ -4,9 +4,9 @@ import json
 import numpy as np
 import pytest
 
-from perpetualfly import AppConfig, Simulation
-from perpetualfly.metrics import FallDetector, LoggingConfig, RunLogger, RunMetrics
-from perpetualfly.metrics.run_logger import EVENT_COLUMNS, METRIC_COLUMNS, quat_to_rpy_deg
+from fly_simulator import AppConfig, Simulation
+from fly_simulator.metrics import FallDetector, LoggingConfig, RunLogger, RunMetrics
+from fly_simulator.metrics.run_logger import EVENT_COLUMNS, METRIC_COLUMNS, quat_to_rpy_deg
 
 
 def read_csv(path):

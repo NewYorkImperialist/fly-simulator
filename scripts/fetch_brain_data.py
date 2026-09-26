@@ -24,7 +24,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from perpetualfly.brain.data import DEFAULT_DATA_DIR, build_neuron_table  # noqa: E402
+from fly_simulator.brain.data import DEFAULT_DATA_DIR, build_neuron_table  # noqa: E402
 
 SHIU_SHA = "91bdd1e7dcf193f3e7ca5a8933497fcef63b7960"      # philshiu/Drosophila_brain_model
 ANNOT_SHA = "8587524c1748ce5ef2080822a2fc890fc03bf597"     # flywire_annotations v3.1.0

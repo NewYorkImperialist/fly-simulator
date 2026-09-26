@@ -12,8 +12,8 @@ import pytest
 
 pytest.importorskip("numba")
 
-from perpetualfly.brain.process import BrainConfig, BrainProcess, FastDetector  # noqa: E402
-from perpetualfly.brain.schema import FastEvent, StimulusEvent  # noqa: E402
+from fly_simulator.brain.process import BrainConfig, BrainProcess, FastDetector  # noqa: E402
+from fly_simulator.brain.schema import FastEvent, StimulusEvent  # noqa: E402
 
 DT = 1e-4  # brain step (s)
 W = 200  # 20 ms window in steps
@@ -168,7 +168,7 @@ class _Mgr:
 
 
 def test_on_fast_fires_the_jump_once_and_the_window_state_respects_refractory():
-    from perpetualfly.actions.brain_triggers import BrainActionTriggers, TriggerParams
+    from fly_simulator.actions.brain_triggers import BrainActionTriggers, TriggerParams
 
     mgr = _Mgr()
     trig = BrainActionTriggers(mgr, TriggerParams(jump_short_hz=60.0))
@@ -187,7 +187,7 @@ def test_on_fast_fires_the_jump_once_and_the_window_state_respects_refractory():
 
 # ------------------------------------------------------------------ BrainLink wiring
 def test_brainlink_fast_path_config_and_off_switch():
-    from perpetualfly.brain_link import BrainLink, BrainLinkConfig
+    from fly_simulator.brain_link import BrainLink, BrainLinkConfig
 
     off = BrainLink(BrainLinkConfig(enabled=True, synthetic=SYN, actions=True, fast_path=False),
                     start=False)
@@ -203,13 +203,13 @@ def test_brainlink_fast_path_config_and_off_switch():
 def test_brainlink_fast_path_end_to_end_synthetic():
     """BrainLink + synthetic worker: a fast trigger reaches BrainActionTriggers via
     update(), with the sync wait covering the brain's progress to the clock."""
-    from perpetualfly.brain_link import BrainLink, BrainLinkConfig
+    from fly_simulator.brain_link import BrainLink, BrainLinkConfig
 
     link = BrainLink(BrainLinkConfig(enabled=True, synthetic=SYN, actions=True,
                                      fast_path=True, window_s=0.02, sync_wait_s=0.5),
                      headless=True, say=lambda m: None)
     got = []
-    from perpetualfly.actions.brain_triggers import TriggerParams
+    from fly_simulator.actions.brain_triggers import TriggerParams
 
     link.triggers = SimpleNamespace(p=TriggerParams(),
                                     fired=[], on_fast=lambda fe, rt: got.append((fe, rt)),

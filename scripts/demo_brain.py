@@ -20,9 +20,9 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from perpetualfly.brain.mapping import descending_to_drive  # noqa: E402
-from perpetualfly.brain.process import BrainConfig, BrainProcess  # noqa: E402
-from perpetualfly.brain.schema import NEUROTRANSMITTERS, StimulusEvent  # noqa: E402
+from fly_simulator.brain.mapping import descending_to_drive  # noqa: E402
+from fly_simulator.brain.process import BrainConfig, BrainProcess  # noqa: E402
+from fly_simulator.brain.schema import NEUROTRANSMITTERS, StimulusEvent  # noqa: E402
 
 
 def summary(st, regions) -> str:

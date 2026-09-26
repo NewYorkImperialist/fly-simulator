@@ -72,7 +72,7 @@ sim = Simulation(world)          # compiles, resets to keyframe "neutral"
   `get_joint_angles/velocities(fly)`, `get_ground_contact_info(fly)` (see §7),
   `get_bodysegment_contact_forces(fly, segs, ground_only=True)` (world-frame net force
   per segment), `set_renderer(...)`, `render_as_needed()`, `close()`.
-* Our wrapper `perpetualfly.simulation.Simulation` builds exactly this and exposes
+* Our wrapper `fly_simulator.simulation.Simulation` builds exactly this and exposes
   `sim.model`, `sim.data`, `sim.fg` (the FlyGym Simulation), `sim.fly`, `sim.world`,
   `sim.thorax_body_id`, `sim.fly_mass`, `sim.fly_dofs` / `sim.other_dofs`,
   `pre_step_hooks`, `post_step_hooks`, `pre_reset_hooks`, `reset_hooks`,
@@ -192,7 +192,7 @@ Everything from the fly is prefixed with `"<fly name>/"`.
      for contacts. Avoid unless you rebuild everything.
 * MuJoCo planes are infinite for collision; `size` only limits drawing. Shifting a
   plane in-plane is physically a no-op (verified bit-identical trajectory);
-  `perpetualfly.terrain.GroundRecentering` uses this to keep the flat checkerboard
+  `fly_simulator.terrain.GroundRecentering` uses this to keep the flat checkerboard
   under the fly (snapped to texture periods, so pixel-identical).
   **Gotcha (found in the soak pass):** a geom compiled at its body's origin with
   identity orientation gets `model.geom_sameframe = 1`, and `mj_kinematics` then
@@ -227,7 +227,7 @@ Everything from the fly is prefixed with `"<fly name>/"`.
   apply(initial default pose, adhesion all on); sim.warmup();` then every physics step
   `obs → ctrl.step → apply → sim.step()`.
 * Performance: reference controller+observation ≈ 390 µs/step vs `mj_step` ≈ 100 µs.
-  `perpetualfly.controllers.FastHybrid(Turning)Controller` / `FastObservationBuilder`
+  `fly_simulator.controllers.FastHybrid(Turning)Controller` / `FastObservationBuilder`
   give **bit-identical** actions (tests `test_fast_controller_matches_flygym`,
   `test_fast_turning_controller_is_bitwise_flygym`) at ≈ 45 µs/step; whole loop
   ≈ 0.75× real time headless. See §13.
@@ -248,7 +248,7 @@ Everything from the fly is prefixed with `"<fly name>/"`.
   compiled name `"nmf/trackcam"`. "track" follows rigidly → jittery with gait bob.
 * PerpetualFly instead uses a free `mujoco.MjvCamera` (`mjCAMERA_FREE`) with smoothed
   `lookat` / azimuth, rendered through `mujoco.Renderer.update_scene(data, camera=cam)`
-  (`perpetualfly/rendering.py`). Free-camera convention: camera position =
+  (`fly_simulator/rendering.py`). Free-camera convention: camera position =
   `lookat - distance * (cos el cos az, cos el sin az, sin el)`; the free camera uses
   `model.vis.global_.fovy`. Rear three-quarter view of a fly heading ψ: az = ψ−45°.
   Smoothing is adaptive (`CameraConfig`): the look-at time constant shrinks with the
@@ -274,10 +274,10 @@ Everything from the fly is prefixed with `"<fly name>/"`.
   Downsides: must launch via `mjpython`, and the viewer's built-in bindings (space =
   pause, ESC, many letters toggling render flags) fire in addition to `key_callback`,
   colliding with our R/B/S/G/F/P/X/SPACE controls.
-* **Chosen: OpenCV window** (`perpetualfly/interaction/viewer.py`): offscreen
+* **Chosen: OpenCV window** (`fly_simulator/interaction/viewer.py`): offscreen
   `mujoco.Renderer` frame → `cv2.imshow`; keyboard via `cv2.waitKeyEx` (runs on the
   main thread under plain `python`; verified window opens and runs). Key names from
-  `perpetualfly.interaction.decode_key` ("space", "left", "right", "up", "down",
+  `fly_simulator.interaction.decode_key` ("space", "left", "right", "up", "down",
   "esc", letters). macOS arrow codes: 63234 left, 63235 right, 63232 up, 63233 down.
   Window close detected with `cv2.getWindowProperty(title, WND_PROP_VISIBLE) < 1`.
   Only key *presses* are delivered (no key-up / held-key state).
@@ -287,11 +287,11 @@ Everything from the fly is prefixed with `"<fly name>/"`.
   in a worker thread (§13): windowed ≈ 0.72× real time at 30 fps, headless ≈ 0.75×.
 * Retina: OpenCV's Cocoa backend maps one image pixel to one *physical* pixel, so a
   960×640 frame showed at 480×320 pt on this Mac (backing scale 2, 1440×900 pt).
-  `perpetualfly/display.py` reads the backing scale through CoreGraphics (ctypes) and
+  `fly_simulator/display.py` reads the backing scale through CoreGraphics (ctypes) and
   `LiveViewer` upscales ×2 (cv2.resize linear, ~3 ms), then draws the HUD at the
   upscaled resolution. The brain window uses the same helper. At ×2, `imshow` +
   `waitKeyEx(1)` takes ~21 ms instead of ~14 ms, so the window runs ~24 fps instead of
-  ~30. Override with `PERPETUALFLY_FLY_SCALE` / `RenderConfig.display_scale`.
+  ~30. Override with `FLY_SIMULATOR_FLY_SCALE` / `RenderConfig.display_scale`.
 
 ## 12. Instability
 
@@ -344,7 +344,7 @@ What changed:
   stay on. (`multiccd` is on: in MuJoCo 3.x it is a *disable* bit, which is why
   `enableflags` shows only ENERGY.) Solver/Jacobian settings change the numerics and
   were not touched. MuJoCo threading gives nothing here (one fly = one island).
-* Live window (`app.py` + `perpetualfly/physics_thread.py`): physics runs in a
+* Live window (`app.py` + `fly_simulator/physics_thread.py`): physics runs in a
   worker thread (`RenderConfig.threaded_physics=True`, chunks of
   `thread_chunk_steps=50`). The main thread renders and polls keys at
   `RenderConfig.target_fps=30`, paced by the wall clock. `mj_step`, `Renderer.render`
@@ -381,7 +381,7 @@ calls every `ext(world)` after the world is built and **before**
 `add_fly` → `_rebuild_neutral_keyframe` compiles the spec and writes the "neutral"
 keyframe sized to the model **at that moment**. Bodies/joints added after it would
 make the keyframe's qpos too short.
-The app accepts the same argument: `perpetualfly.app.run(cfg, world_extensions=[...])`
+The app accepts the same argument: `fly_simulator.app.run(cfg, world_extensions=[...])`
 and `Session(cfg, world_extensions=[...])`.
 
 **Keyframe gotcha (handled).** FlyGym fills the "neutral" keyframe only for the fly's
@@ -395,7 +395,7 @@ flat arrays of shape `(nkey, 3*nmocap)` / `(nkey, 4*nmocap)`; the patch indexes 
 accordingly. It used to crash for mocap bodies until the whip exercised it.)
 
 **Contact bits.** Two geoms collide dynamically if `(contype1 & conaffinity2) ||
-(contype2 & conaffinity1)`. Constants are in `perpetualfly.terrain` (`FLY_BIT = 8`,
+(contype2 & conaffinity1)`. Constants are in `fly_simulator.terrain` (`FLY_BIT = 8`,
 `TERRAIN_BIT = 16`):
 
 | geom | contype | conaffinity | notes |
@@ -437,7 +437,7 @@ lag, no momentum). Instead weld a free body to the mocap body
 `eq.data = [0,0,0, 0,0,0, 1,0,0,0, 1]` = anchor, identity relpose, torquescale;
 `eq.solref=(4e-4, 1)`) and hang the chain from that body. **Never teleport the mocap
 target**: a jump of a few mm in one step makes the weld yank the chain hard enough
-to go NaN. Rate-limit the target instead (see `perpetualfly/interaction/whip.py`,
+to go NaN. Rate-limit the target instead (see `fly_simulator/interaction/whip.py`,
 `Whip._track`). The physical whip is the worked example; see docs/WHIP.md.
 
 **Stability:** extension DoFs are checked for NaN and against
@@ -449,7 +449,7 @@ to go NaN. Rate-limit the target instead (see `perpetualfly/interaction/whip.py`
 warmup. `Simulation.reset()` is: pre_reset_hooks → `mj_resetDataKeyframe("neutral")`
 → controller reset + neutral pose → 50 ms warmup → stability check → reset_hooks.
 
-## 15. App wiring (`perpetualfly.app.Session`)
+## 15. App wiring (`fly_simulator.app.Session`)
 
 `Session(cfg, log=None, world_extensions=())` builds `ProceduralTerrain` (from
 `cfg.terrain.difficulty/seed/weights`; `"flat"` is an all-flat preset that still has the
@@ -480,7 +480,7 @@ optional auto reset. Quick-win additions: `session.step_difficulty(±1)` calls
 regenerates the loaded chunks from two ahead of the fly's chunk onward, with no model
 rebuild. `session.auto_hits_allowed()` is the `AutoPerturber.gate`: hits are skipped
 while FALLEN / RECOVERING and for `auto_perturb_resume_after_s` after a "recovered"
-event. Screenshots and recordings (`perpetualfly/media.py`) run on the main thread
+event. Screenshots and recordings (`fly_simulator/media.py`) run on the main thread
 outside the physics lock. In threaded mode, the events.csv rows they write take the
 lock. `ProceduralTerrain.ground_height_at(x, y)` ray-casts
 (`mju_rayGeom`) against the pool geoms whose bounding sphere covers (x, y), ~20 µs.

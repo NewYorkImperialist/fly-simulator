@@ -40,13 +40,13 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from perpetualfly.config import AppConfig  # noqa: E402
-from perpetualfly.interaction.perturbation import (  # noqa: E402
+from fly_simulator.config import AppConfig  # noqa: E402
+from fly_simulator.interaction.perturbation import (  # noqa: E402
     DIRECTIONS,
     Perturbation,
     PerturbationConfig,
 )
-from perpetualfly.simulation import Simulation, SimulationInstabilityError  # noqa: E402
+from fly_simulator.simulation import Simulation, SimulationInstabilityError  # noqa: E402
 
 SAMPLE_EVERY = 10  # physics steps (1 ms)
 FALL_TILT = 60.0
@@ -211,7 +211,7 @@ def record_sequence(out: Path, sequence: list[tuple[int, str]], gap_s: float, le
     import cv2
     import imageio.v2 as iio
 
-    from perpetualfly.rendering import FrameRenderer
+    from fly_simulator.rendering import FrameRenderer
 
     cfg = AppConfig()
     sim = Simulation(cfg)

@@ -4,11 +4,11 @@ The whip is now the pain / arousal stimulus. The **flyswatter** is the threat th
 tries to escape with its brain: paddle → compound-eye looming → LC4 / LPLC2 → giant
 fibre (DNp01, real FlyWire wiring) → escape jump + flight.
 
-Files: `perpetualfly/interaction/swatter.py` (asset, swat, measurement, vision source,
-`install_swatter`), `perpetualfly/vision/looming.py` (flat-surface sources, per-source
-response, LC4 size gate; additive), `perpetualfly/actions/jump.py` (short-mode escape,
-escape flight), `perpetualfly/actions/brain_triggers.py` (short mode / flight / threat
-direction), `perpetualfly/brain_link.py` (low-latency pacing option),
+Files: `fly_simulator/interaction/swatter.py` (asset, swat, measurement, vision source,
+`install_swatter`), `fly_simulator/vision/looming.py` (flat-surface sources, per-source
+response, LC4 size gate; additive), `fly_simulator/actions/jump.py` (short-mode escape,
+escape flight), `fly_simulator/actions/brain_triggers.py` (short mode / flight / threat
+direction), `fly_simulator/brain_link.py` (low-latency pacing option),
 `scripts/demo_swatter.py`, `tests/test_swatter.py`.
 
 ## 1. The asset
@@ -266,7 +266,7 @@ The grid, the yellow rim and the handle read clearly as a flyswatter.
 ## 5. Integration API (app wiring later; app.py / config.py untouched)
 
 ```python
-from perpetualfly.interaction.swatter import Swatter, SwatterConfig, install_swatter
+from fly_simulator.interaction.swatter import Swatter, SwatterConfig, install_swatter
 sw = Swatter(SwatterConfig())                       # bodies must exist before add_fly:
 session = Session(app_cfg, world_extensions=[sw.extension], brain=link)
 h = install_swatter(session, swatter=sw)             # vision + brain + escape wiring

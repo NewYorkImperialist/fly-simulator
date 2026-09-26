@@ -1,4 +1,4 @@
-"""Flyswatter (perpetualfly/interaction/swatter.py, docs/SWATTER.md): model, swat,
+"""Flyswatter (fly_simulator/interaction/swatter.py, docs/SWATTER.md): model, swat,
 hit / dodge measurement, flat-source looming, short-mode + escape-flight jumps,
 brain triggers and BrainLink low-latency pacing. No connectome data needed."""
 
@@ -10,16 +10,16 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from perpetualfly import AppConfig, Simulation
-from perpetualfly.actions import ActionManager
-from perpetualfly.actions.jump import Jump
-from perpetualfly.interaction.swatter import (
+from fly_simulator import AppConfig, Simulation
+from fly_simulator.actions import ActionManager
+from fly_simulator.actions.jump import Jump
+from fly_simulator.interaction.swatter import (
     Swatter,
     SwatterConfig,
     install_swatter,
     swatter_response,
 )
-from perpetualfly.vision.looming import LoomingConfig, LoomResponse, loom_response, quad_view
+from fly_simulator.vision.looming import LoomingConfig, LoomResponse, loom_response, quad_view
 
 I3 = np.eye(3)[None]
 
@@ -195,7 +195,7 @@ def test_flight_force_removed_on_reset(rig):
 
 
 def test_triggers_short_mode_and_escape_direction(rig):
-    from perpetualfly.actions.brain_triggers import BrainActionTriggers, TriggerParams
+    from fly_simulator.actions.brain_triggers import BrainActionTriggers, TriggerParams
 
     sim, _, mgr, _ = rig
     listeners = list(mgr.listeners)
@@ -227,7 +227,7 @@ def test_triggers_short_mode_and_escape_direction(rig):
 
 
 def _brain_state(t, window):
-    from perpetualfly.brain.schema import BrainState
+    from fly_simulator.brain.schema import BrainState
 
     z = np.zeros(1, np.float32)
     return BrainState(brain_time=t, wall_time=0.0, realtime_factor=1.0, window_s=window,
@@ -268,7 +268,7 @@ class _FakeBrain:
 
 
 def _link(sync, loom_only=True):
-    from perpetualfly.brain_link import BrainLink, BrainLinkConfig
+    from fly_simulator.brain_link import BrainLink, BrainLinkConfig
 
     link = BrainLink(BrainLinkConfig(enabled=True, window_s=0.02, sync_wait_s=sync,
                                      sync_loom_only=loom_only), start=False, headless=True,
@@ -280,7 +280,7 @@ def _link(sync, loom_only=True):
 
 
 def test_brain_link_sync_wait_cuts_the_chunk_latency():
-    from perpetualfly.brain.schema import StimulusEvent
+    from fly_simulator.brain.schema import StimulusEvent
 
     for sync, loom_only, expect_fresh in ((0.0, False, False), (0.05, False, True),
                                           (0.05, True, False)):

@@ -1,4 +1,4 @@
-"""Whip looming vision (perpetualfly/vision/looming.py, docs/VISION.md)."""
+"""Whip looming vision (fly_simulator/vision/looming.py, docs/VISION.md)."""
 
 from __future__ import annotations
 
@@ -9,9 +9,9 @@ import mujoco as mj
 import numpy as np
 import pytest
 
-from perpetualfly.brain.mapping import StimulusMapper
-from perpetualfly.brain.schema import StimulusEvent
-from perpetualfly.vision import (
+from fly_simulator.brain.mapping import StimulusMapper
+from fly_simulator.brain.schema import StimulusEvent
+from fly_simulator.vision import (
     LoomingConfig,
     LoomingVision,
     LoomResponse,
@@ -19,7 +19,7 @@ from perpetualfly.vision import (
     install_whip_vision,
     loom_response,
 )
-from perpetualfly.vision.looming import eye_view, fov_mask
+from fly_simulator.vision.looming import eye_view, fov_mask
 
 LEFT, RIGHT = np.array([1.0]), np.array([-1.0])
 I3 = np.eye(3)[None]  # head frame = world frame (x forward, y left, z up)
@@ -158,7 +158,7 @@ def test_reset_clears_filters():
 
 
 def _loom_table():
-    from perpetualfly.brain.process import _synthetic_table
+    from fly_simulator.brain.process import _synthetic_table
 
     table, _ = _synthetic_table(n=40)
     ct = table.cols["cell_type"]
@@ -193,8 +193,8 @@ def test_mapping_loom_drives_lc4_lplc2_on_the_eye_side():
 
 @pytest.fixture(scope="module")
 def whip_session():
-    from perpetualfly import AppConfig
-    from perpetualfly.app import Session
+    from fly_simulator import AppConfig
+    from fly_simulator.app import Session
 
     cfg = AppConfig()
     cfg.terrain.difficulty = "flat"

@@ -24,9 +24,9 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from perpetualfly.app import Session  # noqa: E402
-from perpetualfly.brain_link import BrainLink  # noqa: E402
-from perpetualfly.config import AppConfig  # noqa: E402
+from fly_simulator.app import Session  # noqa: E402
+from fly_simulator.brain_link import BrainLink  # noqa: E402
+from fly_simulator.config import AppConfig  # noqa: E402
 
 
 def main() -> None:
@@ -64,7 +64,7 @@ def main() -> None:
     h = s.odor
     renderer = None
     if a.frames:
-        from perpetualfly.app import _make_renderer
+        from fly_simulator.app import _make_renderer
 
         Path(a.frames).mkdir(parents=True, exist_ok=True)
         renderer = _make_renderer(s)

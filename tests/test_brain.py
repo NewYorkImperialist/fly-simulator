@@ -19,12 +19,12 @@ import pytest
 
 pytest.importorskip("numba")
 
-from perpetualfly.brain.data import data_available  # noqa: E402
-from perpetualfly.brain.engine import LIFEngine, LIFParams, csr_from_edges, random_network  # noqa: E402
-from perpetualfly.brain.mapping import (  # noqa: E402
+from fly_simulator.brain.data import data_available  # noqa: E402
+from fly_simulator.brain.engine import LIFEngine, LIFParams, csr_from_edges, random_network  # noqa: E402
+from fly_simulator.brain.mapping import (  # noqa: E402
     StimulusMapper, descending_indices, descending_to_drive)
-from perpetualfly.brain.process import BrainConfig, BrainProcess, _Model, _synthetic_table  # noqa: E402
-from perpetualfly.brain.schema import (  # noqa: E402
+from fly_simulator.brain.process import BrainConfig, BrainProcess, _Model, _synthetic_table  # noqa: E402
+from fly_simulator.brain.schema import (  # noqa: E402
     DESCENDING_GROUPS, NEUROTRANSMITTERS, BrainLayout, BrainState, StimulusEvent)
 
 needs_data = pytest.mark.skipif(not data_available(), reason="data/brain not downloaded")
@@ -247,7 +247,7 @@ def test_brain_worker_exits_when_parent_is_killed(tmp_path):
     script = tmp_path / "parent.py"
     script.write_text(textwrap.dedent("""
         import os, sys
-        from perpetualfly.brain.process import BrainConfig, BrainProcess
+        from fly_simulator.brain.process import BrainConfig, BrainProcess
         if __name__ == "__main__":
             bp = BrainProcess(BrainConfig(synthetic={"n": 30, "p_conn": 0.1, "seed": 0}))
             bp.wait_ready(60)
@@ -267,8 +267,8 @@ def test_brain_worker_exits_when_parent_is_killed(tmp_path):
 # ------------------------------------------------------------------------ real data
 @needs_data
 def test_real_descending_groups_and_sets():
-    from perpetualfly.brain.data import load_neuron_table
-    from perpetualfly.brain.mapping import named_sets
+    from fly_simulator.brain.data import load_neuron_table
+    from fly_simulator.brain.mapping import named_sets
 
     t = load_neuron_table()
     dn = descending_indices(t)
@@ -287,8 +287,8 @@ def test_real_descending_groups_and_sets():
 @needs_data
 def test_sugar_grns_drive_mn9():
     """Shiu et al. 2024 Fig. 1: sugar GRN activation recruits MN9 (proboscis)."""
-    from perpetualfly.brain.data import load_connectome, load_neuron_table
-    from perpetualfly.brain.mapping import MN9_IDS, named_sets
+    from fly_simulator.brain.data import load_connectome, load_neuron_table
+    from fly_simulator.brain.mapping import MN9_IDS, named_sets
 
     t = load_neuron_table()
     eng = LIFEngine(*load_connectome()[:3], seed=0)
@@ -304,7 +304,7 @@ def test_sugar_grns_drive_mn9():
 def test_engine_matches_brian2_spike_for_spike():
     import brian2 as b2
 
-    from perpetualfly.brain.brian2_ref import build_network
+    from fly_simulator.brain.brian2_ref import build_network
 
     b2.prefs.codegen.target = "numpy"
     b2.BrianLogger.suppress_name("resolution_conflict")

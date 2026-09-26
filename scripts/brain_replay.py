@@ -17,7 +17,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from perpetualfly.brain_viz.replay import (BrainRecording, event_class, render_png,  # noqa: E402
+from fly_simulator.brain_viz.replay import (BrainRecording, event_class, render_png,  # noqa: E402
                                            render_range, run_viewer)
 
 

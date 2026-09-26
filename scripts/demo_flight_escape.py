@@ -16,10 +16,10 @@ from pathlib import Path
 spec = importlib.util.spec_from_file_location(
     "demo_swatter", Path(__file__).resolve().parent / "demo_swatter.py")
 ds = importlib.util.module_from_spec(spec); spec.loader.exec_module(ds)
-from perpetualfly import AppConfig
-from perpetualfly.app import Session
-from perpetualfly.brain_link import BrainLink, BrainLinkConfig
-from perpetualfly.interaction.swatter import Swatter, SwatterConfig, install_swatter
+from fly_simulator import AppConfig
+from fly_simulator.app import Session
+from fly_simulator.brain_link import BrainLink, BrainLinkConfig
+from fly_simulator.interaction.swatter import Swatter, SwatterConfig, install_swatter
 
 def main():
     p = argparse.ArgumentParser()

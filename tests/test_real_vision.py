@@ -12,8 +12,8 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from perpetualfly import AppConfig
-from perpetualfly.vision.bridge import (
+from fly_simulator import AppConfig
+from fly_simulator.vision.bridge import (
     DEG_PER_PX,
     BridgeConfig,
     DarkExpansionBridge,
@@ -22,8 +22,8 @@ from perpetualfly.vision.bridge import (
     RealVisionConfig,
     ommatidia_centers,
 )
-from perpetualfly.vision.eyes import CompoundEyes, EyesConfig, has_eyes, make_eyes_fly_factory
-from perpetualfly.vision.flyvis_net import flyvis_available
+from fly_simulator.vision.eyes import CompoundEyes, EyesConfig, has_eyes, make_eyes_fly_factory
+from fly_simulator.vision.flyvis_net import flyvis_available
 
 CEN = ommatidia_centers()
 C0 = CEN.mean(axis=0)
@@ -36,7 +36,7 @@ needs_flyvis = pytest.mark.skipif(flyvis_available() is not None,
 
 @pytest.fixture(scope="module")
 def eyes_sim():
-    from perpetualfly.simulation import Simulation
+    from fly_simulator.simulation import Simulation
 
     cfg = AppConfig()
     cfg.whip.enabled = False
@@ -44,7 +44,7 @@ def eyes_sim():
 
 
 def test_default_fly_has_no_eyes():
-    from perpetualfly.simulation import Simulation
+    from fly_simulator.simulation import Simulation
 
     cfg = AppConfig()
     cfg.whip.enabled = False
@@ -88,7 +88,7 @@ def test_swatter_props_visible_to_eyes(eyes_sim):
 def radial_field(center, speed, radius_deg=25.0, off=True):
     """Synthetic T4 / T5 (2, 4, 721): increments of the subtypes whose preferred
     direction points away from ``center`` (expansion) on a ring."""
-    from perpetualfly.vision.bridge import PD_ROWCOL
+    from fly_simulator.vision.bridge import PD_ROWCOL
 
     d = CEN - center
     r = np.linalg.norm(d, axis=1)
@@ -102,7 +102,7 @@ def radial_field(center, speed, radius_deg=25.0, off=True):
 
 
 def translation_field(speed, direction=(0.0, 1.0)):
-    from perpetualfly.vision.bridge import PD_ROWCOL
+    from fly_simulator.vision.bridge import PD_ROWCOL
 
     d = np.array(direction)
     blob = (np.linalg.norm(CEN - C0, axis=1) * DEG_PER_PX < 15).astype(float)
@@ -139,7 +139,7 @@ def test_bridge_translation_and_contraction_do_not():
 
 def test_bridge_whole_eye_flow_removed():
     """Uniform motion on every column (self-rotation) is removed as global motion."""
-    from perpetualfly.vision.bridge import PD_ROWCOL
+    from fly_simulator.vision.bridge import PD_ROWCOL
 
     T = np.zeros((2, 4, 721))
     T[:, 1] = 1.0  # every column: +col motion
@@ -200,8 +200,8 @@ def test_real_vision_sends_loom_events_fallback_backend():
 
 
 def test_looming_object_approach_fade_and_geometric_source():
-    from perpetualfly.simulation import Simulation
-    from perpetualfly.vision.objects import LoomingObject, LoomingObjectConfig
+    from fly_simulator.simulation import Simulation
+    from fly_simulator.vision.objects import LoomingObject, LoomingObjectConfig
 
     cfg = AppConfig()
     cfg.whip.enabled = False
@@ -234,7 +234,7 @@ def test_looming_object_approach_fade_and_geometric_source():
 
 
 def test_cli_real_vision_implies_brain_and_low_latency_pacing():
-    from perpetualfly.app import build_arg_parser, config_from_args
+    from fly_simulator.app import build_arg_parser, config_from_args
 
     cfg = config_from_args(build_arg_parser().parse_args(["--real-vision", "--headless"]))
     assert cfg.real_vision.enabled and cfg.brain.enabled
@@ -244,7 +244,7 @@ def test_cli_real_vision_implies_brain_and_low_latency_pacing():
 
 
 def test_session_eyes_only_summary():
-    from perpetualfly.app import Session
+    from fly_simulator.app import Session
 
     cfg = AppConfig()
     cfg.whip.enabled = False
@@ -261,7 +261,7 @@ def test_session_eyes_only_summary():
 
 @needs_flyvis
 def test_flyvis_stepwise_and_retina_mapper():
-    from perpetualfly.vision.flyvis_net import StepwiseFlyvis
+    from fly_simulator.vision.flyvis_net import StepwiseFlyvis
 
     net = StepwiseFlyvis(dt=0.01)
     m = net.mapper

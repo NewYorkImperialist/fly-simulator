@@ -11,8 +11,8 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from perpetualfly import AppConfig, Simulation
-from perpetualfly.metrics import (
+from fly_simulator import AppConfig, Simulation
+from fly_simulator.metrics import (
     ContactSummary,
     FallDetector,
     FallDetectorConfig,

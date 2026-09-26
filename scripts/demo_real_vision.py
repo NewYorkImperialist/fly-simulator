@@ -29,7 +29,7 @@ from pathlib import Path
 
 import numpy as np
 
-from perpetualfly.vision.bridge import DEG_PER_PX, BridgeConfig, LoomBridge, ommatidia_centers
+from fly_simulator.vision.bridge import DEG_PER_PX, BridgeConfig, LoomBridge, ommatidia_centers
 
 CENTER = np.array([256.0, 225.0])  # eye-image centre (row, col)
 
@@ -81,7 +81,7 @@ def stimuli(cen, dt):
 
 
 def calibrate(args) -> int:
-    from perpetualfly.vision.flyvis_net import StepwiseFlyvis
+    from fly_simulator.vision.flyvis_net import StepwiseFlyvis
 
     dt = 1.0 / args.rate
     net = StepwiseFlyvis(dt)
@@ -139,12 +139,12 @@ class Rig:
     ``sense`` picks which one talks to the brain for a trial."""
 
     def __init__(self, args):
-        from perpetualfly import AppConfig
-        from perpetualfly.app import Session
-        from perpetualfly.brain_link import BrainLink, BrainLinkConfig
-        from perpetualfly.interaction.swatter import Swatter, SwatterConfig, install_swatter
-        from perpetualfly.vision.looming import LoomingVision
-        from perpetualfly.vision.objects import LoomingObject
+        from fly_simulator import AppConfig
+        from fly_simulator.app import Session
+        from fly_simulator.brain_link import BrainLink, BrainLinkConfig
+        from fly_simulator.interaction.swatter import Swatter, SwatterConfig, install_swatter
+        from fly_simulator.vision.looming import LoomingVision
+        from fly_simulator.vision.objects import LoomingObject
 
         self.args = args
         cfg = AppConfig()
@@ -182,7 +182,7 @@ class Rig:
         self.geo.add_source(self.obj.geometric_source())
         # the geometric sense sees the sphere from motion onset on (no pop-in transient)
         self.obj.onset_listeners.append(lambda t: self.geo._filt.pop("loom_object", None))
-        from perpetualfly.interaction.swatter import swatter_source
+        from fly_simulator.interaction.swatter import swatter_source
 
         self.geo.add_source(swatter_source(self.sw))
         trig = self.link.triggers if self.link is not None else None

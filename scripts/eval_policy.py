@@ -23,8 +23,8 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from perpetualfly.rl.env import EnvConfig, PerpetualFlyEnv  # noqa: E402
-from perpetualfly.rl.evaluation import evaluate, format_report, zero_policy  # noqa: E402
+from fly_simulator.rl.env import EnvConfig, PerpetualFlyEnv  # noqa: E402
+from fly_simulator.rl.evaluation import evaluate, format_report, zero_policy  # noqa: E402
 
 
 def load_policy(checkpoint: Path, vecnorm: Path | None, env: PerpetualFlyEnv):

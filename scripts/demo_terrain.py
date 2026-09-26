@@ -19,9 +19,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from perpetualfly.config import AppConfig  # noqa: E402
-from perpetualfly.simulation import Simulation  # noqa: E402
-from perpetualfly.terrain import ProceduralTerrain, ProceduralTerrainConfig  # noqa: E402
+from fly_simulator.config import AppConfig  # noqa: E402
+from fly_simulator.simulation import Simulation  # noqa: E402
+from fly_simulator.terrain import ProceduralTerrain, ProceduralTerrainConfig  # noqa: E402
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -57,7 +57,7 @@ def main(argv: list[str] | None = None) -> int:
     chunk = cfg.render.render_every_steps  # 150 steps = 15 ms
     renderer = writer = None
     if args.record or args.frames_dir:
-        from perpetualfly.rendering import FrameRenderer
+        from fly_simulator.rendering import FrameRenderer
 
         renderer = FrameRenderer(sim.model, cfg.render, cfg.camera)
     if args.record:

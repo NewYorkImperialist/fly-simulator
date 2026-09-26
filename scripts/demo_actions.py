@@ -3,7 +3,7 @@
 Walks the fly, triggers each action during walking, lets it hand control back and
 walk again, and prints metrics per action. Optionally records an MP4 (slow motion
 while an action runs) and saves PNG frames at key moments (jump apex, freeze,
-groom sweep, ...), rendered with perpetualfly.rendering.FrameRenderer.
+groom sweep, ...), rendered with fly_simulator.rendering.FrameRenderer.
 
     .venv/bin/python scripts/demo_actions.py
     .venv/bin/python scripts/demo_actions.py --actions jump --jump-boost 2 --trials 5
@@ -21,9 +21,9 @@ from pathlib import Path
 
 import numpy as np
 
-from perpetualfly import AppConfig, Simulation
-from perpetualfly.actions import ActionManager, make_action, make_action_fly_factory
-from perpetualfly.actions.registry import NEEDS_EXTRA_JOINTS
+from fly_simulator import AppConfig, Simulation
+from fly_simulator.actions import ActionManager, make_action, make_action_fly_factory
+from fly_simulator.actions.registry import NEEDS_EXTRA_JOINTS
 
 DEFAULT_ACTIONS = "jump,freeze,groom,back_away,turn_left,wings,proboscis"
 PARAMS = {
@@ -63,7 +63,7 @@ class Recorder:
         self.frames_dir = args.frames
         if args.record is None and args.frames is None:
             return
-        from perpetualfly.rendering import FrameRenderer
+        from fly_simulator.rendering import FrameRenderer
 
         w, h = (int(v) for v in args.size.split("x"))
         cfg = sim.cfg

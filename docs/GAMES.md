@@ -9,7 +9,7 @@
 > chose the input side (which neurons the rocks drive, and at what rates) and the
 > output side (how descending-neuron rates move the body).
 
-Files: `perpetualfly/games/` (`asteroids.py` rocks + game rules, `vision.py` the eyes,
+Files: `fly_simulator/games/` (`asteroids.py` rocks + game rules, `vision.py` the eyes,
 `brain_io.py` brain worker + mapping, `session.py` wiring, `hud.py`, `runner.py`,
 `experiment.py`; game 2: `chase.py` leader fly + LC10a eyes + rules,
 `chase_experiment.py`; game 3: `rings.py` hoops + flight pilot + rules,
@@ -59,7 +59,7 @@ Option B (a 2D arcade craft) was not needed.
 ### What the brain sees (input interface, ours)
 
 Each rock is a visual looming source for the two compound eyes. The implementation is
-`perpetualfly.vision.looming.LoomingVision`, reused: the same field of view, the
+`fly_simulator.vision.looming.LoomingVision`, reused: the same field of view, the
 `loom` stimulus kind, event scheduling and brain mapping. Per eye, the rock's angular
 size θ and expansion rate θ̇ drive **LC4** and **LPLC2**, the looming-detector visual
 projection neurons of that eye's optic lobe:
@@ -72,7 +72,7 @@ projection neurons of that eye's optic lobe:
 We chose these neurons because they are the looming channel (von Reyn et al. 2017; Ache
 et al. 2019). In the connectome, one eye's LC4 / LPLC2 drive the **contralateral**
 DNa01/DNa02 steering pair. That is the turn-away response the game relies on. Direct
-stimulation of the whole model (`perpetualfly.brain.process._Model`, 0.3 s):
+stimulation of the whole model (`fly_simulator.brain.process._Model`, 0.3 s):
 
 | stimulus (per neuron Poisson) | turn_L | turn_R | walk L/R | MDN L/R | giant fibre |
 |---|---|---|---|---|---|
@@ -123,7 +123,7 @@ to choosing the game's outcome. We use only the looming channel.
 
 ### How the brain's outputs move the body (output interface, ours)
 
-`GameMapping` → `perpetualfly.brain.mapping.descending_to_drive` (the app's mapping)
+`GameMapping` → `fly_simulator.brain.mapping.descending_to_drive` (the app's mapping)
 with game gains:
 
 | DN group (FlyWire types) | control | mapping |
@@ -151,7 +151,7 @@ steering. The GF rate is always shown in the brain panel; `--jump` turns the jum
 
 ### Scientific check: does the brain steer away more than chance?
 
-Headless, real brain, one brain process for all conditions (`perpetualfly/games/experiment.py`):
+Headless, real brain, one brain process for all conditions (`fly_simulator/games/experiment.py`):
 
 ```bash
 .venv/bin/python scripts/play.py --game asteroids --brain --experiment 40 --seed 1 --json runs/asteroids_exp.json
@@ -271,7 +271,7 @@ statistics are over trials, not over repeated seeds.
 ### Install / run API (for app integration later)
 
 ```python
-from perpetualfly.games import AsteroidSession, GameBrain, AsteroidConfig
+from fly_simulator.games import AsteroidSession, GameBrain, AsteroidConfig
 brain = GameBrain("brain").start()          # "mirror" | "none"; synthetic={"n": 60} for tests
 s = AsteroidSession(brain, AsteroidConfig(difficulty="normal"), seed=0)
 while s.game.state != "gameover":
@@ -281,8 +281,8 @@ print(s.game.summary()); brain.close()
 
 * `s.game.listeners` gets `GameEvent`s: spawn, hit, dodge, wave, jump, respawn,
   gameover, restart.
-* `perpetualfly.games.hud.compose(frame_rgb, s)` draws the HUD and panel.
-* `perpetualfly.games.runner.GameRunner` runs the headless, window and record loops.
+* `fly_simulator.games.hud.compose(frame_rgb, s)` draws the HUD and panel.
+* `fly_simulator.games.runner.GameRunner` runs the headless, window and record loops.
 
 The pieces also work on their own:
 
@@ -362,7 +362,7 @@ of it was trained.
 ### Connectome check first (why LC10a, and not "plane through rings")
 
 Before writing the game we stimulated the whole model directly
-(`perpetualfly.brain.engine.LIFEngine`, reset to rest, per-neuron Poisson input for
+(`fly_simulator.brain.engine.LIFEngine`, reset to rest, per-neuron Poisson input for
 0.3 s, 2–3 trials). Turn = the DNa01 + DNa02 group mean of that side, in Hz.
 
 | input (FlyWire type, side, rate) | turn_L | turn_R | walk L/R | MDN | GF |

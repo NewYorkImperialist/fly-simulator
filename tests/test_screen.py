@@ -1,4 +1,4 @@
-"""The sensory screen (perpetualfly.brain.screen) runs on the synthetic network."""
+"""The sensory screen (fly_simulator.brain.screen) runs on the synthetic network."""
 
 import sys
 from pathlib import Path
@@ -11,10 +11,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 pytest.importorskip("numba")
 pytest.importorskip("scipy")
 
-from perpetualfly.brain.engine import LIFEngine  # noqa: E402
-from perpetualfly.brain.process import _synthetic_table  # noqa: E402
-from perpetualfly.brain.schema import DESCENDING_GROUPS  # noqa: E402
-from perpetualfly.brain.screen import (KEY_DN_COLS, _jo_fine, behaviour_max,  # noqa: E402
+from fly_simulator.brain.engine import LIFEngine  # noqa: E402
+from fly_simulator.brain.process import _synthetic_table  # noqa: E402
+from fly_simulator.brain.schema import DESCENDING_GROUPS  # noqa: E402
+from fly_simulator.brain.screen import (KEY_DN_COLS, _jo_fine, behaviour_max,  # noqa: E402
                                        group_hops, min_hops_to, run_screen,
                                        sensory_groups)
 
@@ -29,7 +29,7 @@ def test_jo_fine_names():
 
 
 def test_min_hops_on_chain():
-    from perpetualfly.brain.engine import csr_from_edges
+    from fly_simulator.brain.engine import csr_from_edges
 
     # 0 -> 1 -> 2 -> 3 (excitatory), 4 -| 3 (inhibitory: not a path), 5 -> 3 (1 synapse)
     pre = np.array([0, 1, 2, 4, 5])

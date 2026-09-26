@@ -1,4 +1,4 @@
-"""Yard-work eternal jobs (perpetualfly/jobs/mowing.py, raking.py): props and contact
+"""Yard-work eternal jobs (fly_simulator/jobs/mowing.py, raking.py): props and contact
 bits, the grass pool (cutting, stripes, regrowth), the mower being pushed, the leaf
 pool (rake carrying, heaping, gusts, recycling) and short headless runs."""
 
@@ -9,10 +9,10 @@ import math
 import numpy as np
 import pytest
 
-from perpetualfly.config import AppConfig
-from perpetualfly.jobs import JobRunner, available_jobs, create_job_session, make_job
-from perpetualfly.jobs.geometry import PROP_BIT
-from perpetualfly.terrain import TERRAIN_BIT
+from fly_simulator.config import AppConfig
+from fly_simulator.jobs import JobRunner, available_jobs, create_job_session, make_job
+from fly_simulator.jobs.geometry import PROP_BIT
+from fly_simulator.terrain import TERRAIN_BIT
 
 
 def _cfg() -> AppConfig:

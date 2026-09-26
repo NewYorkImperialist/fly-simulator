@@ -27,11 +27,11 @@ from pathlib import Path
 
 import numpy as np
 
-from perpetualfly import AppConfig
-from perpetualfly.app import Session
-from perpetualfly.brain_link import BrainLink, BrainLinkConfig
-from perpetualfly.interaction.whip import WhipLevel
-from perpetualfly.vision import LoomingConfig, install_whip_vision
+from fly_simulator import AppConfig
+from fly_simulator.app import Session
+from fly_simulator.brain_link import BrainLink, BrainLinkConfig
+from fly_simulator.interaction.whip import WhipLevel
+from fly_simulator.vision import LoomingConfig, install_whip_vision
 
 SLOW_OMEGA = 10.0  # rad/s: the control sweep (level 1 omega replaced)
 # frames (with --frames): 10 ms chunks after the crack request (swing starts at 170 ms)
@@ -154,7 +154,7 @@ class Trial:
         """One small PNG from the app's own renderer (follow camera)."""
         import imageio.v2 as iio
 
-        from perpetualfly.rendering import FrameRenderer
+        from fly_simulator.rendering import FrameRenderer
 
         sim = self.s.sim
         if self.renderer is None:

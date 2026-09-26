@@ -12,18 +12,18 @@ import mujoco as mj
 import numpy as np
 import pytest
 
-from perpetualfly import AppConfig
-from perpetualfly.app import KEY_GROUPS, KEY_TABLE, Session, build_arg_parser, config_from_args, run
-from perpetualfly.brain_link import BrainLink, BrainLinkConfig
-from perpetualfly.display import auto_display_scale
-from perpetualfly.interaction.perturbation import AutoPerturbConfig
-from perpetualfly.interaction.viewer import compose_frame
-from perpetualfly.media import MediaCapture
-from perpetualfly.metrics import FallState, RunMetrics
-from perpetualfly.terrain import TerrainGenerator
+from fly_simulator import AppConfig
+from fly_simulator.app import KEY_GROUPS, KEY_TABLE, Session, build_arg_parser, config_from_args, run
+from fly_simulator.brain_link import BrainLink, BrainLinkConfig
+from fly_simulator.display import auto_display_scale
+from fly_simulator.interaction.perturbation import AutoPerturbConfig
+from fly_simulator.interaction.viewer import compose_frame
+from fly_simulator.media import MediaCapture
+from fly_simulator.metrics import FallState, RunMetrics
+from fly_simulator.terrain import TerrainGenerator
 
 ROOT = Path(__file__).resolve().parents[1]
-ACTION_KEYS = {"j", "y", "z", "w", "n", "e", ",", "."}  # perpetualfly/actions (tests/test_actions.py)
+ACTION_KEYS = {"j", "y", "z", "w", "n", "e", ",", "."}  # fly_simulator/actions (tests/test_actions.py)
 
 
 def _session(tmp_path=None, auto: AutoPerturbConfig | None = None, **over):
@@ -54,15 +54,15 @@ def test_cli_backup_and_reflection_flags():
 
 # ------------------------------------------------------------------ A2 / A7 display
 def test_display_scale_and_env_override(monkeypatch):
-    monkeypatch.delenv("PERPETUALFLY_FLY_SCALE", raising=False)
+    monkeypatch.delenv("FLY_SIMULATOR_FLY_SCALE", raising=False)
     retina = (2.0, 1440, 900)  # this Mac: backing 2, 1440x900 pt
-    assert auto_display_scale((960, 640), 0.67, 0.8, env_var="PERPETUALFLY_FLY_SCALE",
+    assert auto_display_scale((960, 640), 0.67, 0.8, env_var="FLY_SIMULATOR_FLY_SCALE",
                               info=retina) == pytest.approx(2.0)
     # capped to fit the screen; never below 0.5
     assert auto_display_scale((1920, 1280), 0.67, 0.8, info=retina) == pytest.approx(1.005, abs=0.01)
     assert auto_display_scale((960, 640), info=(1.0, 1920, 1080)) == 1.0
-    monkeypatch.setenv("PERPETUALFLY_FLY_SCALE", "1.5")
-    assert auto_display_scale((960, 640), env_var="PERPETUALFLY_FLY_SCALE", info=retina) == 1.5
+    monkeypatch.setenv("FLY_SIMULATOR_FLY_SCALE", "1.5")
+    assert auto_display_scale((960, 640), env_var="FLY_SIMULATOR_FLY_SCALE", info=retina) == 1.5
 
 
 def test_compose_frame_scales_hud_rec_and_help():
@@ -80,7 +80,7 @@ def test_compose_frame_scales_hud_rec_and_help():
 
 
 def test_key_table_groups_and_action_keys():
-    from perpetualfly.app import ACTION_KEY_MAP
+    from fly_simulator.app import ACTION_KEY_MAP
 
     assert [g for g, _ in KEY_GROUPS] == ["hits", "obstacles / terrain", "brain (--brain)",
                                           "actions", "flight (--flight)", "swatter (--swatter)",
@@ -95,7 +95,7 @@ def test_key_table_groups_and_action_keys():
 
 # ------------------------------------------------------------------ A3 reflections
 def test_reflection_flag_on_renderer():
-    from perpetualfly.rendering import FrameRenderer
+    from fly_simulator.rendering import FrameRenderer
 
     cfg = AppConfig()
     s, _ = _session()
@@ -286,7 +286,7 @@ def test_screenshot_includes_brain_frame(tmp_path, capsys):
 # ------------------------------------------------------------------ A10 packaging
 def test_package_data_declares_brain_atlas():
     pp = tomllib.loads((ROOT / "pyproject.toml").read_text())
-    pats = pp["tool"]["setuptools"]["package-data"]["perpetualfly.brain_viz"]
-    assets = ROOT / "perpetualfly" / "brain_viz"
+    pats = pp["tool"]["setuptools"]["package-data"]["fly_simulator.brain_viz"]
+    assets = ROOT / "fly_simulator" / "brain_viz"
     assert any(assets.glob(p) for p in pats)
     assert list((assets / "assets").glob("*.json"))

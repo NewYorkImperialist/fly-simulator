@@ -3,15 +3,15 @@ import math
 import numpy as np
 import pytest
 
-from perpetualfly import AppConfig, Simulation
-from perpetualfly.interaction import (
+from fly_simulator import AppConfig, Simulation
+from fly_simulator.interaction import (
     AutoPerturbConfig,
     AutoPerturber,
     Perturbation,
     PerturbationConfig,
     install_perturbation,
 )
-from perpetualfly.interaction.perturbation import heading_relative_direction
+from fly_simulator.interaction.perturbation import heading_relative_direction
 
 
 @pytest.fixture(scope="module")

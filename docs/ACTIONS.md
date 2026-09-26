@@ -1,4 +1,4 @@
-# Action library (`perpetualfly/actions/`)
+# Action library (`fly_simulator/actions/`)
 
 Body behaviours beyond walking: jump, freeze, groom, back away, turn in place, wing
 raise, proboscis extension. Keys can trigger them now; the connectome brain can
@@ -31,7 +31,7 @@ the scripts named in each section.
   `Skeleton.iter_jointdofs`. The trap: every actuator added through
   `fly.add_actuators(..., POSITION)` lands in
   `get_actuated_jointdofs_order("position")`, and the locomotion controller writes
-  a 42-vector there, so it would break. `perpetualfly.actions.body.make_action_fly`
+  a 42-vector there, so it would break. `fly_simulator.actions.body.make_action_fly`
   therefore adds the wing and proboscis position actuators straight to the MjSpec
   (`flygym.utils.mjcf.add_actuator`), outside FlyGym's registries. The controller
   still sees exactly 42 leg actuators.
@@ -66,7 +66,7 @@ the scripts named in each section.
   below the head (tarsi ~1 mm below the thorax, crossing the midline), then
   head / antenna sweeps (tarsi up at head height, 1.5–2.5 s). From 6 s it walks.
   **We use this clip** (see §3 Groom).
-* The conversion (`perpetualfly/actions/convert_grooming.py`): the DeepFly3D angles
+* The conversion (`fly_simulator/actions/convert_grooming.py`): the DeepFly3D angles
   follow the legacy joint convention of
   `flygym/assets/model/neuromechfly/legacy/flygym1_deepfly3d_rollyawpitch.xml`
   (key mapping as in NeuroMechFly's `kinematic_replay.py`). Its leg body frames are
@@ -74,7 +74,7 @@ the scripts named in each section.
   difference). For each frame, forward kinematics in the legacy model is followed
   by least squares for the 2.1 yaw-pitch-roll angles that reproduce every leg
   segment's orientation and position. Tarsus5 error ≤ 0.7 µm. The front legs from
-  0–3 s at 200 Hz are stored in `perpetualfly/actions/data/grooming_front_legs.npz`
+  0–3 s at 200 Hz are stored in `fly_simulator/actions/data/grooming_front_legs.npz`
   (32 kB).
 
 ### flybody (FlyGym 2.1 experimental `FlyBody`, Vaxenburg et al. 2025)
@@ -106,8 +106,8 @@ is 366 µN.
 ## 2. Framework
 
 ```python
-from perpetualfly.actions import ActionManager, Jump, Freeze, Groom, make_action
-mgr = ActionManager(sim)          # sim = perpetualfly.simulation.Simulation
+from fly_simulator.actions import ActionManager, Jump, Freeze, Groom, make_action
+mgr = ActionManager(sim)          # sim = fly_simulator.simulation.Simulation
 mgr.trigger(Jump())               # starts at the next physics step
 mgr.trigger(make_action("freeze", duration=2.0))   # replaces a running action
 mgr.cancel()                      # blend back to walking now
@@ -243,7 +243,7 @@ direction.
 
 These need `Simulation(cfg, fly_factory=make_action_fly_factory(wings=True,
 proboscis=True))`. The `fly_factory` constructor argument is a 6-line additive
-change in `perpetualfly/simulation.py`, and the default model is unchanged. Without
+change in `fly_simulator/simulation.py`, and the default model is unchanged. Without
 the joints, `mgr.trigger(WingRaise())` raises `RuntimeError`.
 `WingRaise`: wing yaw +1.2 rad, roll +0.35 rad (raised, slightly spread).
 `ProboscisExtend`: rostrum −1.0 rad, haustellum +1.0 rad. Both blend in over
@@ -259,7 +259,7 @@ state only.
 * Flight within the action library: the jump's "flight" phase is still ballistic.
   Real flapping-wing flight now exists as a separate flight mode (MuJoCo ellipsoid
   fluid on the wings, 5e-5 s timestep, hover controller, take-off from the jump,
-  landing): see `docs/FLIGHT.md` and `perpetualfly/flight/`. Not yet wired into the app.
+  landing): see `docs/FLIGHT.md` and `fly_simulator/flight/`. Not yet wired into the app.
 * Head / antenna movements: possible with the same `make_action_fly` mechanism
   (add `c_thorax-c_head` or `c_head-{l,r}_pedicel` DoFs), but not done. A head
   joint un-fuses the head from the thorax, which changes the walking body
@@ -268,7 +268,7 @@ state only.
 
 ## 4. Integration (app keys, full body, brain triggers)
 
-### App (`perpetualfly/app.py`)
+### App (`fly_simulator/app.py`)
 
 * `Session.actions` is an `ActionManager`, created before the brain attaches.
   `Session.available_actions` = `registry.available_actions(sim)`.
@@ -308,7 +308,7 @@ cracks hit and are sent to the brain, O → jump).
 
 ### Brain triggers (`--brain-actions`, implies `--brain-steer`)
 
-`perpetualfly/actions/brain_triggers.py` (`BrainActionTriggers`) is created by
+`fly_simulator/actions/brain_triggers.py` (`BrainActionTriggers`) is created by
 `BrainLink.attach` when `BrainLinkConfig.actions` is set. It checks each new
 BrainState in the physics thread:
 

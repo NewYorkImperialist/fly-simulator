@@ -1,4 +1,4 @@
-# Eternal jobs (`perpetualfly/jobs/`)
+# Eternal jobs (`fly_simulator/jobs/`)
 
 This is the internet genre of "a fly doing an absurd job for eternity". Each job is a
 scene with props (compiled into the MuJoCo model), task logic that steers the
@@ -30,9 +30,9 @@ Options: `--job-config '{"slope_deg": 8}'` (job config overrides), `--width/--he
 ## Framework API (for new jobs: lawn mowing, leaf raking, doner kebab ...)
 
 ```python
-from perpetualfly.jobs import (EternalJob, JobConfig, CameraPreset, register_job,
+from fly_simulator.jobs import (EternalJob, JobConfig, CameraPreset, register_job,
                                create_job_session, install_job, make_job, JobRunner)
-from perpetualfly.jobs.geometry import (add_box, add_slope, add_plane_box, contact_kwargs,
+from fly_simulator.jobs.geometry import (add_box, add_slope, add_plane_box, contact_kwargs,
                                         slippery_body_contact, exclude_fly_legs, PROP_BIT)
 ```
 
@@ -208,7 +208,7 @@ offset. The job counts revolutions, distance (surface travel) and top speed (max
 
 ### kebab
 
-`perpetualfly/jobs/kebab.py`, tests in `tests/test_jobs_kebab.py`.
+`fly_simulator/jobs/kebab.py`, tests in `tests/test_jobs_kebab.py`.
 
 **Scene.** A vertical spit (hinge about z, driven by a velocity actuator at 12 rpm)
 stands 1.7 mm in front of the carving station. Its meat is an inverted cone 2.5 mm
@@ -370,7 +370,7 @@ captured states and checked by eye):
 
 ### mowing
 
-`perpetualfly/jobs/mowing.py`, tests in `tests/test_jobs_lawn.py`.
+`fly_simulator/jobs/mowing.py`, tests in `tests/test_jobs_lawn.py`.
 
 **Lawn.** 20 × 17.2 mm, 6 rows along x, 2.8 mm apart, starting at the fly's spawn
 row (y = 0). The grass is a fixed pool of 1,968 thin blade boxes (0.5 ± 0.15 mm
@@ -419,7 +419,7 @@ matter for any job:
 
 ### raking
 
-`perpetualfly/jobs/raking.py`, tests in `tests/test_jobs_lawn.py`.
+`fly_simulator/jobs/raking.py`, tests in `tests/test_jobs_lawn.py`.
 
 **Yard.** 22 × 16 mm, with a bare-earth pile spot (R 2 mm) at (13, −3.5). A tree
 stands beyond the far edge: a trunk plus 9 orange / red / yellow canopy ellipsoids,
@@ -524,7 +524,7 @@ shavings piling up on the tray, and the counters climbing.
   rolls back (Sisyphean, and counted as nothing). The boulder is light (0.3 mg,
   pumice) because heavier props make the fly rear up and flip.
 * The fly respawns at the origin after a reset (FlyGym keyframe). Jobs that need
-  another respawn point can write it into the keyframe, as `perpetualfly/course` does.
+  another respawn point can write it into the keyframe, as `fly_simulator/course` does.
 * `RunMetrics` keeps one float per fall (`falls`, `recovery_times`). This grows very
   slowly and is the only per-event list; the job's own counters are O(1).
 * The main app runs jobs too: `run_sim.py --job NAME [--job-config JSON]` (all app keys

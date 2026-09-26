@@ -6,10 +6,10 @@ documented, phenomenological **short-term synaptic depression** on the giant fib
 looming inputs. It is off by default, and when it is off the engine is bit-identical
 to the original model (tested).
 
-Code: `perpetualfly/brain/habituation.py` (config + worker-side model), the kernel
-branch in `perpetualfly/brain/engine.py` (`LIFEngine.set_depression`), wiring in
-`perpetualfly/brain/process.py` (`BrainConfig.habituation`,
-`BrainProcess.set_habituation`), `perpetualfly/brain_link.py` (flag, HUD) and
+Code: `fly_simulator/brain/habituation.py` (config + worker-side model), the kernel
+branch in `fly_simulator/brain/engine.py` (`LIFEngine.set_depression`), wiring in
+`fly_simulator/brain/process.py` (`BrainConfig.habituation`,
+`BrainProcess.set_habituation`), `fly_simulator/brain_link.py` (flag, HUD) and
 `tests/test_habituation.py`.
 
 ## Biology and where the depression sits

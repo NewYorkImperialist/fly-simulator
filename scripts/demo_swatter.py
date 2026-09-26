@@ -26,10 +26,10 @@ from pathlib import Path
 
 import numpy as np
 
-from perpetualfly import AppConfig
-from perpetualfly.app import Session
-from perpetualfly.brain_link import BrainLink, BrainLinkConfig
-from perpetualfly.interaction.swatter import Swatter, SwatterConfig, install_swatter
+from fly_simulator import AppConfig
+from fly_simulator.app import Session
+from fly_simulator.brain_link import BrainLink, BrainLinkConfig
+from fly_simulator.interaction.swatter import Swatter, SwatterConfig, install_swatter
 
 
 def parse_args(argv=None):
@@ -167,7 +167,7 @@ class Trial:
         return row
 
     def _render(self):
-        from perpetualfly.rendering import FrameRenderer
+        from fly_simulator.rendering import FrameRenderer
 
         sim = self.s.sim
         if self.renderer is None:

@@ -21,8 +21,8 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from perpetualfly import AppConfig, Simulation  # noqa: E402
-from perpetualfly.metrics import (  # noqa: E402
+from fly_simulator import AppConfig, Simulation  # noqa: E402
+from fly_simulator.metrics import (  # noqa: E402
     FallDetector,
     FallDetectorConfig,
     LoggingConfig,

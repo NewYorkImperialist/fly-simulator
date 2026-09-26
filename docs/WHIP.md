@@ -1,6 +1,6 @@
 # The physical whip
 
-`perpetualfly/interaction/whip.py` adds a visible whip to the world: a chain of capsules
+`fly_simulator/interaction/whip.py` adds a visible whip to the world: a chain of capsules
 on a scripted handle. A crack is scripted motion of the handle **only**; the fly is moved
 exclusively by MuJoCo contact forces between the whip and fly geoms. The whip is the
 app's default hit (`--hit-mode whip`); H switches to the thorax-force shove

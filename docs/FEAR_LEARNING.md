@@ -11,15 +11,15 @@ original model (tested).
 
 Code:
 
-* `perpetualfly/brain/plasticity.py`: the rule, the connectome-derived
+* `fly_simulator/brain/plasticity.py`: the rule, the connectome-derived
   compartments and the odour KC codes.
-* `perpetualfly/brain/process.py`: `BrainConfig.plasticity`, `_Model.configure_plasticity`
+* `fly_simulator/brain/process.py`: `BrainConfig.plasticity`, `_Model.configure_plasticity`
   and `BrainProcess.set_plasticity`.
-* `perpetualfly/brain/schema.py`: `BrainState.learning`.
-* `perpetualfly/senses/odor.py`: odour zones, sensing and punishment.
+* `fly_simulator/brain/schema.py`: `BrainState.learning`.
+* `fly_simulator/senses/odor.py`: odour zones, sensing and punishment.
 * App wiring (flags `--odor-zones` and `--learning`, keys 8 / =, HUD line):
-  `perpetualfly/app.py`, `perpetualfly/config.py`, `perpetualfly/brain_link.py`.
-* Brain window header: `perpetualfly/brain_viz/window.py`.
+  `fly_simulator/app.py`, `fly_simulator/config.py`, `fly_simulator/brain_link.py`.
+* Brain window header: `fly_simulator/brain_viz/window.py`.
 * Scripts: `scripts/demo_fear_learning.py` (offline, in-process engine) and
   `scripts/demo_fear_learning_app.py` (full app, headless).
 * Tests: `tests/test_fear_learning.py`.

@@ -13,7 +13,7 @@ Keys (window): Q / ESC quit, C camera (job / follow / side / top), P pause,
 X explicit reset (counted), I screenshot (PNG with HUD); job keys are forwarded to
 the job (kebab: S = startle the chef, a poke; with --stress it speeds the carving up).
 
-Mirrors perpetualfly.app.Session construction (the job's props are compiled in via
+Mirrors fly_simulator.app.Session construction (the job's props are compiled in via
 world_extensions); the physical whip and the connectome brain are off unless
 --whip / --brain; --stress (implies --brain) installs the octopamine stress layer
 (docs/STRESS.md). --rotate rebuilds the Session between jobs (props are compiled in).
@@ -28,8 +28,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from perpetualfly.config import AppConfig  # noqa: E402
-from perpetualfly.jobs import JobRunner, available_jobs, create_job_session, make_job  # noqa: E402
+from fly_simulator.config import AppConfig  # noqa: E402
+from fly_simulator.jobs import JobRunner, available_jobs, create_job_session, make_job  # noqa: E402
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -99,7 +99,7 @@ def run_one(name: str, args, max_seconds: float | None, stop_flag: dict) -> dict
     cfg = app_config(args)
     brain = None
     if args.brain or args.stress:
-        from perpetualfly.brain_link import BrainLink, missing_requirements
+        from fly_simulator.brain_link import BrainLink, missing_requirements
 
         cfg.brain.enabled = True
         problem = missing_requirements(cfg.brain)
