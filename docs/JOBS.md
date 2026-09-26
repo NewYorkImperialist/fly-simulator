@@ -11,6 +11,8 @@ constant.
 | `sisyphus` | pushes a 4 mm boulder up a 10° hill to a summit curb; lets go; the boulder rolls back into the valley; walks down, gets behind it, pushes again | summits, metres pushed |
 | `hamster_wheel` | runs inside a 14 mm wheel (hinge joint) that turns only because its feet push the slats | revolutions, distance, top speed |
 | `kebab` | stands at a turning doner spit in a chef hat and carves it with a knife on its right front leg, using the real recorded grooming stroke; shavings fall onto the drip tray, the meat regrows | shavings carved, kebabs completed, µg served, rate |
+| `mowing` | pushes a red push mower up and down a lawn in rows, leaving light / dark mowing stripes; the grass grows back | m² mowed, rows mowed, lawns completed |
+| `raking` | leaves fall from an autumn tree; the fly sweeps them into a pile with a rake; when the pile is done, the wind blows it away | leaves raked, piles completed, gusts survived |
 
 ```bash
 python scripts/run_job.py --job sisyphus                   # window; Q quit, C camera, P pause, X reset, I screenshot
@@ -270,11 +272,109 @@ memory constant.
 carve speed is multiplied by `1 + gain · (freq_mult − 1)`. `run_job.py` does not
 install stress, so this path is tested with a fake handle only.
 
+### mowing
+
+`perpetualfly/jobs/mowing.py`, tests in `tests/test_jobs_lawn.py`.
+
+**Lawn.** 20 × 17.2 mm, 6 rows along x, 2.8 mm apart, starting at the fly's spawn
+row (y = 0). The grass is a fixed pool of 1,968 thin blade boxes (0.5 ± 0.15 mm
+tall, jittered 0.42 mm grid) plus 525 flat 0.8 mm "stripe tiles" on the soil. All
+are `collide="visual"`, so they can't trip the fly, and resizing / recolouring them
+needs no BVH refit (API_NOTES §8). They only need `geom_size`, `geom_pos`,
+`geom_aabb`, `geom_rbound` and `geom_rgba`. The soil box's top is 50 µm above the
+ground plane: a box face flush with the plane z-fights with the checker at a camera
+distance of 25–30 mm (this showed up as big dark squares on the lawn).
+
+**Mower.** It sits on planar joints: slide x, slide y and a yaw hinge, at a fixed
+height. So it can't tip, climb or be lost, and the slide ranges keep it within 3 mm
+of the lawn. The slide damping (0.3 µN per mm/s) stands in for the wheels' rolling
+resistance: pushing at 5 mm/s takes ~0.15 body weight. The only colliding part is a
+round deck (R 1.6 mm, z 0.47–1.23 mm, 0.3 mg). The fly touches it with head, thorax
+and abdomen only, at friction 0.05 (`slippery_body_contact`, legs excluded). The
+engine, wheels and a handle whose grip sits just above the fly's head are visual.
+The job turns the yaw hinge (rate-limited to 2.5 rad/s) so the mower faces the way
+it is pushed and the handle trails toward the fly. The deck is round, so turning it
+pushes nothing.
+
+**Behaviour.** `PushPilot` is the sisyphus push loop, generalised and shared with
+raking: approach (orbit round the prop to its back relative to the goal), then align,
+then push with over-steer. The goal is a pure-pursuit point 3 mm ahead on the
+current row's centre line. At a row end, the next row's goal is behind the mower, so
+the fly walks round it and the mower comes about in a U-turn onto the next row. Rows
+run as a serpentine, 0→5 and then back 5→0. A row counts when the mower centre gets
+within 0.2 mm of the row end and within 1 mm of the row line. Blades under the deck
+are cut to 0.12 mm and painted light (rows mown along +x) or dark (along −x), the
+classic stripes. They grow back linearly in 45 s, about 1.5 lawn passes, and their
+colour fades back to long grass. After each lawn the fly grooms for 2 s (wipes its
+brow).
+
+**Counters.** Area mowed: m² of full-height grass cut. Partly regrown grass counts pro
+rata, and the area is the work counter, so the stuck timer only runs when nothing is
+cut. Also rows mowed and lawns completed (every 6 rows). The HUD shows the current
+row and direction and the share of the lawn that is short. Two `PushPilot` details
+matter for any job:
+
+* The align state's lateral tolerance must be larger than `align_radius`. Otherwise
+  approach and align hand the fly back and forth every update and it freezes (found
+  with a small prop).
+* When the target heading is almost straight behind (|error| > 150°), the pilot
+  commits to one turning direction. The error's sign otherwise flips between updates,
+  and a fly turning on the spot freezes.
+
+### raking
+
+`perpetualfly/jobs/raking.py`, tests in `tests/test_jobs_lawn.py`.
+
+**Yard.** 22 × 16 mm, with a bare-earth pile spot (R 2 mm) at (13, −3.5). A tree
+stands beyond the far edge: a trunk plus 9 orange / red / yellow canopy ellipsoids,
+overhanging the yard at z ≈ 8 mm. All of it is visual.
+
+**Leaves are kinematic.** A fixed pool of 40 mocap bodies, each a flat ellipsoid
+(1.1 × 0.7 mm) plus a stem, in 6 autumn colours, all visual-only. The job moves them
+through these states:
+
+* **tree**: inside the canopy.
+* **falling**: one leaf every 1.6 s, 2–3.5 s down with a side-to-side flutter and a
+  rocking roll.
+* **ground**
+* **pile**: heaped on a dome whose height grows with the count.
+* **gust**: an arc up and across the yard.
+
+No leaf physics means no instabilities, and 40 leaves cost nothing. The model never
+grows: leaves blown out of the yard go back into the canopy and fall again.
+
+**Rake.** A mocap body (visual) that the job puts at the thorax pose every update,
+like a rake welded to the thorax front. A wooden handle runs from above the fly's
+head down to a green comb (3 mm wide, 11 tines) 2.1 mm in front of the thorax. The
+rake moves leaves like this: every update, a ground leaf in the 1 mm strip behind the
+comb's front face (within the comb width) is moved onto the face and marked
+*raked*. Leaves in front of the comb go wherever the fly walks, and slide off the
+comb ends when it turns. A ground leaf inside the pile circle joins the heap. It is
+counted only if it was raked (leaves that fall straight onto the pile don't count).
+
+**Behaviour.** The target is the ground leaf that minimises distance to fly + 0.5 ×
+distance to pile, with 30 % hysteresis and a re-check every 2.5 s while
+approaching. That leaf is the "prop" of a `PushPilot` (radius 1 mm): the fly goes
+round it to the staging point 2.9 mm behind it (relative to the pile), faces it, and
+then "pushes" it to the pile with the comb, exactly like the boulder. The raking
+pilot has `unstick=False`, because nothing blocks the fly here. With no leaves on
+the ground, it leans on its rake beside the pile.
+
+**Wind.** A pile of 18 leaves is complete (the fly grooms for 1.5 s). A gust comes
+3 s later, and also every 75 s regardless, sometimes flattening a pile that is
+nearly done. It blows the whole pile plus 30 % of the ground leaves up and across the
+yard. 35 % of them fly out of the yard and return to the canopy. The HUD flashes
+`~~~ WIND GUST! ~~~`.
+
 ## Verification
 
 The test file is `tests/test_jobs.py`: synthetic tests of the registry, steering and
 recording helpers, plus short sisyphus and wheel runs covering contacts, pushing,
-explicit recovery, NaN recovery, a lost boulder and the wheel spinning.
+explicit recovery, NaN recovery, a lost boulder and the wheel spinning. `tests/test_jobs_lawn.py`
+(9 tests, ~13 s) covers mowing and raking: contact bits, the grass pool (cut, stripe
+colour, regrowth), row completion and the serpentine, the mower being pushed, the
+mower surviving an explicit reset, rake carrying, pile counting, gusts, the constant
+leaf pool, and the rake following the thorax.
 Results of the long headless runs are below.
 
 Measured on 2026-09-26 on this machine, with other agents' simulations running at
@@ -287,6 +387,8 @@ the same time:
 | `--rotate` smoke test (both jobs, rebuilding the Session) | 2.5 s | the job switched as expected | 0 | – |
 | `kebab` headless + 640×426 MP4 (20 s segments, keep 1) + timelapse every 3 s | 200 s | **1006 shavings**, 16 kebabs, 3.5 mg served, ~300 shavings/min steady (peak 382), ~88 of 199 chunks regrowing at any time, 0 repositions, 0 shavings lost, 0 instabilities | 0 / 0 | 0.26 |
 | `kebab --brain` (full body, real FlyWire brain) | 12 s | 72 shavings; 3 food pulses, MN9 40–60 Hz on each, proboscis driven; 0 falls | 0 / 0 | 0.27 |
+| `mowing` headless + 640×432 timelapse every 3 s (job renderer) | 185 s | **30 rows, 5 lawns**, 1251 mm² (0.00125 m²) mowed, 6627 blades cut, 30 pushes started, 1 back-away unstick, 0 instabilities | 0 / 0 | 0.47 |
+| `raking` headless + 640×432 timelapse every 3 s | 185 s | **46 leaves raked**, 2 piles completed, 2 gusts survived (47 leaves blown about, 14 out of the yard and back to the tree), 38 leaves fallen from the tree, 0 instabilities | 0 / 0 | 0.55 |
 
 I checked the timelapse frames by eye (rendered by the job renderer only). The
 sisyphus shot shows the trough, the boulder, the flag and the summit counter
@@ -301,6 +403,15 @@ spit, knife raised or in the meat, a carved band of pink regrowing chunks, the
 shavings piling up on the tray, and the counters climbing.
 
 ## Limitations
+
+* mowing: the mower is on planar joints at a fixed height and turned kinematically
+  toward its push direction (the fly pushes only its translation). The stripes wobble
+  a little, because the pure-pursuit push is not perfectly straight. The serpentine
+  mows the last row twice (once each way) at the turnaround.
+* raking: the rake and leaves are kinematic (mocap, visual only). The rake moves
+  leaves by a geometric test, not by contact forces, so the fly can't trip over
+  either. Leaves pushed against the yard edge line up there until the fly fetches
+  them.
 
 * kebab: the knife passes through the meat (visual geoms; the cut is a geometric
   test, not a contact force). Only the band the recorded stroke reaches (about

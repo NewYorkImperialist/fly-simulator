@@ -29,6 +29,8 @@ def _load_builtin() -> None:
         from perpetualfly.jobs import hamster_wheel  # noqa: F401
     except ImportError:
         pass
+    from perpetualfly.jobs import mowing  # noqa: F401
+    from perpetualfly.jobs import raking  # noqa: F401
     from perpetualfly.jobs import kebab  # noqa: F401
 
 
