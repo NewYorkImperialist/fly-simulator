@@ -59,7 +59,7 @@ jobs:
 
       - name: Install package (dev + brain extras)
         run: |
-          uv venv --python 3.12 .venv
+          uv venv --clear --python 3.12 .venv
           uv pip install --python .venv/bin/python -e ".[dev,brain]"
 
       - name: Run tests
