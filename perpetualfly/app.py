@@ -31,6 +31,7 @@ from perpetualfly.interaction import HitEvent, install_perturbation
 from perpetualfly.interaction.perturb_controls import HIT_MODES, format_event, format_whip_event
 from perpetualfly.interaction.whip import Whip, WhipHitEvent
 from perpetualfly.metrics import FallDetector, FallEvent, FallState, RunLogger, RunMetrics
+from perpetualfly.senses.odor import ODOR_KEYS  # --odor-zones (docs/FEAR_LEARNING.md)
 from perpetualfly.senses.taste import TASTE_KEYS
 from perpetualfly.simulation import Simulation, SimulationInstabilityError, WorldExtension
 from perpetualfly.terrain import DIFFICULTY_PRESETS, ProceduralTerrain, ProceduralTerrainConfig
@@ -51,6 +52,7 @@ KEY_GROUPS: list[tuple[str, list[tuple[str, str]]]] = [
         ("F", "flatten the next terrain chunk"),
         # taste patches (--taste-patches; docs/TASTE.md)
         ("5 6 7", "taste patch ahead: sugar / bitter / mixed (--taste-patches)"),
+        ("8 =", "odour A / B zone around the fly (--odor-zones)"),
         ("[ / ]", "terrain difficulty down / up (flat easy normal hard chaos), new chunks"),
     ]),
     ("brain (--brain)", [
@@ -131,6 +133,10 @@ def check_feature_config(cfg: AppConfig) -> None:
                           "jobs assume a walking fly on the canonical 1e-4 s walking model "
                           "(their scoring, respawns and props are tuned for it). Run flight "
                           "on the endless terrain.")
+    # --- odour zones (docs/FEAR_LEARNING.md) ---
+    if cfg.odor.enabled and (cfg.course.name or cfg.job.name or cfg.flight.enabled):
+        raise ConfigError("--odor-zones / --learning can't be combined with --course / --job "
+                          "/ --flight")
     # --- taste patches (docs/TASTE.md) ---
     if cfg.taste.enabled and (cfg.course.name or cfg.job.name):
         raise ConfigError("--taste-patches can't be combined with --course / --job: the "
@@ -232,6 +238,8 @@ class Session:
         self.stress = None  # StressHandle (--stress)
         self.taste = None  # TasteHandle (--taste-patches; docs/TASTE.md)
         self._taste_patches = None
+        self.odor = None  # OdorHandle (--odor-zones; docs/FEAR_LEARNING.md)
+        self._odor_zones = None
         self.swat_counts = {k: 0 for k in SWAT_OUTCOMES}
         self.last_swat = None
         self._job_obj = None
@@ -264,6 +272,11 @@ class Session:
 
             self._taste_patches = TastePatches(cfg.taste)
             exts.append(self._taste_patches.extension)
+        if cfg.odor.enabled:  # --- odour zones: visual-only haze geoms (docs/FEAR_LEARNING.md)
+            from perpetualfly.senses.odor import OdorZones
+
+            self._odor_zones = OdorZones(cfg.odor)
+            exts.append(self._odor_zones.extension)
         exts += list(world_extensions)
         # --real-vision: compound-eye cameras on the fly (must be added before add_fly)
         rv = cfg.real_vision
@@ -412,6 +425,10 @@ class Session:
             from perpetualfly.senses.taste import install_taste
 
             self.taste = install_taste(self, self._taste_patches, cfg.taste, say=self.say)
+        if self._odor_zones is not None:  # --- odour zones (docs/FEAR_LEARNING.md) ---
+            from perpetualfly.senses.odor import install_odor
+
+            self.odor = install_odor(self, self._odor_zones, cfg.odor, say=self.say)
         if cfg.stress.enabled:
             from perpetualfly.stress import install_stress
 
@@ -676,6 +693,12 @@ class Session:
         return (f"[spawn] {kind} {r.distance:.1f} mm ahead "
                 f"(x {r.x_start:.1f}..{r.x_end:.1f} mm)")
 
+    def spawn_odor(self, odor: str) -> str:
+        """Keys 8 / =: an odour A / B zone around the fly (docs/FEAR_LEARNING.md)."""
+        if self.odor is None:
+            return f"[odor] odour {odor} zone: run with --odor-zones"
+        return self.odor.spawn(odor)
+
     def spawn_taste(self, kind: str) -> str:
         """Keys 5 / 6 / 7: a sugar / bitter / mixed taste patch ahead (docs/TASTE.md)."""
         if self.taste is None:
@@ -731,6 +754,8 @@ class Session:
             self.brain.update()
         if self.taste is not None:  # taste patches: legs -> brain, feeding rule
             self.taste.update()
+        if self.odor is not None:  # odour zones: thorax -> KC odour code, whip -> DANs
+            self.odor.update()
         down = self.down_for()
         if down is None:
             return
@@ -797,6 +822,7 @@ class Session:
             "real_vision": self._real_vision_summary(),
             "flight": self.flight.summary() if self.flight is not None else None,
             "taste": self.taste.summary() if self.taste is not None else None,
+            "odor": self.odor.summary() if self.odor is not None else None,
         }
 
     def _real_vision_summary(self) -> dict | None:
@@ -942,6 +968,14 @@ def build_arg_parser() -> argparse.ArgumentParser:
                         "taste -> sugar / bitter GRNs in the brain (labellar stand-in); with "
                         "--brain-actions the real MN9 makes the fly stop and feed (proboscis). "
                         "5 / 6 / 7 spawn a sugar / bitter / mixed patch ahead")
+    g.add_argument("--odor-zones", action="store_true",
+                   help="odour A / B haze zones on the path (docs/FEAR_LEARNING.md; implies "
+                        "--brain): inside a zone the brain gets that odour's Kenyon-cell code. "
+                        "8 / = spawn an A / B zone around the fly")
+    g.add_argument("--learning", action="store_true",
+                   help="fear learning (implies --odor-zones): whip hits inside a zone drive "
+                        "the PPL1 punishment DANs (stand-in) and KC -> MBON synapses of that "
+                        "odour depress (dopamine-gated plasticity, model)")
     g.add_argument("--taste-density", type=float, default=None, metavar="PER_CM",
                    help="with --taste-patches: procedural patches per 10 mm of path "
                         "(default 0.3; 0 = only key-spawned patches)")
@@ -1098,6 +1132,11 @@ def config_from_args(args: argparse.Namespace) -> AppConfig:
         cfg.flight.enabled = True
     if getattr(args, "taste_patches", False):  # --- taste patches (docs/TASTE.md)
         cfg.taste.enabled = True
+    if getattr(args, "odor_zones", False) or getattr(args, "learning", False):  # odours
+        cfg.odor.enabled = True
+        cfg.brain.enabled = cfg.brain.odors = True
+        if getattr(args, "learning", False):
+            cfg.odor.learning = cfg.brain.learning = True
     if getattr(args, "taste_density", None) is not None:
         if not cfg.taste.enabled:
             raise ConfigError("--taste-density needs --taste-patches")
@@ -1313,6 +1352,10 @@ def run(
                                       else "; add --brain-actions for the feeding stop)"
                                       if session.brain is not None else
                                       "; add --brain-actions for the brain and feeding)"))
+    if session.odor is not None:
+        feats.append("odour zones (8 / = spawn A / B; zone -> KC odour code)" + (
+            "; fear learning ON (whip hit in a zone -> PPL1 DANs stand-in -> KC>MBON LTD)"
+            if cfg.odor.learning else ""))
     if session.job is not None:
         feats.append(f"job {session.job.name}: {session.job.title}")
     if session.course is not None:
@@ -1413,6 +1456,8 @@ def run(
             lines.append(session.flight.hud_line())
         if session.taste is not None:
             lines.append(session.taste.hud_line())
+        if session.odor is not None:
+            lines.append(session.odor.hud_line())
         if brain is not None:
             lines.extend(brain.hud_lines())
         if session.course is not None:
@@ -1521,6 +1566,8 @@ def run(
                 msg = session.flatten()
             elif k in TASTE_KEYS:
                 msg = session.spawn_taste(TASTE_KEYS[k])
+            elif k in ODOR_KEYS:
+                msg = session.spawn_odor(ODOR_KEYS[k])
             elif k in ("?", "/"):
                 st.show_help = not st.show_help and viewer is not None
                 msg = key_help_text(session.available_actions) + (

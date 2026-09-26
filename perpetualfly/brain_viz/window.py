@@ -1355,6 +1355,18 @@ class BrainRenderer:
                         put_text(img, txt, (hx, 50), WARN, 12, 600)
                         sps_x = max(sps_x, hx + text_width(txt, 12, 600) + 16)
                         break
+            # fear learning (perpetualfly/brain/plasticity.py), when on
+            lr = getattr(s, "learning", None)
+            if isinstance(lr, dict) and lr.get("enabled"):
+                main = lr.get("main", "")
+                eff = lr.get("efficacy_by_odor") or {}
+                mem = " · ".join(f"{o} {float(v.get(main, 1.0)):.2f}" for o, v in eff.items())
+                hx = max(14 + text_width(info, 12) + 16, sps_x)
+                for txt in (f"learning (model) KC>MBON {main}: {mem}", f"KC>MBON {mem}"):
+                    if hx + text_width(txt, 12, 600) < right_x:
+                        put_text(img, txt, (hx, 50), WARN, 12, 600)
+                        sps_x = max(sps_x, hx + text_width(txt, 12, 600) + 16)
+                        break
             if s.window_s and s.window_s > 0 and s.total_spikes:
                 sps = s.total_spikes / s.window_s
                 txt = (f"{sps / 1e6:.2f} M spikes / brain-s" if sps >= 1e5 else

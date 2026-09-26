@@ -130,6 +130,12 @@ class BrainState:
         empty when off: {"enabled", "label", "efficacy" (efficacy 0..1 of the most
         depressed pre type, LC4 or LPLC2 mean; a *model* quantity), "by_type", "u",
         "tau_rec_s", "n_pre", "n_post", "dishabituations"}.
+    learning: fear learning (perpetualfly/brain/plasticity.py), empty when off:
+        {"enabled", "label", "compartments" ({DAN type: [MBON types]}),
+        "efficacy_by_odor" ({odour: {DAN type: mean KC>MBON efficacy 0..1 of that
+        odour's KCs}}; a *model* quantity), "main" (first compartment, PPL101 =
+        gamma1pedc), "dan_hz", "n_synapses", "n_updates", "t_learned_s", "runaway",
+        "n_runaway", "odor_kcs"}.
     """
 
     brain_time: float
@@ -152,6 +158,7 @@ class BrainState:
     neuromod: dict = field(default_factory=dict)
     playground: dict = field(default_factory=dict)
     habituation: dict = field(default_factory=dict)
+    learning: dict = field(default_factory=dict)
 
 
 @dataclass

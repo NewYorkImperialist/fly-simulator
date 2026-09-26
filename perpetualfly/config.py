@@ -17,6 +17,7 @@ from perpetualfly.interaction.perturbation import AutoPerturbConfig, Perturbatio
 from perpetualfly.interaction.whip import WhipConfig
 from perpetualfly.metrics.falls import FallDetectorConfig
 from perpetualfly.metrics.run_logger import LoggingConfig
+from perpetualfly.senses.odor import OdorConfig  # --odor-zones (docs/FEAR_LEARNING.md)
 from perpetualfly.senses.taste import TasteConfig  # --taste-patches (docs/TASTE.md)
 from perpetualfly.stress import StressConfig
 
@@ -343,6 +344,8 @@ class AppConfig:
     flight: FlightModeConfig = field(default_factory=FlightModeConfig)  # --flight
     # --- taste patches (--taste-patches; perpetualfly/senses/taste.py, docs/TASTE.md) ---
     taste: TasteConfig = field(default_factory=TasteConfig)
+    # --- odour zones / fear learning (--odor-zones, --learning; docs/FEAR_LEARNING.md) ---
+    odor: OdorConfig = field(default_factory=OdorConfig)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

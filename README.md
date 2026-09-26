@@ -76,6 +76,7 @@ With the venv activated (`source .venv/bin/activate.fish` in fish, or
 | D | spawn a dip ahead |
 | F | flatten the next terrain chunk |
 | 5 / 6 / 7 | taste patches (`--taste-patches`): spawn a sugar / bitter / mixed spot 3 mm ahead ([docs/TASTE.md](docs/TASTE.md)) |
+| 8 / = | odour zones (`--odor-zones` / `--learning`): an odour A (magenta) / B (teal) haze zone around the fly ([docs/FEAR_LEARNING.md](docs/FEAR_LEARNING.md)) |
 | [ / ] | terrain difficulty one step down / up (flat → easy → normal → hard → chaos) at runtime. Chunks from 12–24 mm ahead of the fly onward are regenerated; nothing changes under its feet. The HUD shows the current difficulty, and each change is logged (`terrain_difficulty` event) |
 | P | pause / resume |
 | X | reset the fly (an explicit reset, counted in the metrics) |
@@ -157,6 +158,8 @@ long it has been down.
 | `--whip-vision` | the fly sees the whip coming: compound-eye looming → LC4 / LPLC2 `loom` stimuli (implies `--brain`; with `--brain-actions` the giant fiber can jump). Shares one looming model with `--swatter`. HUD `EYES` line |
 | `--flight` | real flapping-wing flight ([docs/FLIGHT.md](docs/FLIGHT.md) §7): the flight fly (stroke-plane wing hinges + MuJoCo fluid model, same leg actuators) at dt 5e-5 s. It walks as usual; L takes off / lands, the arrows steer while flying. With `--brain-actions` the giant-fibre escape jump starts the wings at take-off and the fly flies away from the threat (the swatter paddle) and lands ~1.3 s later: no external force, only wing aerodynamics. About half the RTF of the normal app. Not with `--course` / `--job`; `--full-body` is ignored (W / N greyed out) |
 | `--taste-patches` | sugar / bitter / mixed spots on the ground tasted with the legs ([docs/TASTE.md](docs/TASTE.md)): taste → sugar / bitter GRNs (labellar stand-in); with `--brain-actions` the real MN9 makes the fly stop and feed (proboscis). Keys 5 / 6 / 7 spawn a spot ahead; `--taste-density PER_CM` sets the procedural density (default 0.3 per 10 mm, 0 = only spawned). HUD `TASTE` line, `taste` block in `summary.json`. Not with `--course` / `--job` |
+| `--odor-zones` | odour A / B haze zones on the path ([docs/FEAR_LEARNING.md](docs/FEAR_LEARNING.md)); implies `--brain`. Inside a zone the brain gets that odour's Kenyon-cell code (10 % of KCs picked from the connectome's PN → KC synapses; ORN / PN input would ignite the model's runaway state). Keys 8 / = spawn a zone. HUD `ODOUR` line, `odor` block in `summary.json`. Not with `--course` / `--job` / `--flight` |
+| `--learning` | fear learning (implies `--odor-zones`): a whip hit inside a zone drives the PPL1 punishment DANs (stand-in: the modelled whip afferents don't reach PPL1), and dopamine-gated depression of KC → MBON synapses makes the brain respond less to that odour (model rule, compartments from the connectome). With `--brain-steer` the odour's walk / left-turn DN drive disappears after conditioning; it is not active avoidance. HUD `LEARNING` line, `learning` in `BrainState` / `summary.json` |
 | `--course NAME` | obstacle course instead of endless terrain ([docs/COURSE.md](docs/COURSE.md)): `tutorial`, `gauntlet`, `slalom`, `brain_test` or a `.json` / `.toml` path. Flat base terrain, no app auto reset (the course respawns the fly), `[ ]` and F disabled. Course HUD; the app quits at the finish and prints the lap; results in `<run dir>/course_results.json`, leaderboard in `<runs dir>/leaderboard.json` |
 | `--course-loop` | with `--course`: start a new lap after the finish instead of quitting |
 | `--job NAME` | eternal job ([docs/JOBS.md](docs/JOBS.md)): `sisyphus`, `hamster_wheel`, `mowing`, `raking`, `kebab`. The job's props are compiled into the world, flat terrain, no auto hits / auto reset (the job recovers the fly itself, also from physics instabilities), no whip (hit keys shove; `--whip-vision` keeps the whip). Job HUD on top, C adds the job camera. Same as `scripts/run_job.py`, but with every app key and flag |
@@ -382,7 +385,7 @@ perpetualfly/
   course/          obstacle courses (--course; docs/COURSE.md)
   jobs/            eternal jobs (--job, scripts/run_job.py; docs/JOBS.md)
   senses/          taste patches: sugar / bitter spots tasted by the legs (--taste-patches;
-                   docs/TASTE.md)
+                   docs/TASTE.md); odour zones (--odor-zones / --learning; docs/FEAR_LEARNING.md)
 scripts/run_sim.py        the app
 scripts/demo_*.py         stand-alone demos of terrain / perturbation / falls / whip / actions
 scripts/brain_replay.py   replay / export a --brain-record recording (docs/BRAIN_REPLAY.md)

@@ -137,6 +137,13 @@ class BrainLinkConfig:
     # habituation_config, e.g. {"u": 0.006, "tau_rec_s": 20, "dishabituate_frac": 0.8})
     habituation: bool = False
     habituation_config: dict = field(default_factory=dict)
+    # ---- odours / fear learning (--odor-zones / --learning; docs/FEAR_LEARNING.md) --
+    # odors: the worker builds the odour KC sets (odor_A, odor_B) + dan_punish;
+    # learning: KC -> MBON plasticity on (perpetualfly/brain/plasticity.py;
+    # PlasticityConfig overrides in plasticity_config)
+    odors: bool = False
+    learning: bool = False
+    plasticity_config: dict = field(default_factory=dict)
     # ---- brain recording (--brain-record; docs/BRAIN_REPLAY.md) --------------------
     # BrainStates + stimuli / actions -> <run dir>/brain_rec/ (compressed chunks);
     # replay with scripts/brain_replay.py RUN_DIR
@@ -277,7 +284,7 @@ class BrainLink:
             data_dir=cfg.data_dir, window_s=cfg.window_s, pace="sim",
             max_lag_s=cfg.max_lag_s, subscribers=("app",), synthetic=cfg.synthetic,
             fast_triggers=self._fast_thr, fast_window_s=cfg.fast_window_s,
-            habituation=self.habituation_dict())
+            habituation=self.habituation_dict(), plasticity=self.plasticity_dict())
         self.brain = None
         self.window = None
         self.layout = None
@@ -329,6 +336,12 @@ class BrainLink:
         if not self.cfg.habituation:
             return None
         return {**dict(self.cfg.habituation_config), "enabled": True}
+
+    def plasticity_dict(self) -> dict | None:
+        """BrainConfig.plasticity (None = off: no odours, no learning)."""
+        if not (self.cfg.odors or self.cfg.learning):
+            return None
+        return {**dict(self.cfg.plasticity_config), "enabled": bool(self.cfg.learning)}
 
     # ------------------------------------------------------------- lifecycle
     def start(self) -> None:
@@ -938,6 +951,7 @@ class BrainLink:
                                            else ""),
         ] + ([self.playground_hud()] if self.pg_used or self.lesions else []) \
           + ([self.habituation_hud()] if self.cfg.habituation else []) \
+          + ([self.learning_hud()] if self.cfg.learning else []) \
           + (["REC brain -> brain_rec/" + (" (size limit: stopped)" if self.recorder.stopped
                                             else "")] if self.recorder is not None else [])
 
@@ -949,6 +963,20 @@ class BrainLink:
         by = "  ".join(f"{k} {v:.2f}" for k, v in (h.get("by_type") or {}).items())
         return (f"HABITUATION (model) GF-input efficacy {by}  "
                 f"(U {h.get('u', 0):g}, recovery {h.get('tau_rec_s', 0):g} s)")
+
+    def learning_hud(self) -> str:
+        """Fear learning (docs/FEAR_LEARNING.md): gamma1pedc KC>MBON efficacy of
+        each odour's KCs, DAN rate."""
+        st = self.latest
+        lr = (getattr(st, "learning", None) or {}) if st is not None else {}
+        if not lr.get("enabled"):
+            return "LEARNING (model) waiting for the brain"
+        main = lr.get("main", "")
+        eff = lr.get("efficacy_by_odor") or {}
+        mem = "  ".join(f"{o} {float(v.get(main, 1.0)):.2f}" for o, v in eff.items())
+        return (f"LEARNING (model) KC>MBON efficacy [{main}] {mem}  DAN "
+                f"{float((lr.get('dan_hz') or {}).get(main, 0.0)):.0f} Hz"
+                + ("  RUNAWAY (paused)" if lr.get("runaway") else ""))
 
     def playground_hud(self) -> str:
         p = self.presets[self.pg_selected % len(self.presets)]
@@ -995,6 +1023,9 @@ class BrainLink:
                                   else None),
                 "habituation": (dict(getattr(st, "habituation", None) or {})
                                 if self.cfg.habituation and st is not None else None),
+                "learning": (dict(getattr(st, "learning", None) or {})
+                             if (self.cfg.learning or self.cfg.odors) and st is not None
+                             else None),
                 "brain_record": self.recorder.summary() if self.recorder is not None else None,
                 "playground": ({"lesions": list(self.lesions),
                                 "log": [[round(t, 3), txt] for t, txt in self.pg_log]}

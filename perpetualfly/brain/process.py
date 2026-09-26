@@ -74,6 +74,11 @@ class BrainConfig:
     # HabituationConfig fields): short-term depression of the LC4 / LPLC2 -> giant
     # fibre synapses. None = off, engine untouched (bit-identical).
     habituation: dict | None = None
+    # fear learning (perpetualfly/brain/plasticity.py, PlasticityConfig fields):
+    # dopamine-gated depression of KC -> MBON synapses; registers the odour KC sets
+    # ("odor_A", ...) and the punishment DANs ("dan_punish") as named stimulus sets.
+    # None = off, engine untouched (bit-identical). docs/FEAR_LEARNING.md
+    plasticity: dict | None = None
     # Event-driven fast path (docs/BRAIN.md, "Latency"). {group: threshold Hz} for
     # descending groups (DESCENDING_GROUPS) or probes ("MN9"). After every engine
     # run the worker counts each group's spikes in the trailing ``fast_window_s``
@@ -238,6 +243,11 @@ class BrainProcess:
         looming-habituation synaptic depression (applied at the next chunk)."""
         self._cmd.put_nowait(("habituation", None if cfg is None else dict(cfg)))
 
+    def set_plasticity(self, cfg: dict | None) -> None:
+        """Enable / reconfigure (``PlasticityConfig`` fields) or disable (None) the
+        KC -> MBON fear-learning plasticity (applied at the next chunk)."""
+        self._cmd.put_nowait(("plasticity", None if cfg is None else dict(cfg)))
+
     def set_lesions(self, targets) -> None:
         """Virtual lesions (docs/PLAYGROUND.md): silence exactly these targets
         (names for ``mapping.resolve_target``; empty = no lesion). Applied at the
@@ -336,10 +346,13 @@ class _Model:
         self.pg_errors: list[str] = []
         self._pg_used = False
         self.habituation = None  # LoomHabituation (habituation.py) when configured
+        self.plasticity = None  # KCMBONPlasticity (plasticity.py) when configured
         if cfg.get("neuromod"):
             self.configure_neuromod(cfg["neuromod"])
         if cfg.get("habituation"):
             self.configure_habituation(cfg["habituation"])
+        if cfg.get("plasticity"):
+            self.configure_plasticity(cfg["plasticity"])
         self.load_s = time.time() - t0
         self.engine.run(1)  # JIT warm-up (numba cache makes this fast after the first time)
 
@@ -373,6 +386,32 @@ class _Model:
         else:
             self.habituation.configure(d)
 
+    def configure_plasticity(self, d: dict | None) -> None:
+        """None: off (original KC -> MBON weights; the learned efficacies are kept
+        for a later re-enable); else PlasticityConfig fields (on unless it says so)."""
+        from .plasticity import PUNISH_SET, KCMBONPlasticity
+
+        if d is None:
+            if self.plasticity is not None:
+                self.plasticity.configure({**self.plasticity.cfg.to_dict(), "enabled": False})
+        else:
+            d = {"enabled": True, **dict(d)}
+            if self.plasticity is None:
+                self.plasticity = KCMBONPlasticity(self.table, self.engine, d)
+            else:
+                self.plasticity.configure(d)
+            for k, idx in self.plasticity.odors.items():
+                self.mapper.sets[f"odor_{k}"] = idx
+            self.mapper.sets[PUNISH_SET] = self.plasticity.dan_idx
+        self._apply_silenced()
+
+    def _apply_silenced(self) -> None:
+        """Engine lesions = playground lesions + the plasticity add-on's cut."""
+        parts = [t.idx for t in self.lesions]
+        if self.plasticity is not None and len(self.plasticity.silenced_idx):
+            parts.append(self.plasticity.silenced_idx)
+        self.engine.set_silenced(np.concatenate(parts) if parts else None)
+
     def set_lesions(self, names: list[str]) -> None:
         from .mapping import resolve_target
 
@@ -384,8 +423,7 @@ class _Model:
                 continue
             self.lesions.append(tg)
         self._pg_used = self._pg_used or bool(names)
-        idx = np.concatenate([t.idx for t in self.lesions]) if self.lesions else None
-        self.engine.set_silenced(idx)
+        self._apply_silenced()
 
     def note_stim(self, ev: StimulusEvent, labels: list[str]) -> None:
         if ev.kind == "opto":
@@ -450,6 +488,7 @@ class _Model:
             **({"neuromod": self.neuromod.readout()} if self.neuromod is not None else {}),
             **({"habituation": self.habituation.readout()} if self.habituation is not None
                else {}),
+            **({"learning": self.plasticity.readout()} if self.plasticity is not None else {}),
             **({"playground": pg} if (pg := self.playground_readout()) else {}),
             **extra)
 
@@ -627,10 +666,14 @@ def _worker_loop(cfg: dict, cmd_q, status_q, pubs: dict, fast_q=None) -> None:
                 model.neuromod.on_reset()
             if model.habituation is not None:
                 model.habituation.on_reset()
+            if model.plasticity is not None:
+                model.plasticity.on_reset()
         elif kind == "neuromod":
             model.configure_neuromod(payload)
         elif kind == "habituation":
             model.configure_habituation(payload)
+        elif kind == "plasticity":
+            model.configure_plasticity(payload)
         elif kind == "lesion":
             model.set_lesions(list(payload))
             labels.append("lesion:" + (", ".join(t.label for t in model.lesions) or "none"))
@@ -643,7 +686,7 @@ def _worker_loop(cfg: dict, cmd_q, status_q, pubs: dict, fast_q=None) -> None:
         if kind == "clock":
             clock = max(clock, float(payload))
             return True
-        if kind in ("neuromod", "lesion", "habituation"):
+        if kind in ("neuromod", "lesion", "habituation", "plasticity"):
             apply(cmd)
             return True
         if kind == "fast":
@@ -706,6 +749,8 @@ def _worker_loop(cfg: dict, cmd_q, status_q, pubs: dict, fast_q=None) -> None:
         busy_hist.append((now - t_run, max(1, n)))
         if model.neuromod is not None:
             model.neuromod.observe(i, max(1, n) * dt_s)
+        if model.plasticity is not None:
+            model.plasticity.observe(i, max(1, n) * dt_s)
         if len(s):
             buf_steps.append(s)
             buf_idx.append(i)
