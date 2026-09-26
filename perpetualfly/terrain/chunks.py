@@ -581,6 +581,35 @@ class ProceduralTerrain:
                 n += 1
         return n
 
+    def set_difficulty(self, difficulty: str, reload_from_ahead: int | None = 2) -> list[int]:
+        """Switch the difficulty preset at runtime (no model rebuild).
+
+        Chunks generated from now on use the new preset (and its probability table:
+        a ``weights`` override is dropped). Loaded chunks at least
+        ``reload_from_ahead`` chunks ahead of the fly's chunk are regenerated right
+        away (None = only chunks loaded later change); the fly's own chunk and the
+        next one are never touched, so nothing changes under its feet. "flatten"
+        overrides and spawned obstacles stay. A reset keeps the new difficulty.
+        Returns the regenerated chunk indices.
+        """
+        from dataclasses import replace
+
+        replace(self.cfg, difficulty=difficulty).preset()  # validates the name
+        self.cfg.difficulty = difficulty.lower()
+        self.cfg.weights = None
+        self.generator = TerrainGenerator(self.cfg.seed, self.cfg.difficulty, cfg=self.cfg)
+        reloaded: list[int] = []
+        if self.sim is None or reload_from_ahead is None:
+            return reloaded
+        k = self.generator.chunk_index_at(self._fly_x())
+        fly_y = self._fly_y()
+        for s, idx in enumerate(self._slot_index):
+            if idx is not None and idx >= k + reload_from_ahead:
+                self._load_slot(s, idx, fly_y)
+                reloaded.append(idx)
+        self._refit_bvh()
+        return sorted(reloaded)
+
     def flatten_next_chunk(self) -> int:
         """Make the chunk after the fly's current one flat (pieces within the fly's
         clearance are kept). Persists until reset. Returns the chunk index."""

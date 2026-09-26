@@ -257,6 +257,12 @@ Everything from the fly is prefixed with `"<fly name>/"`.
   the heading is frozen while tilt > `freeze_heading_tilt_deg` (a fly on its back
   has a meaningless heading). With a fixed 0.15 s low-pass, a level-4 hit (~2.5 m/s)
   would leave the frame within a few frames.
+* Floor reflections: the checker material has `reflectance` 0.2, and MuJoCo draws the
+  mirrored scene when the scene flag `mjRND_REFLECTION` is set (default).
+  `renderer.scene.flags[mjtRndFlag.mjRND_REFLECTION] = 0` turns it off.
+  `update_scene` / `mjv_updateScene` doesn't reset `scene.flags`, so setting it once
+  is enough. Measured draw time at 960×640 on normal terrain: 10.6–11.2 ms with
+  reflections, 5.5–6.4 ms without (`RenderConfig.reflections`, `--no-reflections`).
 * `flygym.launch_interactive_viewer(m, d)` = blocking `mujoco.viewer.launch`
   (MuJoCo steps the physics itself — no controller). Not useful for us.
 
@@ -279,6 +285,13 @@ Everything from the fly is prefixed with `"<fly name>/"`.
   640×427: not fill-bound), imshow + HUD ≈ 1 ms, `waitKeyEx(1)` ≈ 12–15 ms (macOS
   event loop; `cv2.pollKey()` is no faster). The live window therefore steps physics
   in a worker thread (§13): windowed ≈ 0.72× real time at 30 fps, headless ≈ 0.75×.
+* Retina: OpenCV's Cocoa backend maps one image pixel to one *physical* pixel, so a
+  960×640 frame showed at 480×320 pt on this Mac (backing scale 2, 1440×900 pt).
+  `perpetualfly/display.py` reads the backing scale through CoreGraphics (ctypes) and
+  `LiveViewer` upscales ×2 (cv2.resize linear, ~3 ms), then draws the HUD at the
+  upscaled resolution. The brain window uses the same helper. At ×2, `imshow` +
+  `waitKeyEx(1)` takes ~21 ms instead of ~14 ms, so the window runs ~24 fps instead of
+  ~30. Override with `PERPETUALFLY_FLY_SCALE` / `RenderConfig.display_scale`.
 
 ## 12. Instability
 
@@ -462,5 +475,12 @@ magnitude=ev.magnitude_uN, duration=ev.duration_s, direction=ev.direction_name)`
 from there through `metrics.hit_listeners` to `events.csv`. `session.reset(source)`
 logs `<source>_reset` and calls `sim.reset()` (counted in `RunMetrics.n_resets`).
 `session.after_physics()` (once per physics chunk) prints the fall hint and does the
-optional auto reset. `ProceduralTerrain.ground_height_at(x, y)` ray-casts
+optional auto reset. Quick-win additions: `session.step_difficulty(±1)` calls
+`ProceduralTerrain.set_difficulty(name)`. That swaps the `TerrainGenerator` and
+regenerates the loaded chunks from two ahead of the fly's chunk onward, with no model
+rebuild. `session.auto_hits_allowed()` is the `AutoPerturber.gate`: hits are skipped
+while FALLEN / RECOVERING and for `auto_perturb_resume_after_s` after a "recovered"
+event. Screenshots and recordings (`perpetualfly/media.py`) run on the main thread
+outside the physics lock. In threaded mode, the events.csv rows they write take the
+lock. `ProceduralTerrain.ground_height_at(x, y)` ray-casts
 (`mju_rayGeom`) against the pool geoms whose bounding sphere covers (x, y), ~20 µs.

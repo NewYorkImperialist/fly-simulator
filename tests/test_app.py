@@ -131,6 +131,9 @@ def test_session_logs_hits_spawns_and_summary(tmp_path):
     cfg.auto_perturb.min_interval_s = cfg.auto_perturb.max_interval_s = 0.4
     cfg.logging.runs_dir = str(tmp_path)
     cfg.session.hit_mode = "shove"  # this test covers the external-force hits
+    # hits every 0.4 s may knock the fly down; keep them coming (pausing while down
+    # is covered in tests/test_quick_wins.py)
+    cfg.session.auto_perturb_pause_when_down = False
     s = Session(cfg, log=True, say=lambda msg: None)
     try:
         s.sim.step(5000)

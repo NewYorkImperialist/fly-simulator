@@ -274,6 +274,7 @@ def test_real_descending_groups_and_sets():
     dn = descending_indices(t)
     assert len(dn["backward_L"]) == 2 and len(dn["backward_R"]) == 2  # MDN
     assert len(dn["escape"]) == 2  # giant fibers
+    assert len(dn["groom"]) == 42  # DNg12_a..e, 21 per side
     for g in ("walk_L", "walk_R"):
         assert len(dn[g]) == 3  # DNg100 (BDN2), DNg97 (oDN1), DNp09 (P9)
     for g in ("turn_L", "turn_R"):

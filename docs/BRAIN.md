@@ -168,6 +168,7 @@ mean rate (Hz) over the window.
 | `turn_L` / `turn_R` | DNa01, DNa02 (1 each per side) | ipsilateral steering (Rayshubskiy et al. 2020; Yang et al. 2023). FlyWire also has `DNae001` with hemibrain type "DNa01"; we use the FlyWire `cell_type == DNa01`. |
 | `backward_L` / `backward_R` | MDN (2 per side) | moonwalker DNs, backward walking (Bidaye et al. 2014) |
 | `escape` | DNp01 = giant fiber (1 per side) | take-off escape (von Reyn et al. 2014) |
+| `groom` | DNg12_a–e (21 per side, 42 in the model; both sides pooled) | anterior grooming: front-leg rubbing and head sweeps (Guo, Zhang & Simpson 2022). Added for `--brain-actions`; appended at the end of `DESCENDING_GROUPS` (metrics column `dn_groom`, GROOM trace in the brain window) |
 
 Every group was found in the annotations.
 
@@ -183,8 +184,10 @@ whether to use it; `DriveGains` holds the gains.
   the left turns the fly left. Amplitudes are clipped to [0.3, 1.5].
 * The mean MDN rate blends both sides toward -1 (backward stepping). Stepping is
   fully reversed at 40 Hz and stops at about 20 Hz.
-* `escape` is not mapped, because the body cannot take off; the app could use it
-  for a flinch.
+* `escape` and `groom` do not enter the walking drive. With `--brain-actions`
+  they trigger body actions instead (giant fiber > 60 Hz → jump; DNg12 > 20 Hz
+  for ≥ 100 ms → groom; MN9 > 30 Hz → proboscis extension). See "Brain → actions"
+  below and docs/ACTIONS.md §4.
 
 ## Process API (`perpetualfly/brain/process.py`)
 
@@ -234,7 +237,8 @@ brain.reset_state(sim_time=t)
 ## Integration with the fly app (`perpetualfly/brain_link.py`)
 
 `scripts/run_sim.py --brain` (window), `--brain-headless` (no window),
-`--no-brain-window`, `--brain-steer` (implies `--brain`). `BrainLink` owns the brain
+`--no-brain-window`, `--brain-steer` (implies `--brain`), `--brain-backup` (implies
+`--brain-steer`, MDN reference 20 Hz, see below). `BrainLink` owns the brain
 worker (`BrainProcess`, one subscriber `"app"`) and the brain window
 (`BrainWindowProcess`). The app relays every `BrainState` to the window after
 filling in `state.drive`, so the window's DRIVE panel shows the drive the app
@@ -334,14 +338,56 @@ trials, forward thorax velocity from `metrics.csv`):
 
 With the default `backward_ref = 40 Hz`, MDN's ~20 Hz average in this model gives a
 drive near 0, so **looming stops the fly** (with brief backward steps) for about a
-second. With `backward_ref = 20 Hz` (`{"brain": {"gains": {"backward_ref": 20}}}`
-in a `--config` file) the same stimulus makes it **walk backward**: mean -4.3 and
--0.8 mm/s over 0.5-1.2 s in two trials, with peaks of -22.6 and -15.6 mm/s. The
-default was kept: the in-vivo MDN rate for full backward walking is not known, and
-40 Hz is the conservative choice. Whip hits, shoves, falls and taste produced no
+second. With `backward_ref = 20 Hz` the same stimulus makes it **walk backward**:
+mean -4.3 and -0.8 mm/s over 0.5-1.2 s in two trials, with peaks of -22.6 and
+-15.6 mm/s. The default was kept: the in-vivo MDN rate for full backward walking is
+not known, and 40 Hz is the conservative choice.
+
+**`--brain-backup`** switches to the 20 Hz reference. It implies `--brain-steer`, and
+the config equivalent is `{"brain": {"backup": true, "backup_ref_hz": 20}}`. It
+overrides `gains.backward_ref`. Check (flat, O at t = 3 s, `metrics.csv` vx, one run
+each, same seeds):
+
+```bash
+.venv/bin/python scripts/run_sim.py --headless --brain-headless --brain-backup \
+    --max-seconds 6.5 --terrain flat --script-keys "3:o"
+```
+
+| window after O | `--brain-steer` vx mean (min) | control drive | `--brain-backup` vx mean (min) | control drive |
+|---|---|---|---|---|
+| 1 s before | 14.1 mm/s | +1.00 | 14.1 mm/s | +1.00 |
+| 0-0.5 s | 8.0 (-2.7) | +0.51 | 4.4 (-6.8) | +0.19 |
+| 0.5-1.2 s | 2.3 (-3.1), net +1.4 mm | +0.13 | **-4.2 (-21.0), net -1.8 mm** | **-0.43** |
+| 1.2-2.2 s | 13.4 | +0.96 | 12.9 | +0.95 |
+
+The brain status line during the loom reads `drive L-0.77 R-0.78` with backup and
+`L+0.06 R+0.07` without it (GF 135 Hz, MDN 20 Hz in both). So the fly visibly backs
+up for about 0.7 s, then walks on. Whip hits, shoves, falls and taste produced no
 walk / turn / MDN activity in these runs, so with `--brain-steer` they don't change
 the walk. That is the model's honest limitation (see the honesty note above). The
-giant fiber's escape command is not mapped: the body cannot take off.
+giant fiber's escape command does not steer, but with `--brain-actions` it makes the
+fly jump (next section).
+
+### Brain → actions (`--brain-actions`)
+
+`BrainLinkConfig.actions` (the flag also implies `--brain-steer`) installs
+`perpetualfly.actions.brain_triggers.BrainActionTriggers`, which checks every new
+BrainState. Real brain, flat, headless, full body:
+
+* **O (looming)**: the giant fiber reaches 115–120 Hz in the first 0.1 s state, and
+  the fly **jumps 0.12 s after the key** (apex +2.8 to +3.2 mm, ~50 ms airtime, lands
+  upright). There is one jump per loom (1.5 s refractory), and MDN then slows the
+  walk as before.
+* **T (sugar)**: MN9 reaches 55 Hz and the **proboscis extends** from 0.1 s after the
+  key until 0.5 s after the stimulus ends.
+* **Grooming**: DNg12 is not reached by the JO grooming afferents (`jo_grooming`,
+  0 Hz). Head bristles at 200 Hz give 10–13 Hz, a head whip hit gives ≤ 5 Hz, and
+  driving DNg12 directly gives 38–46 Hz. So with the default 20 Hz threshold,
+  grooming never fires from natural input in this model. Head bristles and head whip
+  hits also drive MN9 to ~120 Hz, so strong head input would extend the proboscis.
+  Table in docs/ACTIONS.md §4.
+* Freeze is not mapped: DNp09 is linked to freezing (Zacarias et al. 2018) but is
+  also in our walk group.
 
 ### HUD, terminal and logs
 
@@ -352,9 +398,14 @@ giant fiber's escape command is not mapped: the body cannot take off.
   `MN9 ... Hz`). The brain window shows the stimulus chips (LOOM LC4, SUGAR,
   WHIP L 0.25, PAUSED, ...) and the DRIVE panel ("from brain, applied to the fly" or
   "NOT applied").
+* Screenshot key I: along with the fly frame, a brain-window frame
+  (`shotNNN_..._brain.png`) is rendered *in the app process* with the brain window's
+  headless `render_frame`, from the last 30 `BrainState`s (3 s; `BrainLink.recent`).
+  This takes ~40-60 ms. It works with `--brain-headless` too. It is a re-render, so
+  its spike animation can differ slightly from the live window's.
 * `metrics.csv` extra columns: `brain_time, brain_lag, brain_drive_L/R` (smoothed
   brain drive), `ctrl_drive_L/R` (the signal actually given to the controller),
-  `dn_walk_L ... dn_escape` (Hz, latest state) and `mn9_hz`. `events.csv`:
+  `dn_walk_L ... dn_escape`, `dn_groom` (Hz, latest state) and `mn9_hz`. `events.csv`:
   `brain_stim`, `brain_reset`, `brain_pause` / `brain_resume`. `summary.json`:
   `brain` (states, dropped, stimuli, brain time, final lag, worker info).
 

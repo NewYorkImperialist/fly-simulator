@@ -64,9 +64,10 @@ _LABELS = {"OL": ["T4", "T5", "Mi1", "Tm3", "LC4", "LPLC2", "Dm8", "L1"],
 _DN_NEURONS = {"walk_L": ("DNg100_L", "GNG"), "walk_R": ("DNg100_R", "GNG"),
                "turn_L": ("DNa02_L", "LAL_L"), "turn_R": ("DNa02_R", "LAL_R"),
                "backward_L": ("MDN_L", "GNG"), "backward_R": ("MDN_R", "GNG"),
-               "escape": ("GF", "GNG")}
+               "escape": ("GF", "GNG"), "groom": ("DNg12", "GNG")}
 _DN_BASE = {"walk_L": 22.0, "walk_R": 22.0, "turn_L": 5.0, "turn_R": 5.0,
-            "backward_L": 0.5, "backward_R": 0.5, "escape": 0.0}
+            "backward_L": 0.5, "backward_R": 0.5, "escape": 0.0,
+            "groom": 1.0}
 
 
 def _sample_in_polygons(rng, polys: list[np.ndarray], centroid: np.ndarray, n: int,

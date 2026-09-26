@@ -322,11 +322,11 @@ def _synthetic_table(n: int = 50, p_conn: float = 0.1, seed: int = 0, **_):
     sc = np.full(n, "central", dtype=object)
     ct = np.full(n, "", dtype=object)
     sub = np.full(n, "", dtype=object)
-    # neurons 0..3 sensory (body mech), 4..17 descending groups
+    # neurons 0..3 sensory (body mech), 4..19 descending groups
     sc[:4] = "sensory_ascending"
     sub[:4] = "SA_DMT_DMetaN"
     types = ["DNg100", "DNg100", "DNa02", "DNa02", "MDN", "MDN", "DNp01", "DNp01",
-             "DNa01", "DNa01", "DNg97", "DNg97", "DNp09", "DNp09"]
+             "DNa01", "DNa01", "DNg97", "DNg97", "DNp09", "DNp09", "DNg12_b", "DNg12_b"]
     for k, t in enumerate(types):
         sc[4 + k] = "descending"
         ct[4 + k] = t

@@ -68,21 +68,37 @@ With the venv activated (`source .venv/bin/activate.fish` in fish, or
 | U | whip: overhead crack (chops down on the thorax) · shove: straight up |
 | 1 2 3 4 | hit strength: gentle / medium / hard / absurd (default 2), both modes |
 | H | hit mode: whip ↔ shove (default whip; the HUD shows `WHIP ...` or `SHOVE ...`) |
-| A | toggle automatic random hits (they use the current hit mode) |
+| A | toggle automatic random hits (they use the current hit mode; they wait while the fly is FALLEN / RECOVERING and for 1 s after it recovers, and skipped hits are counted) |
 | R | spawn a rock ahead |
 | B | spawn a bump ahead |
 | S | spawn a slope ahead |
 | G | spawn a gap ahead |
 | D | spawn a dip ahead |
 | F | flatten the next terrain chunk |
+| [ / ] | terrain difficulty one step down / up (flat → easy → normal → hard → chaos) at runtime. Chunks from 12–24 mm ahead of the fly onward are regenerated; nothing changes under its feet. The HUD shows the current difficulty, and each change is logged (`terrain_difficulty` event) |
 | P | pause / resume |
 | X | reset the fly (an explicit reset, counted in the metrics) |
 | C | camera: follow / side / top |
-| O | brain (`--brain`): looming shadow: LC4 looming detectors → giant fiber (escape) + MDN (backward walking). With `--brain-steer` the fly stops (see below) |
-| T | brain: sugar taste: sugar GRNs → MN9 (proboscis motor neuron). No body effect: the body model has no proboscis |
+| I | screenshot: saves the fly frame from the renderer as PNGs (`shotNNN_t<run time>s_fly.png` clean, `..._fly_hud.png` with the HUD), plus a brain-window frame (`..._brain.png`) rendered from the latest brain states with `--brain`. Files go into the run folder, or `runs/screenshots/` with `--no-log`. The screen itself is never captured |
+| M | start / stop an MP4 recording of the fly view (`recordingNN_t<run time>s.mp4` in the run folder, or `runs/recordings/`). The video has 30 frames per *simulated* second and plays at real time, like `--record`. While recording, a red `REC` badge shows in the top-right corner of the window |
+| J | action: **jump** (escape: crouch, 15 ms mid-leg push, ~3 mm up, ~55 ms airtime, lands upright). Auto hits and fall detection pause during the jump |
+| Z | action: **freeze** (stop, hold a stance for 1.5 s, then walk on) |
+| Y | action: **groom** (front legs replay a recorded NeuroMechFly grooming bout for 3 s while the mid / hind legs stand) |
+| E | action: **back away** (walk backward for 1 s) |
+| , / . | action: **turn in place** left / right (1 s). In `--script-keys` write `comma` / `period` |
+| W | action: **wing raise** (1.5 s; needs the full body, the default in the CLI, greyed out in the `?` overlay otherwise) |
+| N | action: **proboscis extension** (1.5 s; full body) |
+| O | brain (`--brain`): looming shadow: LC4 looming detectors → giant fiber (escape) + MDN (backward walking). With `--brain-steer` the fly stops (see below); with `--brain-actions` the giant fiber makes it **jump** |
+| T | brain: sugar taste: sugar GRNs → MN9 (proboscis motor neuron). With `--brain-actions` (and the full body) MN9 extends the proboscis |
 | K | brain: bitter taste (bitter GRNs). Display only, no body effect |
-| ? | print the key table in the terminal |
+| ? | show / hide the on-screen key help (grouped: hits, obstacles / terrain, brain, actions, view / run; actions the body can't do are greyed out); it is also printed in the terminal |
 | Q / ESC | quit (closing the window or Ctrl-C in the terminal also quits) |
+
+Actions (docs/ACTIONS.md) take over the leg targets for a moment and then blend back
+into walking; the HUD shows `ACTION <name> [<phase>]`, and every action writes
+`action_start` / `action_end` / `action_cancel` rows (with metrics such as jump
+height) to `events.csv`. Pressing another action key replaces the running action;
+X (reset) cancels it.
 
 Hit directions are relative to the fly's heading. Whip keys name the side the whip
 comes from; a crack takes ~0.2 s from the key press to the strike (wind-up), and a key
@@ -114,16 +130,21 @@ long it has been down.
 | `--no-log` | don't write a run folder |
 | `--runs-dir DIR` | parent folder for run folders (default `runs`) |
 | `--log-hz HZ` | `metrics.csv` rows per simulated second (default 50) |
+| `--full-body` / `--no-full-body` | extra wing + proboscis joints so W / N work. **On by default in the CLI** (walking unchanged: 3 s forward displacement within 2 %); the library default (`FlyConfig.extra_joints`) and a `--config` file without it keep FlyGym's legs-only model |
 | `--controller {hybrid,cpg}`, `--seed N` | locomotion controller, CPG seed |
 | `--camera {follow,side,top}` | initial camera |
 | `--render-every N` | physics steps per recorded frame (default 150 = 66.7 fps) |
 | `--no-thread` | window mode: step physics on the main thread (slower; debugging) |
+| env `PERPETUALFLY_FLY_SCALE=1.5` | fly window display scale. The default is automatic: on a Retina Mac the frame is upscaled ×2, because OpenCV shows one image pixel per physical pixel, and the HUD is drawn after the upscale so it stays sharp. `PERPETUALFLY_BRAIN_SCALE` does the same for the brain window |
 | `--print-interval S` | simulated seconds between terminal lines (default 1) |
 | `--script-keys '2:left,5:o'` | press keys at the given run times (sim s); works headless too (P is ignored headless) |
 | `--brain` | run the connectome brain model next to the fly, plus the brain window (see below) |
 | `--brain-headless` | brain without its window (terminal / HUD / logs) |
 | `--no-brain-window` | with `--brain`: no brain window |
 | `--brain-steer` | the brain's descending neurons modulate the walking controller (implies `--brain`; off by default) |
+| `--brain-backup` | lowers the MDN (backward-walking) reference from 40 to 20 Hz, so looming (O) makes the fly walk backward instead of just stopping (implies `--brain-steer`; docs/BRAIN.md) |
+| `--brain-actions` | descending neurons trigger body actions: giant fiber (DNp01) > 60 Hz → jump (1.5 s refractory), MN9 > 30 Hz → proboscis extension (full body), DNg12 > 20 Hz for ≥ 100 ms → groom. Implies `--brain-steer` |
+| `--no-reflections` | no floor reflections: faster rendering (the draw goes from ~11 to ~6 ms per 960×640 frame on an M1) |
 
 ## Connectome brain (optional)
 
@@ -163,6 +184,13 @@ Without the data, `--brain` prints the fetch command and exits (code 2).
   ~1 mm/s for about a second (it stops, with brief backward steps), then it walks
   on. With `"brain": {"gains": {"backward_ref": 20}}` in a `--config` file it clearly
   walks backward (mean −4 mm/s, peaks −22 mm/s).
+* **Brain → actions (`--brain-actions`).** Measured with the real brain (flat,
+  headless): O → giant fiber 115–120 Hz in the first 0.1 s state → **jump** ~0.12 s
+  after the key (apex +2.8–3.2 mm, lands upright); T → MN9 55 Hz → **proboscis out**
+  from 0.1 s after the key until 0.5 s after the sugar stops. DNg12 (grooming) is read
+  out, but no stimulus the app can give reaches 20 Hz (head bristles at 200 Hz:
+  ~10–13 Hz; JO grooming neurons: 0 Hz), so brain grooming does not fire by itself.
+  Details in docs/ACTIONS.md §4 and docs/BRAIN.md.
 * **HUD / terminal / logs.** `BRAIN t … lag … x… real time (can x…)`, the drive and
   GF / MDN / MN9 rates. `metrics.csv` gains `brain_*`, `ctrl_drive_L/R`, `dn_*` and
   `mn9_hz` columns; `config.json` has the brain config.
@@ -188,10 +216,13 @@ Without the data, `--brain` prints the fetch command and exits (code 2).
 Terminal line, every simulated second:
 
 ```
-t=   20.01s  dist=   280.4mm  speed now= 14.0 avg= 14.0 mm/s  falls=0 rec=0 hits=6  jog=  20.0s (max   20.0)  [UPRIGHT]  terrain=rocks      h=1.13mm tilt=  4.0deg RTF=0.61
+t=   20.01s  dist=   280.4mm (walked    280.4)  speed now= 14.0 avg= 14.0 mm/s  falls=0 rec=0 hits=6  jog=  20.0s (max   20.0)  [UPRIGHT]  terrain=rocks      h=1.13mm tilt=  4.0deg RTF=0.61
 ```
 
-`t` is run time (it keeps counting across resets), `dist` is xy path length, `jog` is
+`t` is run time (it keeps counting across resets). `dist` is the thorax's total xy
+path length, including flights after hits. `walked` counts only the path covered
+while the fly was walking: state UPRIGHT or DESTABILIZED, and at least one leg touching
+the terrain at every 10 ms check. `avg` is walked distance / run time. `jog` is
 the current and longest run without a fall, `[...]` is the fall-detector state
 (UPRIGHT / DESTABILIZED / FALLEN / RECOVERING), `terrain` is the terrain under the
 thorax, `h` is thorax height above the local ground, `tilt` is the angle of the
@@ -203,9 +234,9 @@ Run folder `runs/<YYYY-MM-DD_HH-MM-SS>/`:
 | file | contents |
 |---|---|
 | `config.json` | `app` (the full `AppConfig`: fly, terrain, controller, sim, camera, render, stats, perturbation, auto_perturb, falls, logging, session), `procedural_terrain` (the full `ProceduralTerrainConfig`), `runtime` (argv, timestep, fly mass, body weight, pool size) |
-| `events.csv` | one row per event: `hit` (shove), `whip` (whip hit: force_direction = commanded side e.g. `from_left`, force_magnitude = mean contact force, details = measured impulse vector / `impulse_uNs`, peak force `magnitude_uN`, contact duration, bodies hit), `whip_miss`, `hit_mode`, fall-detector transitions (`destabilized`, `stabilized`, `fall`, `recovering`, `recovered`, `relapse`, `reset`), `spawn`, `flatten`, `strength`, `auto_perturb`, `manual_reset`, `auto_reset`. Columns: timestamp (run time), sim_time, wall_time, event_type, force_direction, force_magnitude (µN), terrain_type, fall_detected, recovered, state, x, y, z, details (JSON) |
+| `events.csv` | one row per event: `hit` (shove), `whip` (whip hit: force_direction = commanded side e.g. `from_left`, force_magnitude = mean contact force, details = measured impulse vector / `impulse_uNs`, peak force `magnitude_uN`, contact duration, bodies hit), `whip_miss`, `hit_mode`, fall-detector transitions (`destabilized`, `stabilized`, `fall`, `recovering`, `recovered`, `relapse`, `reset`), `spawn`, `flatten`, `strength`, `auto_perturb`, `auto_hit_skipped`, `terrain_difficulty`, `screenshot`, `record_start` / `record_stop`, `manual_reset`, `auto_reset`. Columns: timestamp (run time), sim_time, wall_time, event_type, force_direction, force_magnitude (µN), terrain_type, fall_detected, recovered, state, x, y, z, details (JSON) |
 | `metrics.csv` | sampled at `--log-hz`: position, height above ground, velocity, orientation (quaternion, roll/pitch/yaw, tilt), angular velocity, joint velocity and tracking-error summary, leg and body contacts, state, terrain type, falls/recoveries/hits so far |
-| `summary.json` | `RunMetrics.summary()` (distance, falls, recoveries, hits survived, resets, jog intervals, MTBF, recovery %, falls/km, max force/impulse survived, P(survive T)), every hit with `caused_fall`, the quit reason, terrain, number of manual and auto resets, spawns, and recycled chunks. It's rewritten every 30 s and written again on any exit (Q, window close, Ctrl-C, error) with `complete: true` |
+| `summary.json` | `RunMetrics.summary()` (`distance_mm` = total path incl. flights, `walked_distance_mm` / `walking_time_s` / `walking_speed_mm_s`, `average_speed_mm_s` = walked / run time, `average_speed_total_mm_s` = the old total-path average, falls, recoveries, hits survived, resets, jog intervals, MTBF, recovery %, falls/km, max force/impulse survived, P(survive T)), every hit with `caused_fall`, the quit reason, terrain, number of manual and auto resets, spawns, and recycled chunks, `n_auto_hits_skipped`, the start and end terrain difficulty, and the screenshots / recordings written (`media`). It's rewritten every 30 s and written again on any exit (Q, window close, Ctrl-C, error) with `complete: true` |
 
 ## Robustness evaluation
 
@@ -241,8 +272,10 @@ perpetualfly/
   interaction/     OpenCV live window, keyboard, external-force shoves, physical whip (whip.py)
   metrics/         locomotion stats, fall detector, run metrics, run logger
   rl/              residual RL env (Gymnasium), wrappers, long-horizon evaluation
+  actions/         action library: jump, freeze, groom, back away, turn, wings, proboscis
+                   (ActionManager, brain triggers, full-body fly; docs/ACTIONS.md)
 scripts/run_sim.py        the app
-scripts/demo_*.py         stand-alone demos of terrain / perturbation / falls / whip
+scripts/demo_*.py         stand-alone demos of terrain / perturbation / falls / whip / actions
 scripts/eval_robustness.py  N headless sessions -> long-horizon robustness report
 scripts/train_ppo.py, eval_policy.py  residual PPO training / evaluation (docs/RL.md)
 tests/
@@ -279,7 +312,10 @@ Demo: `.venv/bin/python scripts/demo_whip.py` (table), `--calibrate --phases 8`,
   offscreen renderer. MuJoCo's own passive viewer isn't used: on macOS it needs `mjpython`,
   and its built-in shortcuts clash with this project's keys (see docs/API_NOTES.md §11).
   There is no mouse camera control; press C to switch views. OpenCV only reports key
-  presses, not held keys.
+  presses, not held keys. On a Retina display the ×2 upscale costs the main thread
+  about 10 ms per frame (resize ~3 ms, then `imshow` of 4× the pixels). The window then
+  shows ~24 fps instead of ~30. The physics thread isn't affected: RTF was 0.48–0.49
+  vs 0.50–0.52 at ×1. `PERPETUALFLY_FLY_SCALE=1` restores the old size.
 - **What was checked:** the windowed, threaded mode was driven by a script that
   injected every key listed above into the real app loop. It didn't deadlock, and each
   key had the expected effect. Window close, Ctrl-C and an injected NaN each shut
@@ -295,9 +331,14 @@ Demo: `.venv/bin/python scripts/demo_whip.py` (table), `--calibrate --phases 8`,
   lateral position, but chunks that are already loaded don't move. The camera speeds
   up and zooms out to keep the fly in frame. A fly on its back often can't get up
   with the baseline controller, so press X (or use `--auto-reset-after`).
-- Automatic hits keep coming while the fly is down; those hits are logged like any other.
-- Distance and average speed include flight after a hit: a level-4 hit adds 0.3–0.6 m.
-  The fall/recovery counts, jog intervals and `hits_survived` are the robust metrics.
+- Automatic hits wait while the fly is down (FALLEN / RECOVERING) and for
+  `session.auto_perturb_resume_after_s` (1 s) after it recovers. A hit that comes due
+  in that time is skipped: it is printed, logged as `auto_hit_skipped`, and counted in
+  `n_auto_hits_skipped`. Set `session.auto_perturb_pause_when_down = false` for the old
+  behaviour.
+- `dist` / `distance_mm` still include flight after a hit (a level-4 hit adds 0.3–0.6 m).
+  `walked_distance_mm` and the average speed don't. The fall/recovery counts, jog
+  intervals and `hits_survived` are still the most robust metrics.
 - The terrain type used for logs and the terminal depends only on x (chunk layout),
   not on y. So a fly that was shoved sideways off the feature band still reports its
   chunk's type. `h` (height above ground) is exact: it's a ray cast against the live

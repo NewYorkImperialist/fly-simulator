@@ -50,6 +50,8 @@ from perpetualfly.brain_viz.atlas import (
     region_base,
     region_group,
 )
+from perpetualfly.display import auto_display_scale as _auto_display_scale
+from perpetualfly.display import screen_info
 
 # ASCII on purpose: OpenCV's Cocoa backend mangles non-ASCII window titles (the em dash
 # came out as ",Äî"). The in-image header uses the proper "PerpetualFly — Brain".
@@ -67,6 +69,7 @@ GRID = (46, 40, 37)
 L_COL = (255, 190, 105)    # fly's left: light blue
 R_COL = (150, 120, 255)    # fly's right: rose
 ESC_COL = (70, 70, 250)    # escape: red
+GROOM_COL = (120, 220, 120)  # grooming DNs: green
 GOOD = (120, 210, 110)
 WARN = (60, 170, 255)
 BAD = (80, 80, 240)
@@ -82,8 +85,10 @@ _HEAT_LUT = np.clip(_HEAT * (0.12 + 0.88 * _lv ** 2) * 0.85, 0, 255).astype(np.u
 del _lv
 
 _DN_ROWS = (("WALK", "walk_L", "walk_R"), ("TURN", "turn_L", "turn_R"),
-            ("BACKWARD", "backward_L", "backward_R"), ("ESCAPE", "escape", None))
-_DN_FLOOR_HZ = {"WALK": 40.0, "TURN": 40.0, "BACKWARD": 40.0, "ESCAPE": 60.0}
+            ("BACKWARD", "backward_L", "backward_R"), ("ESCAPE", "escape", None),
+            ("GROOM", "groom", None))
+_DN_FLOOR_HZ = {"WALK": 40.0, "TURN": 40.0, "BACKWARD": 40.0, "ESCAPE": 60.0, "GROOM": 30.0}
+_DN_SINGLE_LABEL = {"escape": "GF", "groom": "DNg12"}
 
 
 # ----------------------------------------------------------------------------- text
@@ -712,7 +717,7 @@ class BrainRenderer:
                 cv2.line(img, (pr.x, yy), (pr.x2, yy), GRID, 1)
             cv2.line(img, (pr.x, pr.y2), (pr.x2, pr.y2), BORDER, 1)
             put_text(img, name, (r.x + 12, y0 + int(rh / 2) + 1), TEXT, 12, 700)
-            put_text(img, "GF" if gr is None else "L / R", (r.x + 12, y0 + int(rh / 2) + 15),
+            put_text(img, _DN_SINGLE_LABEL.get(gl, gl) if gr is None else "L / R", (r.x + 12, y0 + int(rh / 2) + 15),
                      FAINT, 10)
         self._dn_drive = Rect(r.x + 10, r.y2 - drive_h, r.w - 20, drive_h - 10)
         d = self._dn_drive
@@ -1028,7 +1033,8 @@ class BrainRenderer:
         else:
             tw, vals = np.zeros(0), np.zeros((0, len(DESCENDING_GROUPS)))
         for name, gl, gr, pr in self._dn_rows:
-            groups = [(gl, L_COL if gr else ESC_COL)] + ([(gr, R_COL)] if gr else [])
+            groups = [(gl, L_COL if gr else (GROOM_COL if gl == "groom" else ESC_COL))] + (
+                [(gr, R_COL)] if gr else [])
             cols = [idx[g] for g, _ in groups]
             vmax = max(_DN_FLOOR_HZ[name], float(vals[:, cols].max()) * 1.15
                        if len(vals) else 0.0)
@@ -1243,32 +1249,7 @@ def _placeholder(size, msg: str) -> np.ndarray:
 
 def _screen_info() -> tuple[float, int, int] | None:
     """(backing scale, width pt, height pt) of the main display on macOS, else None."""
-    import sys
-
-    if sys.platform != "darwin":
-        return None
-    try:
-        import ctypes
-
-        cg = ctypes.cdll.LoadLibrary(
-            "/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics")
-        cg.CGMainDisplayID.restype = ctypes.c_uint32
-        cg.CGDisplayCopyDisplayMode.restype = ctypes.c_void_p
-        cg.CGDisplayCopyDisplayMode.argtypes = [ctypes.c_uint32]
-        for f in ("CGDisplayModeGetPixelWidth", "CGDisplayModeGetWidth",
-                  "CGDisplayModeGetHeight"):
-            getattr(cg, f).restype = ctypes.c_size_t
-            getattr(cg, f).argtypes = [ctypes.c_void_p]
-        cg.CGDisplayModeRelease.argtypes = [ctypes.c_void_p]
-        m = cg.CGDisplayCopyDisplayMode(cg.CGMainDisplayID())
-        if not m:
-            return None
-        px, w, h = (cg.CGDisplayModeGetPixelWidth(m), cg.CGDisplayModeGetWidth(m),
-                    cg.CGDisplayModeGetHeight(m))
-        cg.CGDisplayModeRelease(m)
-        return (px / w if w else 1.0), int(w), int(h)
-    except Exception:
-        return None
+    return screen_info()
 
 
 def auto_display_scale(size: tuple[int, int], max_frac_w: float = 0.72,
@@ -1278,20 +1259,11 @@ def auto_display_scale(size: tuple[int, int], max_frac_w: float = 0.72,
     OpenCV's Cocoa backend maps one image pixel to one *physical* pixel, so on a Retina
     display a 1280x800 frame shows at 640x400 pt with 6-pt text. We upscale by the
     backing scale, capped so the window uses at most ~72% of the screen width.
-    Override with env ``PERPETUALFLY_BRAIN_SCALE``.
+    Override with env ``PERPETUALFLY_BRAIN_SCALE`` (shared helper:
+    ``perpetualfly.display.auto_display_scale``).
     """
-    env = os.environ.get("PERPETUALFLY_BRAIN_SCALE")
-    if env:
-        try:
-            return max(0.25, float(env))
-        except ValueError:
-            pass
-    info = _screen_info()
-    if info is None:
-        return 1.0
-    backing, wpt, hpt = info
-    fit = min(1.0, max_frac_w * wpt / size[0], max_frac_h * hpt / size[1])
-    return float(max(0.5, backing * fit))
+    return _auto_display_scale(size, max_frac_w, max_frac_h,
+                               env_var="PERPETUALFLY_BRAIN_SCALE")
 
 
 class BrainWindow:

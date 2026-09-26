@@ -32,6 +32,7 @@ DESCENDING_GROUPS: tuple[str, ...] = (
     "turn_L", "turn_R",        # e.g. DNa02 / DNa01: ipsilateral steering
     "backward_L", "backward_R",  # MDN: backward walking
     "escape",                  # giant fiber (DNp01)
+    "groom",                   # DNg12 (anterior / head grooming), both sides
 )
 
 

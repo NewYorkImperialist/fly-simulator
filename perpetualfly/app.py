@@ -20,6 +20,8 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Callable
 
+from perpetualfly.actions import ActionEvent, ActionManager, make_action
+from perpetualfly.actions.registry import available_actions
 from perpetualfly.brain_link import BRAIN_KEYS, BrainLink, missing_requirements
 from perpetualfly.config import AppConfig
 from perpetualfly.interaction import HitEvent, install_perturbation
@@ -29,31 +31,79 @@ from perpetualfly.metrics import FallDetector, FallEvent, FallState, RunLogger, 
 from perpetualfly.simulation import Simulation, SimulationInstabilityError, WorldExtension
 from perpetualfly.terrain import DIFFICULTY_PRESETS, ProceduralTerrain, ProceduralTerrainConfig
 
-# (keys, description)
-KEY_TABLE: list[tuple[str, str]] = [
-    ("SPACE", "whip: crack from a random side | shove: random direction (+ upward)"),
-    ("LEFT / RIGHT", "whip: crack from the fly's left / right | shove: to its left / right"),
-    ("UP / DOWN", "whip: crack from the front / rear | shove: forward / backward"),
-    ("U", "whip: overhead crack | shove: straight up"),
-    ("1 2 3 4", "hit strength: gentle / medium / hard / absurd"),
-    ("H", "hit mode: whip <-> shove"),
-    ("A", "toggle automatic random hits (current hit mode)"),
-    ("R", "spawn a rock ahead"),
-    ("B", "spawn a bump ahead"),
-    ("S", "spawn a slope ahead"),
-    ("G", "spawn a gap ahead"),
-    ("D", "spawn a dip ahead"),
-    ("F", "flatten the next terrain chunk"),
-    ("P", "pause / resume"),
-    ("X", "reset the fly (explicit reset, counted in the metrics)"),
-    ("C", "camera: follow / side / top"),
-    ("O", BRAIN_KEYS["o"][2] + " [--brain]"),
-    ("T", BRAIN_KEYS["t"][2] + " [--brain]"),
-    ("K", BRAIN_KEYS["k"][2] + " [--brain]"),
-    ("?", "print this key help"),
-    ("Q / ESC", "quit (closing the window or Ctrl-C also quits)"),
+# (group, [(keys, description), ...]): terminal help (?) and the on-screen overlay
+KEY_GROUPS: list[tuple[str, list[tuple[str, str]]]] = [
+    ("hits", [
+        ("SPACE", "whip: crack from a random side | shove: random direction (+ upward)"),
+        ("LEFT / RIGHT", "whip: crack from the fly's left / right | shove: to its left / right"),
+        ("UP / DOWN", "whip: crack from the front / rear | shove: forward / backward"),
+        ("U", "whip: overhead crack | shove: straight up"),
+        ("1 2 3 4", "hit strength: gentle / medium / hard / absurd"),
+        ("H", "hit mode: whip <-> shove"),
+        ("A", "toggle automatic random hits (current hit mode; wait while the fly is down)"),
+    ]),
+    ("obstacles / terrain", [
+        ("R B S G D", "spawn a rock / bump / slope / gap / dip ahead"),
+        ("F", "flatten the next terrain chunk"),
+        ("[ / ]", "terrain difficulty down / up (flat easy normal hard chaos), new chunks"),
+    ]),
+    ("brain (--brain)", [
+        ("O", "looming (LC4 -> giant fiber + MDN; --brain-steer: stop; --brain-actions: jump)"),
+        ("T", "sugar taste (sugar GRNs -> MN9; --brain-actions: proboscis extension)"),
+        ("K", "bitter taste (bitter GRNs; display only)"),
+    ]),
+    ("actions", [
+        ("J", "jump (escape: crouch, mid-leg push, flight, landing)"),
+        ("Z", "freeze: stop and hold a stance for 1.5 s"),
+        ("Y", "groom: front legs replay a recorded grooming bout (3 s)"),
+        ("E", "back away: walk backward for 1 s"),
+        (", / .", "turn in place left / right (1 s)"),
+        ("W", "wing raise (1.5 s; needs --full-body)"),
+        ("N", "proboscis extension (1.5 s; needs --full-body)"),
+    ]),
+    ("view / run", [
+        ("C", "camera: follow / side / top"),
+        ("P", "pause / resume"),
+        ("X", "reset the fly (explicit reset, counted in the metrics)"),
+        ("I", "screenshot: fly frame (+ brain frame) as PNG into the run dir"),
+        ("M", "start / stop MP4 recording of the fly view (run dir)"),
+        ("?", "show / hide this help"),
+        ("Q / ESC", "quit (closing the window or Ctrl-C also quits)"),
+    ]),
 ]
-KEY_HELP = "SPACE/arrows/U hit | 1-4 strength | H whip/shove | A auto | R B S G D spawn | F flatten | P X C | O T K brain | ? help | Q quit"
+KEY_TABLE: list[tuple[str, str]] = [row for _, rows in KEY_GROUPS for row in rows]
+KEY_HELP = ("SPACE/arrows/U hit | 1-4 strength | H whip/shove | A auto | R B S G D spawn | "
+            "F flatten | [ ] terrain | J Z Y E , . W N actions | P X C | I shot | M rec | "
+            "O T K brain | ? help | Q quit")
+# app key -> (action name, parameters); see perpetualfly/actions (docs/ACTIONS.md)
+ACTION_KEY_MAP: dict[str, tuple[str, dict]] = {
+    "j": ("jump", {}),
+    "z": ("freeze", {"duration": 1.5}),
+    "y": ("groom", {"duration": 3.0}),
+    "e": ("back_away", {"duration": 1.0}),
+    ",": ("turn_left", {"duration": 1.0}),
+    ".": ("turn_right", {"duration": 1.0}),
+    "w": ("wings", {"duration": 1.5}),
+    "n": ("proboscis", {"duration": 1.5}),
+}
+# --script-keys names for keys that clash with its syntax
+SCRIPT_KEY_ALIASES = {"comma": ",", "period": ".", "dot": ".", "colon": ":"}
+UNAVAILABLE_MARK = "~"  # help rows starting with this are drawn greyed out
+
+
+def help_groups(available: set[str] | None = None) -> list[tuple[str, list[tuple[str, str]]]]:
+    """KEY_GROUPS with the action rows the current body can't do marked greyed out
+    (description prefixed with UNAVAILABLE_MARK; the overlay draws them grey)."""
+    if available is None:
+        return KEY_GROUPS
+    need = {"W": "wings", "N": "proboscis"}
+    out = []
+    for group, rows in KEY_GROUPS:
+        if group == "actions":
+            rows = [(k, (UNAVAILABLE_MARK + d) if need.get(k) and need[k] not in available else d)
+                    for k, d in rows]
+        out.append((group, rows))
+    return out
 SPAWN_KEYS = {"r": "rock", "b": "bump", "s": "slope", "g": "gap", "d": "dip"}
 TERRAIN_CHOICES = tuple(DIFFICULTY_PRESETS)  # flat, easy, normal, hard, chaos
 
@@ -62,9 +112,14 @@ def _fmt(v: float | None) -> str:
     return "n/a" if v is None else f"{v:.1f}"
 
 
-def key_help_text() -> str:
+def key_help_text(available: set[str] | None = None) -> str:
     w = max(len(k) for k, _ in KEY_TABLE)
-    return "Keys (window focused):\n" + "\n".join(f"  {k:<{w}}  {d}" for k, d in KEY_TABLE)
+    out = ["Keys (window focused):"]
+    for group, rows in help_groups(available):
+        out.append(f" {group}:")
+        out.extend(f"  {k:<{w}}  " + (f"(unavailable) {d[1:]}" if d.startswith(UNAVAILABLE_MARK)
+                                        else d) for k, d in rows)
+    return "\n".join(out)
 
 
 @dataclass
@@ -81,6 +136,8 @@ class RunResult:
     n_resets: int = 0
     final_state: str = "upright"
     run_dir: str | None = None
+    walked_distance: float = 0.0  # mm, walking only (no flights / falls), summed over resets
+    n_auto_hits_skipped: int = 0  # auto hits skipped while the fly was down
 
 
 # ---------------------------------------------------------------------------
@@ -116,6 +173,10 @@ class Session:
         self.terrain.attach(sim)
         if self.whip is not None:
             self.whip.attach(sim)
+        # Action library (J Z Y E , . W N; brain triggers with --brain-actions). Must
+        # exist before brain.attach() below.
+        self.actions = ActionManager(sim)
+        self.available_actions = set(available_actions(sim))
         if cfg.session.hit_mode not in HIT_MODES:
             raise ValueError(f"session.hit_mode must be one of {HIT_MODES}")
         # Always install the auto perturber (so A can switch it on); it starts in
@@ -125,6 +186,11 @@ class Session:
         self.perturbation = self.controls.perturbation
         self.auto = self.controls.auto
         self.detector = FallDetector(sim, cfg.falls, ground_height_fn=self.ground_height)
+        # A jump is a deliberate flight: the fall detector is paused while it runs
+        # (hold timers cleared when it resumes, so a failed landing is still caught).
+        hooks = sim.post_step_hooks
+        hooks[hooks.index(self.detector)] = self._detector_hook
+        self._falls_paused = False
         self.metrics = RunMetrics(cfg.stats.speed_window_s).attach(sim, self.detector)
         # RunMetrics must bank the run time *before* the detector emits its "reset"
         # event (whose events.csv timestamp is metrics.run_time_at(sim.time)), so
@@ -151,9 +217,18 @@ class Session:
         if self.whip is not None:
             self.whip.listeners.append(self._on_whip)
         self.detector.add_listener(self._on_fall_event)
+        self.actions.listeners.append(self._on_action_event)
         if brain is not None:
             brain.attach(self)
         self.down_since: float | None = None  # sim time of the last fall (until recovered/reset)
+        # sim time since which the fly is back on its feet after a fall (None while
+        # down; -inf after start / reset, where no resume delay applies)
+        self.up_since: float | None = float("-inf")
+        self.difficulty_start = self.terrain.cfg.difficulty
+        self.media: list[str] = []  # screenshots / recordings written (summary.json)
+        if cfg.session.auto_perturb_pause_when_down:
+            self.auto.gate = self.auto_hits_allowed
+            self.auto.skip_listeners.append(self._on_auto_skip)
         self._hint_shown = False
         self.n_auto_resets = 0
         self.n_manual_resets = 0
@@ -171,6 +246,60 @@ class Session:
 
     def run_time(self) -> float:
         return self.metrics.run_time_at(self.sim.time)
+
+    def auto_hits_allowed(self) -> bool:
+        """Auto-perturber gate: not FALLEN / RECOVERING and on its feet for
+        ``session.auto_perturb_resume_after_s``."""
+        if self.detector.state in (FallState.FALLEN, FallState.RECOVERING) or self.up_since is None:
+            return False
+        if self.actions.active_name == "jump":
+            return False
+        return self.sim.time - self.up_since >= self.cfg.session.auto_perturb_resume_after_s
+
+    # actions during which the fly deliberately stands still: the detector's
+    # "no progress" window is kept empty so standing is not read as being stuck
+    STATIONARY_ACTIONS = ("freeze", "groom")
+
+    def _detector_hook(self, sim: Simulation) -> None:
+        name = self.actions.active_name
+        if name == "jump":
+            self._falls_paused = True
+            return
+        if self._falls_paused:
+            self._falls_paused = False
+            self.detector._since.clear()
+            self.detector._progress.clear()
+        if name in self.STATIONARY_ACTIONS:
+            self.detector._progress.clear()
+        self.detector(sim)
+
+    def trigger_action(self, name: str, source: str = "key", **params) -> str:
+        """Start an action by registry name (key handler / scripts); returns the
+        terminal message. Threaded window mode: call inside runner.locked()."""
+        if name not in self.available_actions:
+            return f"[action] {name}: not available with this body (run with --full-body)"
+        defaults = dict(next((p for n, p in ACTION_KEY_MAP.values() if n == name), {}))
+        defaults.update(params)
+        self.actions.trigger(make_action(name, **defaults), source=source)
+        return f"[action] {name} ({source})"
+
+    def _on_action_event(self, ev: ActionEvent) -> None:
+        info = {k: (round(v, 4) if isinstance(v, float) else v) for k, v in ev.info.items()
+                if k != "feet_x_at_stroke_mm"}
+        self.log_event(f"action_{ev.kind}", action=ev.name, **info)
+        if ev.kind != "start":
+            keys = ("apex_dz_mm", "airtime_s", "distance_mm", "landed_upright", "drift_mm",
+                    "forward_mm", "turn_deg")
+            shown = " ".join(f"{k}={info[k]}" for k in keys if k in info)
+            self.say(f"[action] {ev.name} {ev.kind} t={ev.time:.2f}s {shown}".rstrip())
+
+    def _on_auto_skip(self, t: float) -> None:
+        n = self.auto.n_skipped
+        state = self.detector.state.value
+        why = (state if state in ("FALLEN", "RECOVERING") else
+               "jumping" if self.actions.active_name == "jump" else "just recovered")
+        self.say(f"[auto-perturb] t={t:.2f}s hit skipped: fly {why} ({n} skipped so far)")
+        self.log_event("auto_hit_skipped", state=state, n_skipped=n)
 
     def down_for(self) -> float | None:
         return None if self.down_since is None else self.sim.time - self.down_since
@@ -236,9 +365,11 @@ class Session:
     def _on_fall_event(self, ev: FallEvent) -> None:
         if ev.kind == "fall":
             self.down_since = ev.time
+            self.up_since = None
             self._hint_shown = False
         elif ev.kind in ("recovered", "reset"):
             self.down_since = None
+            self.up_since = ev.time if ev.kind == "recovered" else float("-inf")
         if ev.kind in ("fall", "recovered", "relapse"):
             extra = f" after {ev.recovery_time:.2f}s" if ev.recovery_time is not None else ""
             self.say(f"[{ev.kind}] t={ev.time:.2f}s {ev.reason}{extra}  "
@@ -276,6 +407,22 @@ class Session:
         self.log_event("flatten", chunk=idx, x0=x0, x1=x1)
         return f"[flatten] chunk {idx} (x {x0:.0f}..{x1:.0f} mm) is now flat"
 
+    def step_difficulty(self, delta: int) -> str:
+        """[ / ]: terrain difficulty one preset down / up (flat..chaos). Chunks from
+        two ahead of the fly on are regenerated; nothing changes under its feet."""
+        old = self.terrain.cfg.difficulty
+        i = TERRAIN_CHOICES.index(old) if old in TERRAIN_CHOICES else 2
+        j = min(max(i + delta, 0), len(TERRAIN_CHOICES) - 1)
+        if j == i:
+            return f"[terrain] difficulty already {old} ({'hardest' if delta > 0 else 'easiest'})"
+        new = TERRAIN_CHOICES[j]
+        reloaded = self.terrain.set_difficulty(new)
+        self.log_event("terrain_difficulty", difficulty=new, previous=old,
+                       regenerated_chunks=reloaded)
+        ahead = 2 * self.terrain.cfg.chunk_length
+        return (f"[terrain] difficulty {old} -> {new} (new terrain from ~{ahead * 0.5:.0f}-"
+                f"{ahead:.0f} mm ahead; chunks {reloaded} regenerated)")
+
     def handle_whip_key(self, key: str) -> str | None:
         """Hits / strength / auto toggle; None if the key isn't a whip key."""
         msg = self.controls.handle(key)
@@ -311,10 +458,18 @@ class Session:
                      f"(#{self.n_auto_resets + 1})")
             self.reset("auto")
 
+    def _action_counts(self) -> dict:
+        out: dict[str, int] = {}
+        for ev in self.actions.history:
+            if ev.kind == "start":
+                out[ev.name] = out.get(ev.name, 0) + 1
+        return out
+
     def summary_extra(self, quit_reason: str) -> dict:
         return {
             "quit_reason": quit_reason,
-            "terrain_difficulty": self.terrain.cfg.difficulty,
+            "terrain_difficulty": self.terrain.cfg.difficulty,  # at the end ([ / ] change it)
+            "terrain_difficulty_start": self.difficulty_start,
             "terrain_seed": self.terrain.cfg.seed,
             "n_manual_resets": self.n_manual_resets,
             "n_auto_resets": self.n_auto_resets,
@@ -327,6 +482,10 @@ class Session:
             "n_whip_misses": sum(not e.hit for e in self.whip.events) if self.whip else 0,
             "whip_stray_contact_steps": self.whip.stray_contact_steps if self.whip else 0,
             "auto_perturb_enabled": bool(self.auto and self.auto.enabled),
+            "n_auto_hits_skipped": self.auto.n_skipped if self.auto else 0,
+            "media": list(self.media),
+            "full_body": "wings" in self.available_actions,
+            "actions": self._action_counts(),
             "brain": self.brain.summary() if self.brain is not None else None,
         }
 
@@ -377,9 +536,14 @@ def build_arg_parser() -> argparse.ArgumentParser:
     g.add_argument("--runs-dir", type=Path, default=None, help="parent dir of run folders")
     g.add_argument("--log-hz", type=float, default=None, help="metrics.csv rows per sim second")
     g = p.add_argument_group("sim / display")
+    g.add_argument("--full-body", action=argparse.BooleanOptionalAction, default=None,
+                   help="extra wing + proboscis joints so W / N work (default ON in the CLI; "
+                        "walking is unchanged; --no-full-body = FlyGym's legs-only model)")
     g.add_argument("--controller", choices=["hybrid", "cpg"], default=None)
     g.add_argument("--seed", type=int, default=None, help="controller (CPG) seed")
     g.add_argument("--camera", choices=["follow", "side", "top"], default=None)
+    g.add_argument("--no-reflections", action="store_true",
+                   help="no floor reflections (faster rendering: ~11 -> ~6 ms per frame)")
     g.add_argument("--render-every", type=int, default=None,
                    help="physics steps between rendered frames")
     g.add_argument("--no-thread", action="store_true",
@@ -399,6 +563,13 @@ def build_arg_parser() -> argparse.ArgumentParser:
     g.add_argument("--brain-steer", action="store_true",
                    help="the brain's descending neurons modulate the walking controller "
                         "(implies --brain; off by default: the brain only watches)")
+    g.add_argument("--brain-backup", action="store_true",
+                   help="lower the MDN backward-walking reference (40 -> 20 Hz) so looming "
+                        "(O) makes the fly walk backward (implies --brain-steer)")
+    g.add_argument("--brain-actions", action="store_true",
+                   help="descending neurons trigger body actions: giant fiber > 60 Hz -> jump, "
+                        "MN9 > 30 Hz -> proboscis (full body), DNg12 > 20 Hz -> groom "
+                        "(implies --brain-steer)")
     return p
 
 
@@ -426,7 +597,9 @@ def parse_script_keys(text: str | None) -> list[tuple[float, str]]:
         t, sep, key = part.partition(":")
         if not sep or not key.strip():
             raise argparse.ArgumentTypeError(f"bad --script-keys entry {part!r} (want T:KEY)")
-        out.append((float(t), key.strip().lower()))
+        key = key.strip().lower()
+        key = SCRIPT_KEY_ALIASES.get(key, key)
+        out.append((float(t), key))
     return sorted(out, key=lambda x: x[0])
 
 
@@ -434,6 +607,12 @@ def config_from_args(args: argparse.Namespace) -> AppConfig:
     cfg = AppConfig.load_json(args.config) if args.config else AppConfig()
     if args.controller:
         cfg.controller.kind = args.controller
+    # full body: CLI default ON (library default off), unless a --config decides
+    fb = getattr(args, "full_body", None)
+    if fb is not None:
+        cfg.fly.extra_joints = fb
+    elif not args.config:
+        cfg.fly.extra_joints = True
     if args.seed is not None:
         cfg.controller.seed = args.seed
     if args.camera:
@@ -442,6 +621,8 @@ def config_from_args(args: argparse.Namespace) -> AppConfig:
         cfg.render.render_every_steps = args.render_every
     if getattr(args, "no_thread", False):
         cfg.render.threaded_physics = False
+    if getattr(args, "no_reflections", False):
+        cfg.render.reflections = False
     if args.print_interval:
         cfg.stats.print_interval_s = args.print_interval
     # terrain: the CLI default is "normal" (the library default is "flat")
@@ -485,12 +666,17 @@ def config_from_args(args: argparse.Namespace) -> AppConfig:
         cfg.logging.sample_hz = args.log_hz
     # brain
     b = cfg.brain
-    if args.brain or args.brain_headless or args.brain_steer:
+    brain_actions = getattr(args, "brain_actions", False)
+    if args.brain or args.brain_headless or args.brain_steer or args.brain_backup or brain_actions:
         b.enabled = True
     if args.brain_headless or args.no_brain_window:
         b.window = False
-    if args.brain_steer:
+    if args.brain_steer or args.brain_backup or brain_actions:
         b.steer = True
+    if brain_actions:
+        b.actions = True
+    if args.brain_backup:
+        b.backup = True
     return cfg
 
 
@@ -509,6 +695,12 @@ class _LoopState:
     threaded: bool = False
     quit_reason: str = "max-seconds"
     hud: list[str] | None = None
+    show_help: bool = False  # ? toggles the on-screen key help
+    # I pressed: (run time, copy of the brain's recent states) taken under the lock;
+    # the main loop saves the PNGs outside it
+    shot: tuple | None = None
+    rec_toggle: bool = False  # M pressed (handled by the main loop, outside the lock)
+    frame_rt: float = 0.0  # threaded: run time of the frame being shown (read under the lock)
 
 
 def run(
@@ -539,6 +731,10 @@ def run(
     need_frames = (not headless) or record is not None
 
     frame_renderer = viewer = writer = None
+    from perpetualfly.media import MediaCapture
+
+    media = MediaCapture(session.logger.run_dir if session.logger is not None else None,
+                         cfg.logging.runs_dir, fps=cfg.render.record_fps)
     st = _LoopState(next_print=cfg.stats.print_interval_s, last_print_wall=time.perf_counter(),
                     last_print_rt=0.0)
     try:
@@ -557,7 +753,8 @@ def run(
         if not headless:
             from perpetualfly.interaction import LiveViewer
 
-            viewer = LiveViewer(cfg.render.window_title)
+            viewer = LiveViewer(cfg.render.window_title, display_scale=cfg.render.display_scale,
+                                frame_size=(cfg.render.width, cfg.render.height))
         if record is not None:
             import imageio.v2 as iio
 
@@ -579,11 +776,14 @@ def run(
           f"{session.perturbation.level_name} | auto-perturb "
           f"{'on' if session.auto.enabled else 'off'} "
           f"({ap.min_interval_s:g}-{ap.max_interval_s:g}s, levels {list(ap.levels)}) | "
-          f"{'headless' if headless else 'window'}", flush=True)
+          f"body {'full (wings + proboscis)' if cfg.fly.extra_joints else 'legs-only'} | "
+          f"{'headless' if headless else 'window'}"
+          f"{f' (x{viewer.display_scale:.2f} display scale)' if viewer is not None else ''}",
+          flush=True)
     if session.logger is not None:
         print(f"logging to {session.logger.run_dir}/", flush=True)
     if not headless:
-        print(key_help_text(), flush=True)
+        print(key_help_text(session.available_actions), flush=True)
 
     def status_line() -> str:
         wall = time.perf_counter()
@@ -638,22 +838,102 @@ def run(
             f"speed {m.current_speed:5.1f} mm/s (avg {m.average_speed:4.1f})",
             f"{detector.state.value.upper():<12} falls {m.n_falls}  rec {m.n_recoveries}  "
             f"resets {m.n_resets}  jog {m.current_jog_interval:5.1f}s",
-            f"terrain {terrain.cfg.difficulty}: {session.terrain_here()}",
+            f"terrain {terrain.cfg.difficulty} ([ ] change): {session.terrain_here()}",
             session.controls.hud_line(),
             f"cam {frame_renderer.camera.mode}   {'PAUSED' if st.paused else ''}",
         ]
+        if session.auto.enabled and not session.auto_hits_allowed():
+            lines[3] += "  (waiting: fly down)"
+        if m.distance - m.walked_distance > 1.0:
+            lines[0] += f"  walked {m.walked_distance:.0f}"
         down = session.down_for()
         if down is not None and detector.state != FallState.UPRIGHT:
             lines.append(f"DOWN {down:4.1f}s - press X to reset")
+        act = session.actions
+        if act.busy:
+            lines.append(f"ACTION {(act.active_name or 'back to walking').upper()}"
+                         f"  [{act.phase() or 'starting'}]")
         if brain is not None:
             lines.extend(brain.hud_lines())
-        lines.append("? = key help (terminal)")
+        lines.append("? = key help   I = screenshot   M = record")
         return lines
+
+    def ensure_renderer():
+        """Headless runs have no renderer until I / M need one (main thread)."""
+        nonlocal frame_renderer
+        if frame_renderer is None:
+            from perpetualfly.rendering import FrameRenderer
+
+            frame_renderer = FrameRenderer(sim.model, cfg.render, cfg.camera)
+        return frame_renderer
+
+    def process_media(frame=None) -> None:
+        """Main thread, *outside* the physics lock: screenshots and the recording
+        toggle requested by I / M, then the recording itself. ``frame`` = the
+        current (clean) fly frame if the loop already has one."""
+        if st.shot is not None:
+            rt_shot, states = st.shot
+            st.shot = None
+            if frame is None:
+                frame = render_now()
+            hud = st.hud if (st.threaded or viewer is not None) else hud_lines()
+            hud_img = None
+            if hud:
+                from perpetualfly.interaction.viewer import compose_frame
+
+                hud_img = compose_frame(frame, hud)
+            brain_img = None
+            if brain is not None and states:
+                from perpetualfly.brain_link import render_brain_frame
+
+                t0 = time.perf_counter()
+                brain_img = render_brain_frame(brain.layout, states, cfg.brain.window_s)
+                brain_ms = (time.perf_counter() - t0) * 1e3
+            paths = media.save_screenshot(frame, rt_shot, hud_img, brain_img)
+            print(f"[screenshot] {', '.join(str(p) for p in paths)}"
+                  + (f" (brain frame rendered in {brain_ms:.0f} ms)" if brain_img is not None
+                     else " (no brain frame yet)" if brain is not None else ""), flush=True)
+            session.media.extend(str(p) for p in paths)
+            log_locked("screenshot", files=[str(p) for p in paths])
+        if st.rec_toggle:
+            st.rec_toggle = False
+            if media.recording:
+                print(media.stop_recording(), flush=True)
+                log_locked("record_stop", path=str(media.rec_path), frames=media.rec_frames)
+            else:
+                path = media.start_recording(st.frame_rt if st.threaded else session.run_time())
+                session.media.append(str(path))
+                log_locked("record_start", path=str(path), fps=media.fps)
+                print(f"[record] recording the fly view to {path} ({media.fps:g} fps of sim "
+                      f"time; M stops)", flush=True)
+        if media.recording:
+            rt = st.frame_rt if st.threaded else session.run_time()
+            if media.due(rt):
+                media.add(frame if frame is not None else render_now(), rt)
+
+    def log_locked(event_type: str, **details) -> None:
+        """events.csv row from the main thread outside handle_keys (the logger reads
+        the sim state, so threaded mode takes the physics lock)."""
+        if st.threaded:
+            with runner.locked():
+                session.log_event(event_type, **details)
+        else:
+            session.log_event(event_type, **details)
+
+    def render_now():
+        if st.threaded:
+            with runner.locked():
+                ensure_renderer().update_scene(sim.data, sim.time, sim.thorax_position(),
+                                               sim.heading(), **camera_kw())
+            return frame_renderer.draw()
+        return ensure_renderer().render(sim.data, sim.time, sim.thorax_position(),
+                                        sim.heading(), **camera_kw())
 
     def handle_keys(keys: list[str]) -> None:
         """Display side; touches the sim, so threaded mode calls it under the lock."""
         for k in keys:
             msg = None
+            k = SCRIPT_KEY_ALIASES.get(k, k)
             if k in ("q", "esc"):
                 st.quit_reason = "quit key"
             elif k == "p":
@@ -675,7 +955,20 @@ def run(
             elif k == "f":
                 msg = session.flatten()
             elif k in ("?", "/"):
-                msg = key_help_text()
+                st.show_help = not st.show_help and viewer is not None
+                msg = key_help_text(session.available_actions) + (
+                    "\n(on-screen help shown; ? hides it)"
+                                         if st.show_help else "")
+            elif k in ("[", "]"):
+                msg = session.step_difficulty(-1 if k == "[" else 1)
+            elif k == "i":
+                st.shot = (session.run_time(),
+                           list(brain.recent) if brain is not None else [])
+                msg = None  # the main loop prints the file names
+            elif k == "m":
+                st.rec_toggle = True
+            elif k in ACTION_KEY_MAP:
+                msg = session.trigger_action(ACTION_KEY_MAP[k][0], source="key")
             elif k in BRAIN_KEYS:
                 msg = (brain.handle_key(k) if brain is not None else
                        f"[brain] {k.upper()} needs the brain: run with --brain")
@@ -685,12 +978,14 @@ def run(
                 print(msg, flush=True)
 
     def display_frame(frame) -> list[str]:
-        viewer.show(frame, st.hud)
+        viewer.show(frame, st.hud, help_groups=overlay_groups if st.show_help else None,
+                    rec=media.rec_label())
         keys = viewer.poll_keys(30 if st.paused else 1)
         if not viewer.is_open():
             st.quit_reason = "window closed"
         return keys
 
+    overlay_groups = help_groups(session.available_actions)
     frame_period = 1.0 / cfg.render.target_fps if cfg.render.target_fps > 0 else 0.0
     st.threaded = viewer is not None and writer is None and cfg.render.threaded_physics
     wall_start, sim_start = time.perf_counter(), session.run_time()
@@ -710,7 +1005,9 @@ def run(
                         frame_renderer.update_scene(sim.data, sim.time, sim.thorax_position(),
                                                     sim.heading(), **camera_kw())
                         st.hud = hud_lines()
-                    keys = display_frame(frame_renderer.draw())
+                        st.frame_rt = session.run_time()
+                    frame = frame_renderer.draw()
+                    keys = display_frame(frame)
                     if keys:
                         with runner.locked():
                             handle_keys(keys)
@@ -718,6 +1015,7 @@ def run(
                         runner.reset_clock()
                     elif runner.paused != st.paused:  # paused by a scripted key
                         runner.paused = st.paused
+                    process_media(frame)
                     if st.quit_reason != "max-seconds" or st.done:
                         break
                     if not runner.running:  # worker ended (max_seconds or error)
@@ -739,6 +1037,7 @@ def run(
                     sim.step(chunk)
                     after_physics()
                 show = viewer is not None and time.perf_counter() - last_shown >= frame_period
+                frame = None
                 if writer is not None or show:
                     frame = frame_renderer.render(sim.data, sim.time, sim.thorax_position(),
                                                   sim.heading(), **camera_kw())
@@ -752,6 +1051,8 @@ def run(
                             break
                 elif st.paused:
                     time.sleep(0.005)  # nothing to do until the next frame
+                if st.shot is not None or st.rec_toggle or media.recording:
+                    process_media(frame)
                 # Never run faster than max_realtime_factor x real time (rarely
                 # binding: this model + controller is usually slower than real time).
                 wall = time.perf_counter() - wall_start
@@ -766,6 +1067,10 @@ def run(
         st.quit_reason = f"error: {type(e).__name__}: {str(e).splitlines()[0] if str(e) else ''}"
         raise
     finally:
+        try:
+            media.close(lambda msg: print(msg, flush=True))
+        except Exception as e:
+            print(f"warning: closing the recording failed: {e}", file=sys.stderr)
         for closer in (writer, viewer, frame_renderer):
             if closer is not None:
                 try:
@@ -792,12 +1097,18 @@ def run(
         n_resets=m.n_resets,
         final_state=detector.state.value,
         run_dir=str(session.logger.run_dir) if session.logger is not None else None,
+        walked_distance=m.walked_distance,
+        n_auto_hits_skipped=session.auto.n_skipped,
     )
     print(f"[done: {quit_reason}] {m.summary_line()}  "
           f"thorax=({pos[0]:.2f}, {pos[1]:.2f}, {pos[2]:.2f}) mm", flush=True)
     print(f"  resets={m.n_resets} (auto {session.n_auto_resets})  spawns={terrain.spawn_count}  "
           f"chunks recycled={terrain.recycle_count}  falls/km={_fmt(m.falls_per_km)}  "
           f"recovery%={_fmt(m.recovery_percentage)}", flush=True)
+    print(f"  walked {m.walked_distance:.1f} mm in {m.walking_time:.1f} s "
+          f"(walking speed {m.walking_speed:.1f} mm/s; avg over run {m.average_speed:.1f}, "
+          f"total path incl. flights {m.distance:.1f} mm)  auto hits skipped while down: "
+          f"{session.auto.n_skipped}", flush=True)
     if brain is not None:
         b = brain.summary()
         print(f"  brain: {b['brain_states']} states ({b['brain_states_dropped']} dropped), "

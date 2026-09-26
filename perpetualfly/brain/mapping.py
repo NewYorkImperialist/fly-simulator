@@ -94,6 +94,9 @@ DESCENDING_TYPES: dict[str, tuple[str, ...]] = {
     "backward": ("MDN",),
     # escape take-off: giant fiber DNp01 (von Reyn et al. 2014); not lateralised
     "escape": ("DNp01",),
+    # anterior grooming (front-leg rubbing + head sweeps): DNg12 (Guo, Zhang &
+    # Simpson 2022, Curr Biol); FlyWire types DNg12_a..e, 21 per side; not lateralised
+    "groom": ("DNg12_a", "DNg12_b", "DNg12_c", "DNg12_d", "DNg12_e"),
 }
 
 

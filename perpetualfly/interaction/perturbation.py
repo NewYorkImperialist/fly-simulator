@@ -379,6 +379,12 @@ class AutoPerturber:
             raise ValueError("levels and level_weights must match")
         self._level_p = lw / lw.sum()
         self._next_step = self._steps(self.cfg.first_hit_after_s) + sim.step_count
+        # Optional gate (e.g. "the fly is on its feet"): when a hit is due and
+        # gate() is False, the hit is skipped (counted, listeners told) and the next
+        # one is scheduled as usual.
+        self.gate: Callable[[], bool] | None = None
+        self.n_skipped = 0
+        self.skip_listeners: list[Callable[[float], None]] = []  # fn(sim_time)
         self._attached = False
         if attach:
             self.attach()
@@ -418,6 +424,12 @@ class AutoPerturber:
 
     def _post_step(self, sim: "Simulation") -> None:
         if not self.enabled or sim.step_count < self._next_step:
+            return
+        if self.gate is not None and not self.gate():
+            self.n_skipped += 1
+            self._schedule_next()
+            for fn in list(self.skip_listeners):
+                fn(sim.time)
             return
         self.fire()
 

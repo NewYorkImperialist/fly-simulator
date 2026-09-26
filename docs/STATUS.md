@@ -10,9 +10,11 @@
 | M4 falls, logging, auto hits | The FallDetector tracks UPRIGHT / DESTABILIZED / FALLEN / RECOVERING. X resets, `--auto-reset-after` resets automatically, `--auto-perturb` gives seeded random hits. Every run writes `runs/<ts>/{config.json, events.csv, metrics.csv, summary.json}`. |
 | RL (phase 10) | A residual Gymnasium env, a curriculum, `scripts/train_ppo.py` and `scripts/eval_policy.py` exist and have been smoke-tested. **No real training run has been done yet** (docs/RL.md). |
 | connectome brain | `--brain` runs the Shiu et al. 2024 LIF model of the whole FlyWire v783 brain (138,639 neurons) in its own process, paced to the fly's *simulated* time (lag ~0.1 s), plus a brain window. Whip hits, shoves, falls and resets become sensory input; O (looming), T (sugar), K (bitter) inject stimuli. `--brain-steer` feeds the descending neurons back into the walking controller: looming (giant fiber 120-150 Hz, MDN 15-45 Hz) stops the fly for ~1 s. Whip hits never reach the walking DNs in this model. See docs/BRAIN.md, *Integration*. |
+| quick wins (ROADMAP A) | `--brain-backup` (looming makes the fly walk backward), automatic Retina ×2 fly window, `--no-reflections`, `[` / `]` live terrain difficulty, `I` screenshot (fly + brain PNG, renderer frames only), `M` live MP4 with a REC badge, `?` on-screen help, auto hits paused while the fly is down, walked distance separate from total path, brain atlas in the wheel. See "Quick wins" below. |
+| actions | `perpetualfly/actions/`: jump (J), freeze (Z), groom (Y, a recorded NeuroMechFly grooming bout), back away (E), turn in place (, .), wing raise (W), proboscis extension (N). They blend back into walking, are logged to events.csv and shown in the HUD. Auto hits and fall counting pause during a jump. `--full-body` (default in the CLI) adds wing and proboscis joints with walking unchanged. `--brain-actions`: giant fiber → jump (0.12 s after O), MN9 → proboscis (T), DNg12 → groom (not reached by natural input in this model). The unboosted jump is +3.0 ± 0.2 mm and lands upright in 16/16 gait phases. See docs/ACTIONS.md. |
 | robustness eval | `scripts/eval_robustness.py` runs N headless sessions in parallel, or aggregates existing run folders, and writes `report.md` and `report.json` with the spec's long-horizon metrics. |
 
-Tests: `.venv/bin/python -m pytest -q`: 109 passed, ~2.5 min.
+Tests: `.venv/bin/python -m pytest -q`: 139 passed, ~3.6 min (18 in `tests/test_actions.py`, 12 in `tests/test_quick_wins.py`).
 
 ## How to run
 
@@ -25,7 +27,24 @@ Tests: `.venv/bin/python -m pytest -q`: 109 passed, ~2.5 min.
     --terrain normal --hit-mode whip --auto-levels 1,2 --out runs/robust/normal
 .venv/bin/python scripts/eval_policy.py --baseline --stage normal --sim-seconds 180
 .venv/bin/python scripts/run_sim.py --brain-steer                     # + connectome brain and its window
+.venv/bin/python scripts/run_sim.py --brain-actions                   # + GF -> jump, MN9 -> proboscis, DNg12 -> groom
+.venv/bin/python scripts/demo_actions.py --frames /tmp/frames          # every action headless, metrics + key frames
 ```
+
+## Quick wins (ROADMAP section A, 2026-09-25)
+
+| item | what changed | evidence |
+|---|---|---|
+| A1 `--brain-backup` | `BrainLinkConfig.backup` / `backup_ref_hz` (20 Hz) override `DriveGains.backward_ref`; the flag implies `--brain-steer` | Headless, flat, O at 3 s (real brain): 0.5-1.2 s after O, vx mean **-4.2 mm/s, min -21.0**, net -1.8 mm, control drive -0.43. Without the flag: +2.3 mm/s, drive +0.13 (table in docs/BRAIN.md) |
+| A2 Retina | `perpetualfly/display.py` (CoreGraphics backing scale, shared with the brain window). `LiveViewer` upscales ×2 and draws the HUD after the upscale. Env `PERPETUALFLY_FLY_SCALE` / `RenderConfig.display_scale` override it | Window frames saved from `LiveViewer.last_shown` are 1920×1280 with sharp HUD text. The window runs ~24 fps (was ~30) and physics RTF is unchanged (0.48-0.49 vs 0.50-0.52) |
+| A3 reflections | `RenderConfig.reflections`, `--no-reflections` (the `mjRND_REFLECTION` scene flag) | Draw at 960×640: 10.6-11.2 ms → 5.5-6.4 ms |
+| A4 `[` / `]` | `ProceduralTerrain.set_difficulty(name)` regenerates loaded chunks ≥ 2 ahead (12-24 mm), with no model rebuild; the RL env can use it too. Printed, shown in the HUD, logged as `terrain_difficulty` | Test: regenerated chunks match a fresh generator of the new preset, and nearer chunks are untouched |
+| A5 `I` | `perpetualfly/media.py`: `shotNNN_t<rt>s_fly.png` (clean), `_fly_hud.png`, and with a brain `_brain.png` rendered in-process from the last 30 BrainStates (~40-60 ms). Saved to the run dir or `runs/screenshots/` | Real-brain run: GF 135 Hz / MDN / MANUAL LC4 visible in the brain PNG. Window and headless runs checked |
+| A6 `M` | MP4 at 30 frames per *sim* second (real-time playback, like `--record`). The live window writes its latest displayed frame when one is due, on the main thread outside the lock. Red `REC <s>` badge | `append_data` 0.5-0.6 ms/frame. 1.5 s of sim → 45 frames. Physics RTF not affected |
+| A7 `?` | Grouped overlay (hits, obstacles / terrain, brain, view / run); still printed in the terminal | Overlay checked at ×1 and ×2 |
+| A8 auto hits | `AutoPerturber.gate` + `skip_listeners`. Hits wait while FALLEN / RECOVERING and for `session.auto_perturb_resume_after_s` (1 s) after "recovered". `auto_hit_skipped` events, `n_auto_hits_skipped` in summary.json | 20 s shove L3 run: 2 hits skipped while fallen |
+| A9 distance | `RunMetrics.walked_distance` counts only 0.25 s path segments with UPRIGHT / DESTABILIZED + ≥ 1 leg in contact. `average_speed` = walked / run time; the old one is `average_speed_total`. New summary fields; eval_robustness, rl/evaluation and demo_falls updated | Same 20 s run: path 208 mm, walked 140.8 mm, walking speed 12.9 mm/s |
+| A10 package data | `[tool.setuptools.package-data]` for `brain_viz/assets/*.json` | `uv build --wheel`: the wheel contains `flywire_neuropils_frontal.json` (wheel then deleted) |
 
 ## Soak / robustness results (Apple M1, 3-4 processes at once, `--log-hz 5`)
 
@@ -90,10 +109,15 @@ are in `runs/soak/report_*/report.md`, `runs/soak/chaos/report.md` and
   `--brain-steer`. Looming is injected into LC4 directly, not seen. The DN -> CPG
   mapping gains are ours: with the default `backward_ref` of 40 Hz, looming stops the
   fly; at 20 Hz it walks backward. The brain costs one CPU core.
-- Level-4 hits launch the fly 5-60 cm, off the terrain feature band. Distance and
-  speed include that flight.
-- The terrain label depends only on x, and automatic hits keep coming while the fly
-  is down. See the README's notes for the rest.
+- Level-4 hits launch the fly 5-60 cm, off the terrain feature band. `distance_mm`
+  includes that flight; `walked_distance_mm` and the average speed don't.
+- The terrain label depends only on x. See the README's notes for the rest.
+- Actions: jumps go mostly straight up (~1 mm backward drift), and boosted jumps tumble
+  (no wing aerodynamics). Groom is one 3 s recorded bout of the front legs only.
+  Brain grooming doesn't fire from natural input (DNg12 ≤ 13 Hz vs the 20 Hz
+  threshold). Head bristle / head whip input drives MN9 (~120 Hz), so with
+  `--brain-actions` strong head input would extend the proboscis. Walking can be
+  irregular for ~0.5 s after an action. docs/ACTIONS.md §6.
 
 ## Disk space warning
 

@@ -101,7 +101,7 @@ def main() -> int:
         logger.close()
     print(f"wall {time.perf_counter() - wall:.1f}s")
     s = metrics.summary()
-    for k in ("run_time_s", "distance_mm", "average_speed_mm_s", "n_falls", "n_recoveries",
+    for k in ("run_time_s", "distance_mm", "walked_distance_mm", "average_speed_mm_s", "n_falls", "n_recoveries",
               "n_hits", "n_hits_survived", "longest_jog_interval_s", "state",
               "falls_per_km", "recovery_percentage", "max_force_survived_uN"):
         print(f"  {k:28s} {s[k]}")

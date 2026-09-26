@@ -59,15 +59,27 @@ class Simulation:
         cfg: AppConfig | None = None,
         world_factory: Callable[[], BaseWorld] | None = None,
         world_extensions: list[WorldExtension] | tuple[WorldExtension, ...] = (),
+        fly_factory: Callable | None = None,
     ) -> None:
         self.cfg = cfg or AppConfig()
         fc = self.cfg.fly
 
         # FlyGym's standard locomotion fly: legs-only joints, position actuators on
         # the 42 active leg DoFs, passive tarsi, adhesion actuators on tarsus5.
-        self.fly = make_locomotion_fly(
-            name=fc.name, add_adhesion=fc.adhesion, colorize=fc.colorize
-        )
+        # ``fly_factory(fly_cfg) -> NeuroMechFly`` replaces it (e.g.
+        # perpetualfly.actions.make_action_fly_factory() adds wing / proboscis
+        # joints; the 42 leg actuators must stay the only POSITION actuators
+        # registered with FlyGym).
+        if fly_factory is None and getattr(fc, "extra_joints", False):
+            from perpetualfly.actions.body import make_action_fly_factory
+
+            fly_factory = make_action_fly_factory(wings=True, proboscis=True)
+        if fly_factory is None:
+            self.fly = make_locomotion_fly(
+                name=fc.name, add_adhesion=fc.adhesion, colorize=fc.colorize
+            )
+        else:
+            self.fly = fly_factory(fc)
         if world_factory is None:
             # Flat ground (single plane, explicit FlyGym pairs) with the FLY_BIT
             # contype scheme on the fly geoms, so world extensions can collide

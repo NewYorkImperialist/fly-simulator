@@ -40,5 +40,11 @@ perpetualfly = "perpetualfly.app:main"
 [tool.setuptools.packages.find]
 include = ["perpetualfly*"]
 
+# Non-Python files needed at runtime (the brain window's neuropil atlas). The
+# preview image in the same folder is documentation only and stays out of wheels.
+[tool.setuptools.package-data]
+"perpetualfly.brain_viz" = ["assets/*.json"]
+"perpetualfly.actions" = ["data/*.npz"]  # recorded grooming kinematics (Groom action)
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]

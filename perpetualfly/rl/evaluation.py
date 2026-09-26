@@ -97,7 +97,9 @@ def evaluate(env: PerpetualFlyEnv, policy: Policy, sim_seconds: float, seed: int
         "hits_survived_fraction": s["n_hits_survived"] / hits if hits else None,
         "max_impulse_survived_uN_s": s["max_impulse_survived_uN_s"],
         "avg_forward_speed_mm_s": fwd / total_t if total_t > 0 else None,
-        "avg_path_speed_mm_s": s["average_speed_mm_s"],
+        "avg_path_speed_mm_s": s["average_speed_total_mm_s"],  # total path incl. flights
+        "walked_distance_mm": s["walked_distance_mm"],  # walking only (RunMetrics doc)
+        "avg_walking_speed_mm_s": s["walking_speed_mm_s"],
         "p_survive": s["p_survive"],
         "instabilities": sum(e["instability"] for e in episodes),
         "episode_details": episodes,

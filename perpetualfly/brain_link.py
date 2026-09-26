@@ -29,6 +29,7 @@ from __future__ import annotations
 import importlib.util
 import math
 import sys
+from collections import deque
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable
@@ -47,9 +48,10 @@ INSTALL_COMMAND = '.venv/bin/python -m pip install -e ".[brain]"'
 # keys (active only with --brain / --brain-headless): key -> (set, label, help)
 BRAIN_KEYS: dict[str, tuple[str, str, str]] = {
     "o": ("loom", "LOOM", "brain: looming shadow (LC4 looming detectors -> giant fiber + "
-                          "MDN backward-walking neurons; with --brain-steer the fly stops / backs up)"),
+                          "MDN backward-walking neurons; with --brain-steer the fly stops / backs "
+                          "up, with --brain-actions the giant fiber makes it jump)"),
     "t": ("sugar", "SUGAR", "brain: sugar taste (sugar GRNs -> MN9 proboscis motor neuron; "
-                            "no body effect: the body model has no proboscis)"),
+                            "with --brain-actions + --full-body the proboscis extends)"),
     "k": ("bitter", "BITTER", "brain: bitter taste (bitter GRNs; display only, no body effect)"),
 }
 
@@ -74,10 +76,26 @@ class BrainLinkConfig:
     drive_tau_s: float = 0.1  # low-pass of the brain drive (sim s)
     stale_after_s: float = 2.0  # no state covering the last N sim s -> drive [1, 1]
     gains: dict = field(default_factory=dict)  # DriveGains overrides
+    # --brain-backup: MDN (moonwalker) rate that fully reverses stepping is lowered
+    # from DriveGains.backward_ref (40 Hz) to backup_ref_hz, so looming (O, with
+    # steering on) makes the fly walk backward instead of just stopping. Overrides
+    # gains["backward_ref"]. See docs/BRAIN.md ("Looming with the real brain").
+    backup: bool = False
+    backup_ref_hz: float = 20.0
     # ---- process ------------------------------------------------------------------
     clock_every_s: float = 0.01  # sim s between clock marks sent to the brain
     max_lag_s: float = 1.0  # brain gives up catching up beyond this lag
     window_s: float = 0.1  # brain time per BrainState
+    # ---- brain -> actions (--brain-actions; docs/ACTIONS.md) ----------------------
+    actions: bool = False  # descending readouts trigger body actions
+    jump_escape_hz: float = 60.0  # giant fiber (DNp01) rate that fires a Jump
+    jump_refractory_s: float = 1.5  # sim s after a brain-triggered jump
+    proboscis_mn9_hz: float = 30.0  # MN9 rate -> ProboscisExtend (needs extra joints)
+    proboscis_hold_s: float = 0.5  # each trigger holds the proboscis out this long
+    groom_hz: float = 20.0  # DNg12 group rate -> Groom ...
+    groom_sustain_s: float = 0.1  # ... sustained this long (brain states cover 0.1 s)
+    groom_duration_s: float = 2.0
+    groom_refractory_s: float = 1.0
     synthetic: dict | None = None  # tests: tiny random network, no data needed
 
     @classmethod
@@ -168,6 +186,17 @@ def drive_display(brain: np.ndarray, escape_hz: float, applied: bool,
     }
 
 
+def render_brain_frame(layout, states: list, window_s: float = 0.1,
+                       size: tuple[int, int] | None = None):
+    """BGR brain-window frame for ``states`` (oldest first) via the brain window's
+    headless ``render_frame``; None without layout / states."""
+    if layout is None or not states:
+        return None
+    from perpetualfly.brain_viz.window import DEFAULT_SIZE, render_frame
+
+    return render_frame(layout, list(states), size=size or DEFAULT_SIZE, interval=window_s)
+
+
 # ---------------------------------------------------------------------------
 # BrainLink
 # ---------------------------------------------------------------------------
@@ -187,7 +216,10 @@ class BrainLink:
                  say: Callable[[str], None] | None = None, start: bool = True) -> None:
         self.cfg = cfg
         self.say = say or (lambda msg: print(msg, flush=True))
-        self.gains = DriveGains(**cfg.gains)
+        gains = dict(cfg.gains)
+        if cfg.backup:
+            gains["backward_ref"] = float(cfg.backup_ref_hz)
+        self.gains = DriveGains(**gains)
         self.show_window = bool(cfg.window and not headless)
         from perpetualfly.brain.process import BrainConfig
 
@@ -199,8 +231,11 @@ class BrainLink:
         self.layout = None
         self.info: dict = {}
         self.session: "Session | None" = None
+        self.triggers = None  # BrainActionTriggers (--brain-actions), set in attach()
         # state
         self.latest: BrainState | None = None
+        # last few states (with .drive set): screenshots render a brain frame from them
+        self.recent: deque[BrainState] = deque(maxlen=30)
         self.n_states = 0
         self.n_dropped = 0
         self.n_sent = 0
@@ -268,6 +303,15 @@ class BrainLink:
             session.whip.listeners.append(self.on_whip)
         session.detector.add_listener(self.on_fall_event)
         session.sim.reset_hooks.append(self._on_sim_reset)
+        self.triggers = None
+        if self.cfg.actions and getattr(session, "actions", None) is not None:
+            from perpetualfly.actions.brain_triggers import BrainActionTriggers, TriggerParams
+
+            self.triggers = BrainActionTriggers(session.actions, TriggerParams.from_config(self.cfg),
+                                                say=self.say)
+            if not self.triggers.can_proboscis:
+                self.say("[brain] --brain-actions: no proboscis joints (run with --full-body) "
+                         "-> MN9 has no body effect")
         if self.cfg.steer:
             if session.cfg.controller.kind != "hybrid":
                 self.say("[brain] warning: --brain-steer needs the hybrid controller "
@@ -357,6 +401,8 @@ class BrainLink:
         self.drive[:] = 1.0
         self._target[:] = 1.0
         self._w = 1.0
+        if getattr(self, "triggers", None) is not None:
+            self.triggers.reset()
         s = self.session
         if s is not None and s.logger is not None:
             s.logger.log_event("brain_reset", details={"stim_time": rt})
@@ -392,9 +438,13 @@ class BrainLink:
             return None
         what = BRAIN_KEYS[key][0]
         ev = self.manual(what)
-        extra = {"loom": "watch GF / MDN" + ("" if self.cfg.steer else
+        acts = self.triggers is not None
+        extra = {"loom": "watch GF / MDN" + (" (GF > threshold -> jump)" if acts else
+                                              "" if self.cfg.steer else
                                               " (no body effect without --brain-steer)"),
-                 "sugar": "watch MN9 (no body effect)",
+                 "sugar": "watch MN9" + (" (MN9 > threshold -> proboscis)"
+                                         if acts and self.triggers.can_proboscis
+                                         else " (no body effect)"),
                  "bitter": "no body effect"}[what]
         return (f"[brain] {what}: {'+'.join(self.cfg.loom_sets) if what == 'loom' else what} "
                 f"neurons at 200 Hz for {ev.duration_s:g} s from t={ev.sim_time:.2f}s; {extra}")
@@ -427,6 +477,15 @@ class BrainLink:
             self.latest = st
             self._target = descending_to_drive(st, self.gains)
             self._notice(st)
+            if self.triggers is not None:
+                n0 = len(self.triggers.fired)
+                self.triggers.on_state(st, rt)
+                s = self.session
+                for t_fired, name, rate in self.triggers.fired[n0:]:
+                    if s is not None and s.logger is not None:
+                        s.logger.log_event("brain_action", details={
+                            "action": name, "rate_hz": round(rate, 2),
+                            "brain_time": st.brain_time, "stim_time": t_fired})
         alive = self.brain.is_alive()
         if not alive and not self._dead_reported:
             self._dead_reported = True
@@ -443,14 +502,16 @@ class BrainLink:
             self.drive[:] = target
         self._last_rt = rt
         self._w = min(max(0.5 * (self.drive[0] + self.drive[1]), 0.0), 1.0)
-        if self.window is not None:
-            if states:
-                esc = float(states[-1].descending.get("escape", 0.0))
-                dd = drive_display(self.drive, esc, self.cfg.steer, self.gains)
-                for s in states:
-                    s.drive = dict(dd, lag_s=max(0.0, rt - s.sim_time)
-                                   if s.sim_time is not None else None)
+        if states:
+            esc = float(states[-1].descending.get("escape", 0.0))
+            dd = drive_display(self.drive, esc, self.cfg.steer, self.gains)
+            for s in states:
+                s.drive = dict(dd, lag_s=max(0.0, rt - s.sim_time)
+                               if s.sim_time is not None else None)
+                self.recent.append(s)
+                if self.window is not None:
                     self.window.send(s)
+        if self.window is not None:
             if not self.window.is_alive() and not self._window_closed_reported:
                 self._window_closed_reported = True
                 self.say("[brain] brain window closed (the fly and the brain keep running)")
@@ -509,9 +570,16 @@ class BrainLink:
             f"x{st.realtime_factor:.2f} real time (can x{st.compute_rtf:.1f})",
             f"drive L{self.drive[0]:+.2f} R{self.drive[1]:+.2f} "
             f"{'(steering)' if self.cfg.steer else '(view only)'}  GF {d.get('escape', 0):.0f} "
-            f"MDN {mdn:.0f} MN9 {st.probes.get('MN9', 0.0):.0f} Hz",
-            "O loom  T sugar  K bitter",
+            f"MDN {mdn:.0f} MN9 {st.probes.get('MN9', 0.0):.0f} DNg12 {d.get('groom', 0):.0f} Hz",
+            "O loom  T sugar  K bitter" + ("   brain actions ON" if self.triggers is not None
+                                           else ""),
         ]
+
+    def render_snapshot(self, size: tuple[int, int] | None = None):
+        """BGR brain-window frame rendered in this process from the recent states
+        (None before the first state). Call with a copy of ``recent`` if the
+        physics thread is running (see app.py screenshots)."""
+        return render_brain_frame(self.layout, list(self.recent), self.cfg.window_s, size)
 
     def metric_row(self) -> tuple:
         st = self.latest
@@ -538,4 +606,6 @@ class BrainLink:
         return {"brain_states": self.n_states, "brain_states_dropped": self.n_dropped,
                 "brain_stimuli_sent": self.n_sent,
                 "brain_time_s": None if st is None else st.brain_time,
-                "brain_lag_s": self.lag(), "brain_info": self.info}
+                "brain_lag_s": self.lag(), "brain_info": self.info,
+                "brain_actions": (dict(self.triggers.counts) if self.triggers is not None
+                                  else None)}

@@ -3,6 +3,13 @@
 ``RunMetrics`` composes ``LocomotionStats`` and listens to ``FallDetector`` events.
 Perturbation code reports hits with ``metrics.record_hit(event)``.
 
+Distance: ``distance`` is the total xy path of the thorax (flights after hits
+included, kept for compatibility); ``walked_distance`` only counts path segments
+during which the fly was walking: detector state UPRIGHT / DESTABILIZED *and* at
+least one leg touching the terrain at every metric update (every 10 ms), so a hit
+that launches the fly (or a fall) adds nothing. ``average_speed`` = walked distance
+/ run time; the old total-path average is ``average_speed_total``.
+
 Counting survives explicit sim resets: on a reset the current locomotion stats are
 banked into totals, the open jogging interval is closed and a fresh one starts
 (a reset while FALLEN leaves that fall unrecovered).
@@ -61,6 +68,14 @@ def _jsonable(v: Any) -> Any:
     return v
 
 
+def walking_now(detector: FallDetector) -> bool:
+    """Walked-distance criterion: UPRIGHT / DESTABILIZED and a leg on the terrain."""
+    if detector.state not in (FallState.UPRIGHT, FallState.DESTABILIZED):
+        return False
+    c = detector.last_contacts
+    return c is None or c.legs_in_contact > 0
+
+
 class RunMetrics:
     SURVIVAL_HORIZONS_S = (5.0, 10.0, 30.0, 60.0)
 
@@ -89,6 +104,15 @@ class RunMetrics:
         self._jog_start: float | None = 0.0  # run time; None while fallen
         self._sim_time = 0.0
         self._sim_t0: float | None = None  # sim time at (re)start
+        # walked distance (see module doc); walking_fn() -> "walking right now"
+        self.walking_fn: Callable[[], bool] | None = None
+        self.path_sample_s = self.stats.path_sample_s
+        self._bank_walk = 0.0
+        self._walk_accum = 0.0
+        self._walk_time = 0.0
+        self._walk_anchor: tuple[float, np.ndarray] | None = None
+        self._walk_clean = True
+        self._walk_last: tuple[float, np.ndarray] | None = None
 
     # ------------------------------------------------------------------ wiring
     def attach(self, sim: "Simulation", detector: FallDetector | None = None) -> "RunMetrics":
@@ -98,7 +122,8 @@ class RunMetrics:
         if detector is not None:
             detector.add_listener(self.on_fall_event)
             self.state = detector.state
-        self.update(sim.time, sim.thorax_position())
+            self.walking_fn = lambda: walking_now(detector)
+        self.update(sim.time, sim.thorax_position(), walking=True)
         return self
 
     def _hook(self, sim: "Simulation") -> None:
@@ -119,24 +144,54 @@ class RunMetrics:
         return self.run_time_at(self._sim_time)
 
     # ------------------------------------------------------------------ inputs
-    def update(self, sim_time: float, pos: np.ndarray) -> None:
+    def update(self, sim_time: float, pos: np.ndarray, walking: bool | None = None) -> None:
+        """``walking``: None = ask ``walking_fn`` (True without one)."""
         if self._sim_t0 is None:
             self._sim_t0 = sim_time
         self._sim_time = sim_time
         self.stats.update(sim_time, pos)
+        if walking is None:
+            walking = self.walking_fn() if self.walking_fn is not None else True
+        self._update_walk(sim_time, np.asarray(pos, dtype=float), bool(walking))
+
+    def _update_walk(self, t: float, pos: np.ndarray, walking: bool) -> None:
+        # Same sampling as LocomotionStats.path_length (segments >= path_sample_s,
+        # so the gait's lateral sway is not counted), but a segment only counts if
+        # the fly was walking at every update inside it.
+        if self._walk_anchor is None or self._walk_last is None:
+            self._walk_anchor, self._walk_last, self._walk_clean = (t, pos.copy()), (t, pos.copy()), walking
+            return
+        if walking and t > self._walk_last[0]:
+            self._walk_time += t - self._walk_last[0]
+        self._walk_clean = self._walk_clean and walking
+        if t - self._walk_anchor[0] >= self.path_sample_s:
+            if self._walk_clean:
+                self._walk_accum += float(np.linalg.norm(pos[:2] - self._walk_anchor[1][:2]))
+            self._walk_anchor, self._walk_clean = (t, pos.copy()), walking
+        self._walk_last = (t, pos.copy())
+
+    def _walked_here(self) -> float:
+        """Walked distance since the last reset (open segment included if clean)."""
+        if self._walk_anchor is None or self._walk_last is None or not self._walk_clean:
+            return self._walk_accum
+        return self._walk_accum + float(np.linalg.norm(self._walk_last[1][:2]
+                                                       - self._walk_anchor[1][:2]))
 
     def notify_reset(self, sim_time: float, pos: np.ndarray) -> None:
         rt = self.run_time
         self._bank_time = rt
         self._bank_path += self.stats.path_length
         self._bank_fwd += self.stats.forward_displacement
+        self._bank_walk += self._walked_here()
+        self._walk_accum = 0.0
+        self._walk_anchor = self._walk_last = None
         self.n_resets += 1
         self._close_jog(rt)
         self._jog_start = rt
         self.state = FallState.UPRIGHT
         self.stats.reset()
         self._sim_t0 = None
-        self.update(sim_time, pos)
+        self.update(sim_time, pos, walking=True)
 
     def on_fall_event(self, ev: FallEvent) -> None:
         if ev.kind == "reset":
@@ -213,7 +268,28 @@ class RunMetrics:
         return self._bank_fwd + self.stats.forward_displacement
 
     @property
+    def walked_distance(self) -> float:
+        """mm walked (no flights / falls; see module doc), summed over resets."""
+        return self._bank_walk + self._walked_here()
+
+    @property
+    def walking_time(self) -> float:
+        """Sim seconds spent walking (same criterion as walked_distance)."""
+        return self._walk_time
+
+    @property
+    def walking_speed(self) -> float:
+        """Walked distance / walking time (mm/s): speed while actually walking."""
+        return self.walked_distance / self._walk_time if self._walk_time > 0 else 0.0
+
+    @property
     def average_speed(self) -> float:
+        """Walked distance / run time (mm/s); flights after hits don't count."""
+        return self.walked_distance / self.run_time if self.run_time > 0 else 0.0
+
+    @property
+    def average_speed_total(self) -> float:
+        """Total path (flights included) / run time: the pre-A9 ``average_speed``."""
         return self.distance / self.run_time if self.run_time > 0 else 0.0
 
     @property
@@ -262,9 +338,13 @@ class RunMetrics:
         mags = [h.magnitude for h in survived if h.magnitude is not None]
         return {
             "run_time_s": self.run_time,
-            "distance_mm": self.distance,
+            "distance_mm": self.distance,  # total path, flights included
+            "walked_distance_mm": self.walked_distance,
+            "walking_time_s": self.walking_time,
+            "walking_speed_mm_s": self.walking_speed,
             "forward_displacement_mm": self.forward_displacement,
-            "average_speed_mm_s": self.average_speed,
+            "average_speed_mm_s": self.average_speed,  # walked distance / run time
+            "average_speed_total_mm_s": self.average_speed_total,
             "current_speed_mm_s": self.current_speed,
             "state": self.state.value,
             "n_falls": self.n_falls,
@@ -291,7 +371,8 @@ class RunMetrics:
 
     def summary_line(self) -> str:
         return (
-            f"t={self.run_time:8.2f}s  dist={self.distance:8.1f}mm  "
+            f"t={self.run_time:8.2f}s  dist={self.distance:8.1f}mm "
+            f"(walked {self.walked_distance:8.1f})  "
             f"speed now={self.current_speed:5.1f} avg={self.average_speed:5.1f} mm/s  "
             f"falls={self.n_falls} rec={self.n_recoveries} hits={self.n_hits}  "
             f"jog={self.current_jog_interval:6.1f}s (max {self.longest_jog_interval:6.1f})  "

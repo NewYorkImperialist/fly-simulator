@@ -105,6 +105,11 @@ class FrameRenderer:
         # Model cameras have their own fovy; the free camera uses the global one.
         model.vis.global_.fovy = cam_cfg.fovy
         self.scene_option = mj.MjvOption()
+        self.set_reflections(render_cfg.reflections)
+
+    def set_reflections(self, on: bool) -> None:
+        """Floor reflections on/off (a scene render flag; survives update_scene)."""
+        self.renderer.scene.flags[mj.mjtRndFlag.mjRND_REFLECTION] = int(bool(on))
 
     def render(self, data: mj.MjData, t: float, target: np.ndarray, heading: float,
                **cam_kw) -> np.ndarray:

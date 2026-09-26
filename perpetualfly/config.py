@@ -33,6 +33,11 @@ class FlyConfig:
     colorize: bool = True
     # Adhesion (sticky tarsi) is part of FlyGym's standard locomotion setup.
     adhesion: bool = True
+    # Extra wing + proboscis joints (perpetualfly.actions.make_action_fly; needed by
+    # the W / N actions). Off in the library so FlyGym's model and the reference
+    # trajectories stay bit-identical; the interactive CLI turns it on
+    # (--full-body / --no-full-body). Walking is unchanged within ~0.1 %.
+    extra_joints: bool = False
 
 
 @dataclass
@@ -148,6 +153,22 @@ class RenderConfig:
     thread_chunk_steps: int = 50
     window_title: str = "PerpetualFly"
     show_hud: bool = True
+    # Floor reflections (MuJoCo's mjRND_REFLECTION scene flag; the checker floor has
+    # reflectance 0.2). Off (--no-reflections) saves ~5 ms per 960x640 frame on an
+    # M1 (draw 10.6-11.2 -> 5.5-6.4 ms, measured); visual only.
+    reflections: bool = True
+    # Live window: image upscale for imshow (None = auto: the display's backing
+    # scale on a Retina Mac, env PERPETUALFLY_FLY_SCALE overrides; see
+    # perpetualfly/display.py). The HUD is drawn after the upscale, so it stays sharp.
+    display_scale: float | None = None
+    # M key (live MP4 of the fly view, saved in the run dir): the video has this
+    # frame rate and plays at *simulated* real time (like --record). A frame is
+    # written whenever the run time has advanced by 1/record_fps: in the live
+    # window the latest displayed frame is used (frames are dropped when the window
+    # shows more than record_fps per simulated second, i.e. at RTF < 1), so
+    # recording costs the physics thread nothing; headless, a frame is rendered
+    # only when one is due.
+    record_fps: float = 30.0
 
 
 @dataclass
@@ -173,6 +194,11 @@ class SessionConfig:
     # whip (AppConfig.whip; the fly moves only through contact forces), "shove" =
     # constant external force on the thorax (AppConfig.perturbation). H toggles.
     hit_mode: str = "whip"
+    # Automatic hits wait while the fly is FALLEN / RECOVERING and resume once it
+    # has been UPRIGHT or DESTABILIZED for auto_perturb_resume_after_s (sim s).
+    # Hits that would have fired meanwhile are counted as skipped (summary.json).
+    auto_perturb_pause_when_down: bool = True
+    auto_perturb_resume_after_s: float = 1.0
 
 
 def _app_auto_perturb() -> AutoPerturbConfig:

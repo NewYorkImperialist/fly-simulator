@@ -150,7 +150,7 @@ def _mean(xs: list[float]) -> float | None:
 def aggregate(runs: list[dict[str, Any]], horizons=DEFAULT_HORIZONS) -> dict[str, Any]:
     """Pool the runs. A 'failure' is a fall; an 'unrecoverable failure' is a fall that
     ended in an auto reset (still down after --auto-reset-after)."""
-    total_t = dist = fwd = 0.0
+    total_t = dist = walked = fwd = 0.0
     n_falls = n_rec = n_hits = n_surv = n_auto_resets = n_manual_resets = 0
     n_destab = n_relapse = 0
     intervals: list[float] = []  # decided jog intervals (completed)
@@ -181,6 +181,7 @@ def aggregate(runs: list[dict[str, Any]], horizons=DEFAULT_HORIZONS) -> dict[str
             crashes.append({"run_dir": r["run_dir"], "reason": f"exit {proc['exit_code']}"})
         total_t += m["run_time_s"]
         dist += m["distance_mm"]
+        walked += m.get("walked_distance_mm", m["distance_mm"])  # older runs: no split
         fwd += m["forward_displacement_mm"]
         n_falls += m["n_falls"]
         n_rec += m["n_recoveries"]
@@ -214,6 +215,7 @@ def aggregate(runs: list[dict[str, Any]], horizons=DEFAULT_HORIZONS) -> dict[str
             "auto_resets": s.get("n_auto_resets", 0), "hits": m["n_hits"],
             "hits_survived": m["n_hits_survived"],
             "longest_jog_s": m["longest_jog_interval_s"], "distance_mm": m["distance_mm"],
+            "walked_mm": m.get("walked_distance_mm"),
             "forward_mm": m["forward_displacement_mm"], "max_abs_x_mm": r.get("max_abs_x_mm"),
             "peak_rss_mb": proc.get("peak_rss_mb"), "exit_code": proc.get("exit_code"),
         })
@@ -227,7 +229,8 @@ def aggregate(runs: list[dict[str, Any]], horizons=DEFAULT_HORIZONS) -> dict[str
     return {
         "n_runs": len(runs),
         "total_sim_time_s": total_t,
-        "total_distance_mm": dist,
+        "total_distance_mm": dist,  # thorax path incl. flights after hits
+        "total_walked_mm": walked,  # walking only (see perpetualfly/metrics/run_metrics.py)
         "total_forward_mm": fwd,
         "avg_forward_speed_mm_s": fwd / total_t if total_t else None,
         "n_falls": n_falls,
@@ -279,7 +282,9 @@ def markdown_report(agg: dict[str, Any], title: str = "Robustness report",
         L += [setup, ""]
     L += [
         f"{a['n_runs']} runs, {a['total_sim_time_s']:.0f} sim s total "
-        f"({a['total_sim_time_s'] / 60:.1f} min), forward {a['total_forward_mm'] / 1000:.2f} m.",
+        f"({a['total_sim_time_s'] / 60:.1f} min), forward {a['total_forward_mm'] / 1000:.2f} m, "
+        f"walked {a.get('total_walked_mm', a['total_distance_mm']) / 1000:.2f} m "
+        f"(path incl. flights {a['total_distance_mm'] / 1000:.2f} m).",
         "",
         "| metric | value |", "|---|---|",
         f"| crashes / instabilities / incomplete summaries | {len(a['crashes'])} / "
