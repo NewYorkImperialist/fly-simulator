@@ -256,8 +256,10 @@ state only.
 
 ### Not feasible / not done
 
-* Flight: there are no aerodynamics on NeuroMechFly wings (flybody has a fluid
-  model and a flight policy, but it is a different body).
+* Flight within the action library: the jump's "flight" phase is still ballistic.
+  Real flapping-wing flight now exists as a separate flight mode (MuJoCo ellipsoid
+  fluid on the wings, 5e-5 s timestep, hover controller, take-off from the jump,
+  landing): see `docs/FLIGHT.md` and `perpetualfly/flight/`. Not yet wired into the app.
 * Head / antenna movements: possible with the same `make_action_fly` mechanism
   (add `c_thorax-c_head` or `c_head-{l,r}_pedicel` DoFs), but not done. A head
   joint un-fuses the head from the thorax, which changes the walking body
