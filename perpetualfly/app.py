@@ -105,6 +105,7 @@ ACTION_KEY_MAP: dict[str, tuple[str, dict]] = {
 SCRIPT_KEY_ALIASES = {"comma": ",", "period": ".", "dot": ".", "colon": ":"}
 UNAVAILABLE_MARK = "~"  # help rows starting with this are drawn greyed out
 SWAT_KEYS = ("v", "shift+v")
+REC_DEBOUNCE_S = 0.5  # M (record toggle) presses closer together than this are ignored
 PLAYGROUND_KEYS = ("9", "0", "-")  # brain playground (BrainLink.handle_playground_key)
 # keys with their own Shift binding; any other "shift+<k>" (Shift / Caps Lock held)
 # is handled as plain <k>
@@ -1139,6 +1140,9 @@ class _LoopState:
     # the main loop saves the PNGs outside it
     shot: tuple | None = None
     rec_toggle: bool = False  # M pressed (handled by the main loop, outside the lock)
+    # wall time of the last accepted M press: presses closer than REC_DEBOUNCE_S are
+    # ignored so a held / mashed key doesn't produce dozens of tiny clips
+    last_rec_key: float = -1e9
     frame_rt: float = 0.0  # threaded: run time of the frame being shown (read under the lock)
 
 
@@ -1461,7 +1465,10 @@ def run(
                            list(brain.recent) if brain is not None else [])
                 msg = None  # the main loop prints the file names
             elif k == "m":
-                st.rec_toggle = True
+                now = time.monotonic()
+                if now - st.last_rec_key >= REC_DEBOUNCE_S:
+                    st.last_rec_key = now
+                    st.rec_toggle = True
             elif k in ACTION_KEY_MAP:
                 msg = session.trigger_action(ACTION_KEY_MAP[k][0], source="key")
             elif k in SWAT_KEYS:
