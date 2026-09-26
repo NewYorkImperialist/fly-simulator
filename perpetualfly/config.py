@@ -226,6 +226,23 @@ class WhipVisionConfig:
     looming: dict = field(default_factory=dict)  # LoomingConfig overrides
 
 
+# --- real vision (--real-vision; perpetualfly/vision/{eyes,flyvis_net,bridge}.py) ---
+@dataclass
+class RealVisionAppConfig:
+    """The fly actually sees (--real-vision; docs/VISION.md "Real vision"): FlyGym
+    compound eyes -> flyvis visual system -> LC4 / LPLC2 bridge -> brain. Replaces the
+    geometric looming sense (--whip-vision, the swatter's paddle source) when on.
+    ``eyes_only``: compound eyes sampled at ``rate_hz`` without network / brain."""
+
+    enabled: bool = False
+    eyes_only: bool = False
+    rate_hz: float = 100.0  # eye samples = flyvis steps per sim second
+    backend: str = "auto"  # "flyvis" | "dark_expansion" (eyes-only fallback) | "auto"
+    steer: bool = False  # also drive LC10a from small moving objects
+    vision: dict = field(default_factory=dict)  # RealVisionConfig overrides
+# --- end real vision ---
+
+
 @dataclass
 class CourseAppConfig:
     """Obstacle course (--course NAME, --course-loop; perpetualfly/course, docs/COURSE.md)."""
@@ -269,6 +286,7 @@ class AppConfig:
     swatter: SwatterAppConfig = field(default_factory=SwatterAppConfig)
     stress: StressConfig = field(default_factory=StressConfig)  # --stress (docs/STRESS.md)
     whip_vision: WhipVisionConfig = field(default_factory=WhipVisionConfig)
+    real_vision: RealVisionAppConfig = field(default_factory=RealVisionAppConfig)
     course: CourseAppConfig = field(default_factory=CourseAppConfig)
     job: JobAppConfig = field(default_factory=JobAppConfig)
 

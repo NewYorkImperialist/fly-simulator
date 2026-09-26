@@ -33,6 +33,13 @@ brain = [
 brain-ref = [
     "brian2>=2.7",
 ]
+# Real vision (--real-vision; perpetualfly/vision/flyvis_net.py, docs/VISION.md):
+# flyvis connectome-constrained visual system (Lappalainen et al. 2024; ~230 MB of
+# dependencies, torch included). Then fetch the pretrained models (~10 MB):
+#   .venv/bin/flyvis download-pretrained --skip_large_files
+vision = [
+    "flyvis==1.2.0",
+]
 
 [project.scripts]
 perpetualfly = "perpetualfly.app:main"

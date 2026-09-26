@@ -204,6 +204,7 @@ class Session:
         self.job = None  # EternalJob (--job; set by install_job)
         self.course = None  # CourseRun (--course; set by install_course)
         self.vision = None  # LoomingVision (--whip-vision, or the swatter's own)
+        self.real_vision = None  # RealVision (--real-vision) / CompoundEyes (eyes_only)
         self.swatter = None
         self.swatter_handle = None
         self.stress = None  # StressHandle (--stress)
@@ -235,8 +236,15 @@ class Session:
         if self._job_obj is not None:  # the job's props (docs/JOBS.md)
             exts.append(self._job_obj.extension)
         exts += list(world_extensions)
+        # --real-vision: compound-eye cameras on the fly (must be added before add_fly)
+        rv = cfg.real_vision
+        fly_factory = None
+        if rv.enabled or rv.eyes_only:
+            from perpetualfly.vision.eyes import make_eyes_fly_factory
+
+            fly_factory = make_eyes_fly_factory()
         self.sim = sim = Simulation(cfg, world_factory=self.terrain.build_world,
-                                    world_extensions=exts)
+                                    world_extensions=exts, fly_factory=fly_factory)
         self.terrain.attach(sim)
         if self.whip is not None:
             self.whip.attach(sim)
@@ -317,7 +325,14 @@ class Session:
         shared with the swatter), swatter, stress (wraps the brain link's update and
         the controller's signal filter), job, course."""
         cfg = self.cfg
-        if cfg.whip_vision.enabled:
+        # --- real vision: eyes -> flyvis -> LC4 / LPLC2 (replaces the geometric sense) ---
+        real = cfg.real_vision.enabled
+        if real or cfg.real_vision.eyes_only:
+            self._install_real_vision()
+        if cfg.whip_vision.enabled and real:
+            self.say("[vision] --real-vision replaces --whip-vision: the whip is seen by the "
+                     "compound eyes, not by the geometric looming sense")
+        if cfg.whip_vision.enabled and not real:
             from perpetualfly.vision.looming import install_whip_vision
 
             self.vision = install_whip_vision(self, self.whip, brain_link=self.brain,
@@ -327,7 +342,7 @@ class Session:
 
             sc = cfg.swatter
             self.swatter_handle = install_swatter(
-                self, swatter=self.swatter, vision=sc.vision, looming=self.vision,
+                self, swatter=self.swatter, vision=sc.vision and not real, looming=self.vision,
                 escape=sc.escape, short_hz=sc.short_hz, flight=sc.flight, say=self.say)
             self.swatter_handle.level = min(max(int(sc.level), 1), len(self.swatter.cfg.levels))
             if self.vision is None and self.swatter_handle.vision is not None:
@@ -351,6 +366,26 @@ class Session:
                     after_finish="loop" if cfg.course.loop else "stop"))
             except (FileNotFoundError, KeyError) as e:
                 raise ConfigError(f"course {cfg.course.name!r}: {e}") from None
+
+    def _install_real_vision(self) -> None:
+        """--real-vision (docs/VISION.md): CompoundEyes at rate_hz; unless eyes_only,
+        flyvis + bridge sending loom events to the brain link."""
+        rv = self.cfg.real_vision
+        from perpetualfly.vision.eyes import CompoundEyes, EyesConfig
+
+        eyes = CompoundEyes(self.sim, EyesConfig(enabled=True, rate_hz=rv.rate_hz)).attach()
+        if not rv.enabled:
+            self.real_vision = eyes
+            return
+        from perpetualfly.vision.bridge import RealVisionConfig, install_real_vision
+
+        vc = dict(rv.vision)
+        vc.update(enabled=True, rate_hz=rv.rate_hz, backend=rv.backend)
+        if rv.steer:
+            vc["bridge"] = {**dict(vc.get("bridge", {})), "steer": True}
+        self.real_vision = install_real_vision(self, brain_link=self.brain,
+                                               cfg=RealVisionConfig.from_dict(vc),
+                                               eyes=eyes, say=self.say)
 
     # ------------------------------------------------------------- queries
     def ground_height(self, x: float, y: float) -> float:
@@ -667,7 +702,19 @@ class Session:
                              "sources": [src.name for src in self.vision.sources]}
                             if self.vision is not None else None),
             "job": self.job.stats() if self.job is not None else None,
+            "real_vision": self._real_vision_summary(),
         }
+
+    def _real_vision_summary(self) -> dict | None:
+        rv = self.real_vision
+        if rv is None:
+            return None
+        eyes = getattr(rv, "eyes", rv)
+        out = {"eye_samples": eyes.n_samples, "eye_ms_per_sample": round(eyes.ms_per_sample(), 2)}
+        if hasattr(rv, "sent"):
+            out.update(backend=rv.backend, n_events=len(rv.sent),
+                       ms_per_frame=round(rv.ms_per_frame(), 2))
+        return out
 
     def close(self, quit_reason: str) -> None:
         if self.logger is not None:
@@ -766,6 +813,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
                    help="the fly sees the whip coming: compound-eye looming -> LC4 / LPLC2 "
                         "(implies --brain; --brain-actions lets the giant fiber jump). Sets the "
                         "low-latency brain pacing")
+    g.add_argument("--real-vision", action="store_true",
+                   help="the fly actually sees (docs/VISION.md): compound eyes -> flyvis "
+                        "connectome visual system -> LC4 / LPLC2 (implies --brain; replaces "
+                        "--whip-vision and the swatter's geometric looming sense). Needs the "
+                        "'vision' extra; slows the simulation (~25 ms wall per 10 ms)")
     g.add_argument("--course", metavar="NAME", default=None,
                    help="obstacle course instead of endless terrain (docs/COURSE.md): "
                         "tutorial, gauntlet, slalom, brain_test or a .json/.toml path. The app "
@@ -893,6 +945,8 @@ def config_from_args(args: argparse.Namespace) -> AppConfig:
         cfg.stress.enabled = True
     if getattr(args, "whip_vision", False):
         cfg.whip_vision.enabled = True
+    if getattr(args, "real_vision", False):
+        cfg.real_vision.enabled = True
     if getattr(args, "course", None):
         cfg.course.name = args.course
     if getattr(args, "course_loop", False):
@@ -934,9 +988,10 @@ def apply_feature_defaults(cfg: AppConfig, terrain_from_cli: bool = False) -> Ap
     if cfg.job.name:
         _make_job(cfg.job.name, cfg.job.config)
     b = cfg.brain
-    if cfg.stress.enabled or cfg.whip_vision.enabled:
+    real = cfg.real_vision.enabled
+    if cfg.stress.enabled or cfg.whip_vision.enabled or real:
         b.enabled = True
-    if b.enabled and (cfg.swatter.enabled or cfg.whip_vision.enabled):
+    if b.enabled and (cfg.swatter.enabled or cfg.whip_vision.enabled or real):
         d = BrainLinkConfig()
         if b.window_s == d.window_s:
             b.window_s = 0.02
@@ -1065,9 +1120,12 @@ def run(
     if session.swatter_handle is not None:
         h = session.swatter_handle
         feats.append(f"swatter L{h.level} {session.swatter.level_name(h.level)} (V / Shift+V; "
-                     f"vision {'on' if h.vision is not None else 'off'}, escape jumps "
+                     f"vision {'on' if h.vision is not None else ('real eyes' if cfg.real_vision.enabled else 'off')}, escape jumps "
                      f"{'on' if session.brain is not None and cfg.brain.actions else 'off: add --brain-actions'})")
-    if cfg.whip_vision.enabled:
+    if cfg.real_vision.enabled and session.real_vision is not None:
+        feats.append(f"real vision ({session.real_vision.backend}: eyes -> LC4 / LPLC2 at "
+                     f"{cfg.real_vision.rate_hz:.0f} Hz)")
+    elif cfg.whip_vision.enabled:
         feats.append("whip vision (LC4 / LPLC2 looming)")
     if session.stress is not None:
         feats.append("stress / octopamine (model)" + (
