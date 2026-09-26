@@ -11,8 +11,12 @@
 
 Files: `perpetualfly/games/` (`asteroids.py` rocks + game rules, `vision.py` the eyes,
 `brain_io.py` brain worker + mapping, `session.py` wiring, `hud.py`, `runner.py`,
-`experiment.py`), `scripts/play.py`, `tests/test_games.py`. Nothing in the app
-(`app.py`, `config.py`) was changed. The game builds its own `Simulation`.
+`experiment.py`; game 2: `chase.py` leader fly + LC10a eyes + rules,
+`chase_experiment.py`), `scripts/play.py`, `tests/test_games.py`. Nothing in the app
+(`app.py`, `config.py`) was changed. Each game builds its own `Simulation`.
+
+Games: **1. ASTEROID DODGE** (`--game asteroids`, the looming channel: turn *away*)
+and **2. FOLLOW THE LEADER** (`--game chase`, the pursuit channel: turn *toward*).
 
 ## Game 1: ASTEROID DODGE
 
@@ -341,3 +345,260 @@ A windowed check used the synthetic brain and injected keys, then closed itself:
 `--window --max-wall-seconds 14 --script-keys "3:space,4.5:space,6:3,8:b,10:b,12:q"`.
 Pause, the difficulty restart, opening and closing the brain window, and quit all
 worked, and no child processes were left.
+
+## Game 2: FOLLOW THE LEADER (chase)
+
+ASTEROID DODGE uses the brain's looming channel, which turns the fly *away*. This
+game uses a different pathway, the small-object "pursuit" channel, which turns it
+*toward* something. A dark leader fly weaves ahead. Each eye's view of it drives that
+eye's **LC10a** neurons, and in the connectome LC10a drives the same side's DNa01/02,
+so the brain steers toward the leader. The idea is NeuroMechFly v2's fly-following
+demo, but here the whole FlyWire brain sits between the eyes and the legs, and none
+of it was trained.
+
+### Connectome check first (why LC10a, and not "plane through rings")
+
+Before writing the game we stimulated the whole model directly
+(`perpetualfly.brain.engine.LIFEngine`, reset to rest, per-neuron Poisson input for
+0.3 s, 2–3 trials). Turn = the DNa01 + DNa02 group mean of that side, in Hz.
+
+| input (FlyWire type, side, rate) | turn_L | turn_R | walk L/R | MDN | GF |
+|---|---|---|---|---|---|
+| LC10a left 10 / 20 / 30 Hz | 14 / 29 / 43 | 0 | 0 / 0–7 / 0–12 | 0 | 0 |
+| LC10a left 50 / 100 / 200 Hz | 47 / 67 / 78 | 0–1 | 2–13 / 16–41 | 0 | 0 |
+| LC10a right 20 / 50 / 100 / 200 Hz | 0–2 | 13 / 11 / 40 / 51 | 7–28 / 0–11 | 0 | 0 |
+| LC10a left 100 + right 50 Hz | 48 | 0 | 11/31 | 0 | 0 |
+| LC10a left 50 + right 100 Hz | **22** | 3 | 18/7 | 0 | 0 |
+| LC10a both 100 Hz | **47** | 0 | 16/29 | 0 | 0 |
+| LC10a + LC10d left / right 100 Hz | 88 / 0 | 0 / 68 | 13/39, 31/11 | 0 | 0 |
+| LLPC1 + LLPC2 left / right 100 Hz | 73 / 10 | 28 / 67 | 15/23, 17/20 | 0–2 | 0 |
+
+(LC10a: 115 left, 119 right neurons. Walk = BDN2/oDN1/P9.)
+
+What this shows:
+
+* **LC10a turns ipsilaterally, cleanly.** Left LC10a drives only the left DNa01/02
+  (there is essentially no contralateral leak), and the reverse holds for the right.
+  It drives no MDN and no giant fibre. It also raises the walk DNs, mostly on the
+  opposite side.
+* **LLPC1/2** turn toward the stimulated side as well, but they leak into the other
+  side's turn group (28 Hz at 100 Hz input). LC10a is also the better-established
+  pursuit neuron (courtship tracking: Ribeiro et al. 2018; Hindmarsh Sten et al. 2021).
+  **We drive LC10a only.**
+* **The model is left-biased.** Left LC10a is 3–4× more effective than right at low
+  rates (20 Hz input: 29 vs 13 Hz). With both eyes driven, the left wins even when the
+  right gets twice the rate (L50 + R100 still turns left). A target seen equally by
+  both eyes therefore turns the model left. The interface below keeps both eyes from
+  being driven at once.
+
+Because the pursuit wiring works, the walking game was built. The fallback, "plane
+through rings" in flight mode, was not needed.
+
+### Embodiment
+
+* **Leader.** A mocap fly built from ellipsoids and capsules: a dark body with
+  tergite bands, red eyes, translucent wings and six legs. It is purely visual and has
+  no collision.
+* **Leader path.** It walks at a difficulty speed (easy / normal / hard: 8 / 9.5 /
+  11 mm/s; the follower walks about 13 mm/s). Its turn rate is an Ornstein–Uhlenbeck
+  process with τ = 0.7 s and SD 45 / 65 / 90 deg/s, clipped at 160 deg/s.
+* **Leader rules.** It walks at 0.6× speed while the follower is more than 12 mm
+  behind. After a catch it turns by up to ±60° and dashes at 2.2× speed for 0.7 s.
+* **Rules.**
+  * **FOLLOWING** while the thorax-to-thorax distance is below 9 mm; this scores
+    10 points/s.
+  * **CATCH** below 3 mm scores 100 × level. Every 3 catches the level goes up:
+    leader speed +0.7 mm/s and weave +15 %.
+  * **LOST HIM!** when the leader is more than 20 mm away for 0.4 s. This costs one of
+    3 lives, and the leader is put back 7 mm ahead at a random bearing within ±25°.
+  * **Game over** at 0 lives.
+  * In the first 1 s (GET READY) the leader walks straight and nothing is scored.
+* **High scores.** Kept per control mode and difficulty in the same
+  `runs/games_highscores.json`, under `"chase"`.
+* **Same body and motor side as game 1.** The follower is the same NeuroMechFly and
+  hybrid CPG controller, with `heading_gain = 0`. The same `GameMapping` (turn gain
+  0.6, r_ref 25 Hz, walk +0.25, MDN brake, 60 ms drive low-pass) and the same brain
+  pacing (sim-paced worker, 20 ms windows, sync wait while stimulated) are used. Jumps
+  are off: the giant fibre is not driven by this input.
+
+### What the brain sees (input interface, ours)
+
+`PursuitVision` (`chase.py`) updates every 5 ms. It uses the gaze-stabilised eye frames
+of game 1 and treats the leader as a sphere of radius 0.8 mm. For each eye:
+
+* LC10a rate = 150 Hz · size(θ) · ecc(az) · fov;
+* size = ramp(θ; 1°, 4°) · (1 − 0.5 · ramp(θ; 30°, 60°)). The response is silent
+  for sub-degree specks and halved for objects that fill the eye;
+* ecc = ramp(az; 0°, 30°), where az is the leader's azimuth in that eye's frame,
+  positive toward the eye's own side. A leader straight ahead drives neither eye; one
+  20° to the left drives only the left LC10a, at 100 Hz;
+* fov = the default field-of-view weight, which is blind behind the fly.
+
+Events are `StimulusEvent("manual", side=eye, details={"set": "LC10a", "rate_hz":
+r})` lasting 40 ms, re-sent every 20 ms and at once on a rise. `LC10a` was added to
+`mapping.named_sets` for this. The brain takes the max rate per neuron over overlapping
+events, so a falling rate takes effect within 40 ms.
+
+**Why the eccentricity ramp.** The error angle is the natural steering signal for a
+chasing fly: male houseflies turn at a rate proportional to it (Land & Collett
+1974). The ramp also keeps the model's left bias (see above) out of the frontal
+zone, where both eyes would otherwise be driven. It is our design, not a model of
+LC10a receptive fields. The connectome is pooled per side, so we cannot address the
+retinotopic subsets that real LC10a use. The ramp decides *how strongly* the brain is
+driven. Which way the fly then turns comes from the wiring, and the mirror control
+tests exactly that.
+
+### Scientific check: does the brain follow better than chance?
+
+```bash
+.venv/bin/python scripts/play.py --game chase --brain --experiment 24 --seed 1 --json runs/chase_exp.json
+```
+
+**Design** (`chase_experiment.py`). The trials are paired: for trial i these
+parameters are drawn once and replayed under all three conditions, interleaved:
+
+* the leader's start bearing: 10–35°, alternating left and right;
+* its heading offset: ±20°;
+* its weaving path (the OU noise seed);
+* the follower's gait phase.
+
+Each trial resets the fly and the brain (all neurons at rest) and walks 0.5 s with the
+leader hidden. It then places the leader 7 mm ahead at the trial's bearing and runs
+6 s of game time. No lives are used; the outcomes are only measured.
+
+The three conditions:
+
+* `brain`: left eye → left LC10a;
+* `mirror`: left eye → right LC10a and vice versa, with the same brain and motor map;
+* `none`: brain disconnected, constant drive [1, 1]. This is the geometry / chance
+  baseline, and it walks straight.
+
+24 paired trials × 3 conditions took 2230 s of wall time. Per condition that was
+normally 16 s (brain), 11 s (mirror) and 10 s (none). One trial stalled for about 15
+minutes while the machine was paused, which does not affect the results.
+
+| condition | trials | time following (< 9 mm) | mean distance (mm) | mean target error (deg) | catches (per trial) | leader lost | initial turn toward the leader (sign test) | mean initial turn toward (deg, first 0.5 s) |
+|---|---|---|---|---|---|---|---|---|
+| **brain** | 24 | **0.95 ± 0.01** | **5.8** | **28** | **68 (2.8)** | **0/24** | **23/24** (p = 3e-6) | **+32.2** |
+| mirror | 24 | 0.10 ± 0.00 | 25.7 | 160 | 0 | 24/24 | 0/24 (p = 1e-7), i.e. away | −61.2 |
+| none | 24 | 0.27 ± 0.02 | 19.9 | 120 | 12 (0.5) | 24/24 | 15/24 (p = 0.31) | +0.5 |
+
+| paired comparison | follow-time difference | first follows longer | sign test p | Wilcoxon p | lost only in the second |
+|---|---|---|---|---|---|
+| brain vs none | +0.68 | 24/24 | 1.2e-7 | 1.8e-5 | 24 (McNemar p = 1.2e-7) |
+| brain vs mirror | +0.86 | 24/24 | 1.2e-7 | 1.2e-7 | 24 |
+| mirror vs none | −0.18 | 0/24 | 1.2e-7 | 1.2e-7 | – |
+
+Time following is the fraction of the 6 s with a distance below 9 mm; the ± values
+are standard errors. The initial turn is the heading change over the first 0.5 s
+after the leader appears, signed toward the side it appeared on.
+
+**Reading.**
+
+* **The brain follows.** With the correct wiring the fly kept the leader within 9 mm
+  for 95 % of the time. Its worst trial was 72 %. It never lost the leader and caught
+  it 2.8 times per 6 s.
+* **Both sides work despite the asymmetry.** Leader starting on the left: 97 %
+  following, +40° initial turn. On the right: 94 %, +25°. The right side is weaker, as
+  the connectome check predicts.
+* **It turns toward the leader from the first moment.** It did so in 23 of 24 trials.
+  The exception (trial 3, −10°) still followed for 100 % of the trial.
+* **The disconnected baseline loses the leader every time.** It walks straight, so
+  the weaving leader leaves the 9 mm zone after a median of about 3 s (lost 24/24).
+  Its 27 % following is just the time before the leader drifts off. The 12 catches
+  happen when the leader happens to cross its path.
+* **Mirroring flips the behaviour.** With the eyes mirrored, the same brain turned
+  *away* in 24 of 24 trials (−61°), lost the leader fastest (median 1.6 s) and did
+  worse than the disconnected fly in every pair.
+* **So the pursuit comes from the wiring.** It is LC10a → ipsilateral DNa01/02 (peak
+  turn-group rates ~110–130 Hz, walk DNs ~50 Hz; no MDN or giant fibre activity).
+  The interface sets its gain. The mirror control shows that the same interface with
+  the sides swapped produces flight from the leader, not pursuit.
+
+### HUD, window, controls
+
+* **Game view.** The follow camera sits 15 mm behind the fly, 30° down, so that both
+  flies are large in the frame.
+* **HUD.** Top:
+  * title, control mode, score, hearts, level, difficulty and best score;
+  * time, % of time following, catches and losses;
+  * a distance meter with the catch zone (blue), the follow zone (green), the current
+    distance, and the target error with FOLLOWING / TOO FAR;
+  * a small radar with the follower at the centre facing up and the leader as a dot,
+    so an off-screen leader can still be found.
+
+  Centre: event banners (FOLLOW HIM!, CATCH +n, LEVEL n, LOST HIM!), GET READY, GAME
+  OVER, PAUSED. Bottom: the honest label and the key help.
+* **Brain panel.**
+  * **SEES**: LC10a Hz per eye, with the optic lobe each eye drives (swapped in mirror
+    mode), and the leader's distance and side.
+  * **DOES**: DNa01/02 L and R, walk, MDN and giant fibre (not mapped here).
+  * the CPG drive and turn direction, and the label "one eye's LC10a drives the same
+    side's DNa01/02 (turn toward)".
+* **Keys.** As in game 1: SPACE, R, 1/2/3, B (brain window), Q/ESC.
+
+### Commands
+
+```bash
+.venv/bin/python scripts/play.py --game chase --brain --window
+.venv/bin/python scripts/play.py --game chase --brain --window --difficulty easy --brain-window
+.venv/bin/python scripts/play.py --game chase --brain --control mirror      # or: none
+.venv/bin/python scripts/play.py --game chase --brain --frames runs/frames --frame-times 2,5
+.venv/bin/python scripts/play.py --game chase --brain --record runs/chase.mp4 --max-seconds 20
+.venv/bin/python scripts/play.py --game chase --brain --experiment 24 --seed 1 --json runs/chase_exp.json
+.venv/bin/python scripts/play.py --game chase --synthetic-brain --max-seconds 5   # no data
+```
+
+API: `ChaseSession(GameBrain("brain").start(), ChaseConfig(difficulty="normal"))`,
+then `.step()` repeatedly. It exposes `.game` (`ChaseGame`: `score`, `catches`,
+`follow_frac`, `dist`, `error_deg`, `events`), `.leader` (`LeaderFly`) and
+`.vision` (`PursuitVision`). `hud.compose(frame, session)` picks the chase HUD
+automatically.
+
+### Frames checked (game 2)
+
+These are renderer PNGs from `--frames` (960 × 640 plus the panel), read back and
+then deleted.
+
+* **GET READY** (`none`, t = 0.5 s). The dark leader fly is 6 mm ahead and to the
+  right; its wings, red eyes and legs are visible. The panel shows the right eye →
+  right LC10a at 143 Hz, but DOES stays at 0 Hz because the brain is disconnected.
+* **Brain following** (t = 2.0 s). The leader is 7.6 mm away, 42° to the right. Right
+  LC10a is at 150 Hz, turn R DNa01/02 at 25 Hz, drive L +1.47 / R +0.69, "turning
+  right ->", and the fly is turning toward the leader. The banners show FOLLOW HIM! and
+  CATCH +100, and the radar dot sits inside the follow ring.
+* **Catch and level up** (t = 5.0 s). The leader is directly in front of the follower
+  at 3.4 mm; the banners show CATCH +100 and LEVEL 2, and following is 100 %.
+* **`none` losing it** (t = 2.5 s). The leader is 19 mm away, 141° behind to the right
+  and off screen; only the radar shows it. The meter reads TOO FAR.
+* **Mirror** (t = 1.6 s). The leader is 17° to the left. The panel shows "left eye →
+  right LC10a 44 Hz", turn R 25 Hz, "turning right ->": the fly turns away. LOST HIM!
+  and one heart is gone.
+* **Game over** (mirror, t = 5.6 s, 3 losses). The overlay shows score, % followed and
+  catches, with the R / 1-2-3 / Q hint. The honest label is at the bottom of every
+  frame.
+* **HUD fix.** Two LOST HIM! banners stacked when the losses were 1.6 s apart. The
+  banner window was shortened to 1.5 s.
+
+### Limitations
+
+* **The interface is ours.** The response function (the eccentricity ramp above all,
+  and max 150 Hz), gaze stabilisation, the equivalent-sphere leader and the motor
+  gains were chosen by us. The turn *direction* and the neurons carrying it are the
+  connectome's, which the mirror control demonstrates.
+* **Only LC10a is driven.** The leader does not also loom (no LC4 / LPLC2) and does
+  not produce optic flow. The follower sees nothing else, including no self-motion
+  flow. Real pursuit also uses LC9, LC11 and other channels.
+* **Left-right asymmetry.** Right LC10a drives the right turn DNs 3–4× more weakly
+  than left LC10a at low rates. The model's right turns toward the leader are
+  therefore weaker, and at small errors it steers more strongly to the left.
+* **Oscillation.** The loop (20 ms brain windows, 60 ms drive low-pass, near-saturating
+  DN rates) weaves around the leader, with the error swinging about ±20–45°. It is a
+  proportional-ish controller with delay, not a smooth pursuit.
+* **Leader physics.** The leader is a mocap ghost: no contact and no leg motion (it
+  slides). A "catch" is a distance threshold.
+* **Speed.** With the brain the game runs at about 0.35–0.4× real time on an M1,
+  because the brain is stimulated almost continuously and the sync wait keeps the loop
+  closed.
+* **One experiment.** Results are from one brain seed, 24 paired trials, normal
+  difficulty and a 6 s horizon.

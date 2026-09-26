@@ -16,6 +16,9 @@ Control modes (the scientific check, docs/GAMES.md):
 * ``none``: no brain process at all; constant drive ``[1, 1]`` (straight walking),
   no jumps. This is the "disconnected" control.
 
+The same side mapping applies to FOLLOW THE LEADER's LC10a (pursuit) events
+(``on_pursuit``): ``mirror`` sends the left eye's leader to the right LC10a.
+
 Motor mapping (``GameMapping``, our design; read by ``descending_to_drive`` with
 game gains): DNa01/DNa02 (turn_L - turn_R) -> steering (the controller turns toward
 the smaller amplitude, so left DN activity turns left), BDN2/oDN1/P9 (walk) ->
@@ -109,6 +112,8 @@ class GameBrain:
         self._loom_until = -1e9
         self.loom_hz = {"left": (0.0, 0.0), "right": (0.0, 0.0)}  # eye -> (LC4, LPLC2) sent
         self._loom_t = {"left": -1e9, "right": -1e9}
+        self.pursuit_hz = {"left": 0.0, "right": 0.0}  # eye -> LC10a Hz sent (CHASE)
+        self._pursuit_t = {"left": -1e9, "right": -1e9}
         self.n_states = 0
         self.n_sent = 0
         self.n_jumps = 0
@@ -163,6 +168,7 @@ class GameBrain:
         self._loom_until = -1e9
         self.rates = {}
         self.loom_hz = {"left": (0.0, 0.0), "right": (0.0, 0.0)}
+        self.pursuit_hz = {"left": 0.0, "right": 0.0}
 
     # ------------------------------------------------------------ senses
     def on_loom(self, ev: StimulusEvent) -> None:
@@ -170,16 +176,37 @@ class GameBrain:
         d = ev.details or {}
         self.loom_hz[eye] = (float(d.get("lc4_hz", 0.0)), float(d.get("lplc2_hz", 0.0)))
         self._loom_t[eye] = float(ev.sim_time)
+        self._forward(ev)
+
+    def on_pursuit(self, ev: StimulusEvent) -> None:
+        """Sink for the CHASE game's ``PursuitVision`` (LC10a events per eye)."""
+        eye = ev.side
+        d = ev.details or {}
+        self.pursuit_hz[eye] = float(d.get("rate_hz", 0.0))
+        self._pursuit_t[eye] = float(ev.sim_time)
+        self._forward(ev)
+
+    def _forward(self, ev: StimulusEvent) -> None:
+        """Apply the control mode's side mapping and send to the worker."""
         if not self.connected:
             return
+        eye = ev.side
+        d = ev.details or {}
         if self.control == "mirror" and eye in MIRROR_SIDE:
             ev = StimulusEvent(ev.kind, MIRROR_SIDE[eye], ev.intensity, ev.duration_s,
                                ev.sim_time, dict(d, eye=eye, mirrored=True))
         self._loom_until = max(self._loom_until, float(ev.sim_time) + float(ev.duration_s))
         self.sent.append(ev)
+        if len(self.sent) > 5000:  # long games: keep memory bounded
+            del self.sent[:2500]
         self.n_sent += 1
         if self.alive():
             self.brain.send(ev)
+
+    def pursuit_drive(self, run_time: float, hold_s: float = 0.05) -> dict[str, float]:
+        """LC10a Hz currently driven per *eye* (0 once the event ran out)."""
+        return {e: (v if run_time - self._pursuit_t[e] <= hold_s else 0.0)
+                for e, v in self.pursuit_hz.items()}
 
     def eye_drive(self, run_time: float, hold_s: float = 0.08) -> dict[str, tuple[float, float]]:
         """(LC4, LPLC2) Hz currently driven per *eye* (0 once the event ran out)."""

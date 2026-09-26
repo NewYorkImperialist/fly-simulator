@@ -15,16 +15,27 @@ from .asteroids import (
     wave_params,
 )
 from .brain_io import CONTROLS, GameBrain, GameMapping
+from .chase import (
+    CHASE_DIFFICULTIES,
+    ChaseConfig,
+    ChaseGame,
+    LeaderFly,
+    PursuitResponse,
+    PursuitVision,
+    level_params,
+    pursuit_response,
+)
 
 HONEST_LABEL = ("Brain responses are real connectome wiring (FlyWire v783, Shiu et al. 2024 "
                 "LIF model); the game interface (what the brain sees, how its outputs map to "
                 "controls) is designed by us.")
 
-GAMES = ("asteroids",)
+GAMES = ("asteroids", "chase")  # ASTEROID DODGE, FOLLOW THE LEADER
 
 
 def __getattr__(name):  # lazy: session pulls in MuJoCo / FlyGym
-    if name in ("AsteroidSession", "make_renderer", "render_frame", "game_looming_config"):
+    if name in ("AsteroidSession", "ChaseSession", "make_renderer", "render_frame",
+                "game_looming_config"):
         from . import session
 
         return getattr(session, name)
@@ -32,7 +43,9 @@ def __getattr__(name):  # lazy: session pulls in MuJoCo / FlyGym
 
 
 __all__ = [
-    "CONTROLS", "DIFFICULTIES", "GAMES", "HONEST_LABEL", "AsteroidConfig", "AsteroidField",
-    "AsteroidGame", "AsteroidSession", "GameBrain", "GameEvent", "GameMapping",
-    "asteroid_response", "game_looming_config", "make_renderer", "render_frame", "wave_params",
+    "CHASE_DIFFICULTIES", "CONTROLS", "DIFFICULTIES", "GAMES", "HONEST_LABEL", "AsteroidConfig",
+    "AsteroidField", "AsteroidGame", "AsteroidSession", "ChaseConfig", "ChaseGame",
+    "ChaseSession", "GameBrain", "GameEvent", "GameMapping", "LeaderFly", "PursuitResponse",
+    "PursuitVision", "asteroid_response", "game_looming_config", "level_params",
+    "make_renderer", "pursuit_response", "render_frame", "wave_params",
 ]

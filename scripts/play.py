@@ -17,6 +17,10 @@ by us. See docs/GAMES.md.
     .venv/bin/python scripts/play.py --game asteroids --brain --experiment 40 --json runs/exp.json
     # quick tests without the connectome data
     .venv/bin/python scripts/play.py --game asteroids --synthetic-brain --max-seconds 5
+
+    # game 2, FOLLOW THE LEADER: a leader fly weaves ahead; LC10a (pursuit) -> DNa01/02
+    .venv/bin/python scripts/play.py --game chase --brain --window
+    .venv/bin/python scripts/play.py --game chase --brain --experiment 24 --json runs/chase_exp.json
 """
 
 from __future__ import annotations
@@ -69,9 +73,12 @@ def parse_args(argv=None):
     p.add_argument("--no-highscore", action="store_true")
     # experiment
     p.add_argument("--experiment", type=int, default=None, metavar="N",
-                   help="paired single-rock trials per condition (brain, mirror, none)")
+                   help="paired trials per condition (brain, mirror, none): single rocks "
+                        "(asteroids) or leader runs (chase)")
     p.add_argument("--controls", default="brain,mirror,none")
     p.add_argument("--rock-speed", type=float, default=10.0, help="experiment rock speed (mm/s)")
+    p.add_argument("--trial-seconds", type=float, default=6.0,
+                   help="chase experiment: game seconds per leader run")
     p.add_argument("--json", type=Path, default=None, help="experiment rows + summary")
     return p.parse_args(argv)
 

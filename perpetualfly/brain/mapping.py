@@ -144,6 +144,11 @@ def named_sets(table: NeuronTable) -> dict[str, np.ndarray]:
         "an_walk": np.nonzero(sub == "AN_AVLP_PVLP")[0],
         "an_avlp": np.nonzero(sub == "AN_AVLP")[0],
         "an_arousal": np.nonzero(ct == "AN_IPS_GNG_7")[0],
+        # small-object / pursuit visual projection neurons (courtship tracking:
+        # Ribeiro et al. 2018; Hindmarsh Sten et al. 2021); in the model one side's
+        # LC10a drives the *ipsilateral* DNa01/02 (a turn toward). Used by the CHASE
+        # game (perpetualfly/games/chase.py, docs/GAMES.md) via manual {"set": "LC10a"}.
+        "LC10a": np.nonzero(ct == "LC10a")[0],
     }
     return sets
 

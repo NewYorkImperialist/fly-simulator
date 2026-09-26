@@ -37,6 +37,8 @@ def game_looming_config() -> LoomingConfig:
 
 
 class AsteroidSession:
+    game_name = "asteroids"
+
     def __init__(self, brain: GameBrain | None = None, cfg: AsteroidConfig | None = None,
                  *, seed: int = 0, app_cfg=None, chunk_steps: int = 50,
                  looming: LoomingConfig | None = None, jump: bool | None = None) -> None:
@@ -96,6 +98,66 @@ class AsteroidSession:
 
     def close(self) -> None:
         self.vision.detach()
+        self.sim.close()
+
+
+class ChaseSession:
+    """Wiring for FOLLOW THE LEADER: world + fly + leader fly + eyes (LC10a) + brain.
+
+    Same loop as ``AsteroidSession``: ``step()`` = one physics chunk (the leader
+    moves in a pre-step hook, the eyes send LC10a events in a post-step hook), then
+    ``brain.update``, then the game rules. No jumps (the giant fibre is not driven
+    by this game's input and the jump mapping is off)."""
+
+    game_name = "chase"
+    # follow camera: closer and a little higher than ASTEROID DODGE's, so the leader
+    # (~5-9 mm ahead) and the follower are both large in the frame
+    camera = {"distance": 15.0, "elevation": -30.0, "azimuth": 0.0}
+
+    def __init__(self, brain: GameBrain | None = None, cfg=None, *, seed: int = 0,
+                 app_cfg=None, chunk_steps: int = 50, response=None) -> None:
+        from perpetualfly.config import AppConfig
+        from perpetualfly.games.chase import ChaseConfig, ChaseGame, LeaderFly, PursuitVision
+        from perpetualfly.simulation import Simulation
+
+        self.cfg = cfg or ChaseConfig()
+        self.brain = brain or GameBrain("none")
+        self.brain.map.jump = False
+        app_cfg = app_cfg or AppConfig()
+        app_cfg.controller.heading_gain = 0.0  # the brain steers
+        self.app_cfg = app_cfg
+        self.leader = LeaderFly(self.cfg, seed=seed + 7)
+        self.sim = Simulation(app_cfg, world_extensions=[self.leader.extension])
+        self.leader.attach(self.sim)
+        self.chunk_steps = int(chunk_steps)
+        self.sim.reset()
+        self.game = ChaseGame(self.sim, self.leader, self.cfg, seed=seed,
+                              on_respawn=self._on_respawn)
+        self.vision = PursuitVision(self.sim, self.leader, sink=self.brain.on_pursuit,
+                                    time_fn=self.game.time, response=response)
+        self.vision.attach()
+        self.sim.controller.signal_filter = self.brain.signal_filter
+        self.jump_times: list[float] = []
+        self.brain.reset(self.game.time())
+
+    def _on_respawn(self) -> None:
+        self.brain.reset(self.game.time())
+
+    def run_time(self) -> float:
+        return self.game.time()
+
+    def step(self) -> None:
+        self.sim.step(self.chunk_steps)
+        self.brain.update(self.game.time())
+        self.game.after_physics()
+
+    def restart(self, difficulty: str | None = None) -> None:
+        self.game.restart(difficulty)
+        self.brain.reset(self.game.time())
+
+    def close(self) -> None:
+        self.vision.detach()
+        self.leader.detach()
         self.sim.close()
 
 

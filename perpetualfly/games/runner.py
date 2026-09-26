@@ -81,7 +81,8 @@ class GameRunner:
         if self.render:
             from perpetualfly.games.session import make_renderer
 
-            self.renderer = make_renderer(self.session.sim, self.width, self.height)
+            self.renderer = make_renderer(self.session.sim, self.width, self.height,
+                                          **getattr(self.session, "camera", {}))
         self._recorded = False
         self._events_seen = 0
         self.brain_window = None
@@ -119,8 +120,11 @@ class GameRunner:
             return 0
         self._recorded = True
         g = self.game
-        entry = {"score": int(g.score), "survival_s": round(g.survival_s, 2), "wave": g.wave,
-                 "dodges": g.dodges}
+        if hasattr(g, "score_entry"):
+            entry = g.score_entry()
+        else:
+            entry = {"score": int(g.score), "survival_s": round(g.survival_s, 2),
+                     "wave": g.wave, "dodges": g.dodges}
         rank = self.highscores.add(self.game_name, self.session.brain.control,
                                    g.cfg.difficulty, entry)
         if rank == 1:
@@ -305,7 +309,9 @@ class GameRunner:
         out.update(control=self.session.brain.control, wall_s=round(time.time() - wall0, 1),
                    game_time_s=round(g.time(), 2), jumps=len(self.session.jump_times),
                    brain_states=self.session.brain.n_states,
-                   loom_events=len(self.session.vision.sent), frames=self.frames_written)
+                   stim_events=(v.n_sent() if hasattr(v := self.session.vision, "n_sent")
+                                else len(v.sent)),
+                   frames=self.frames_written)
         return out
 
 
@@ -315,11 +321,11 @@ class GameRunner:
 
 
 def play(args) -> int:
-    from perpetualfly.games import GameBrain
+    from perpetualfly.games import GAMES, GameBrain
     from perpetualfly.games.asteroids import AsteroidConfig
     from perpetualfly.games.brain_io import GameMapping
 
-    if args.game != "asteroids":
+    if args.game not in GAMES:
         print(f"unknown game {args.game!r}", file=sys.stderr)
         return 2
     synthetic = {"n": 60, "p_conn": 0.1, "seed": args.seed} if args.synthetic_brain else None
@@ -344,20 +350,33 @@ def play(args) -> int:
               f"({brain.info.get('n_neurons', '?')} neurons)", flush=True)
     runner = None
     try:
-        from perpetualfly.games.session import AsteroidSession
+        if args.game == "chase":
+            from perpetualfly.games.chase import CHASE_DIFFICULTIES, ChaseConfig
+            from perpetualfly.games.session import ChaseSession
 
-        cfg = AsteroidConfig(difficulty=args.difficulty, lives=args.lives)
-        session = AsteroidSession(brain, cfg, seed=args.seed)
+            if args.difficulty not in CHASE_DIFFICULTIES:
+                print(f"difficulty must be one of {sorted(CHASE_DIFFICULTIES)}", file=sys.stderr)
+                return 2
+            session = ChaseSession(brain, ChaseConfig(difficulty=args.difficulty,
+                                                      lives=args.lives), seed=args.seed)
+            title = "FOLLOW THE LEADER"
+        else:
+            from perpetualfly.games.session import AsteroidSession
+
+            cfg = AsteroidConfig(difficulty=args.difficulty, lives=args.lives)
+            session = AsteroidSession(brain, cfg, seed=args.seed)
+            title = "ASTEROID DODGE"
         if args.experiment is not None:
             return _experiment(session, args)
         from perpetualfly.games import HONEST_LABEL
 
-        print(f"[play] ASTEROID DODGE  control={control}  difficulty={args.difficulty}  "
-              f"jump={'on' if args.jump else 'off'}\n[play] {HONEST_LABEL}", flush=True)
+        print(f"[play] {title}  control={control}  difficulty={args.difficulty}  "
+              f"jump={'on' if args.jump and args.game == 'asteroids' else 'off'}\n"
+              f"[play] {HONEST_LABEL}", flush=True)
         need_render = args.window or args.record is not None or args.frames is not None
         hs = HighScores(args.highscores) if not args.no_highscore else None
-        runner = GameRunner(session, highscores=hs, render=need_render, panel=not args.no_panel,
-                            width=args.width, height=args.height)
+        runner = GameRunner(session, game_name=args.game, highscores=hs, render=need_render,
+                            panel=not args.no_panel, width=args.width, height=args.height)
         if args.brain_window:
             runner.toggle_brain_window()
         keys = parse_script_keys(args.script_keys)
@@ -379,15 +398,25 @@ def play(args) -> int:
 
 
 def _experiment(session, args) -> int:
-    from perpetualfly.games.experiment import format_summary, run_experiment, summarize
-
     controls = tuple(args.controls.split(","))
-    rows = run_experiment(session, args.experiment, controls=controls, seed=args.seed,
-                          speed=args.rock_speed,
-                          say=lambda m: print(m, flush=True))
-    summ = summarize(rows)
+    say = lambda m: print(m, flush=True)  # noqa: E731
+    if getattr(session, "game_name", "asteroids") == "chase":
+        from perpetualfly.games.chase_experiment import (
+            format_chase_summary, run_chase_experiment, summarize_chase)
+
+        rows = run_chase_experiment(session, args.experiment, controls=controls, seed=args.seed,
+                                    say=say, trial_s=args.trial_seconds)
+        summ = summarize_chase(rows)
+        text = format_chase_summary(summ)
+    else:
+        from perpetualfly.games.experiment import format_summary, run_experiment, summarize
+
+        rows = run_experiment(session, args.experiment, controls=controls, seed=args.seed,
+                              speed=args.rock_speed, say=say)
+        summ = summarize(rows)
+        text = format_summary(summ)
     print()
-    print(format_summary(summ))
+    print(text)
     if args.json is not None:
         args.json.parent.mkdir(parents=True, exist_ok=True)
         args.json.write_text(json.dumps({"rows": rows, "summary": summ}, indent=1))
