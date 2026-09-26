@@ -114,6 +114,12 @@ class BrainState:
     drive: filled in by the fly app, not the brain: the walking command derived
         from ``descending`` ({"left", "right", "forward", "turn", "escape",
         "applied", "lag_s"}); shown by the brain window (DRIVE panel, header).
+    neuromod: octopamine stress / arousal layer (perpetualfly/brain/neuromod.py),
+        empty when off: {"enabled", "octopamine" (level 0..1, a *model* quantity
+        driven by the real OA-* neurons' spikes), "label", "oa_rate_hz" (mean rate
+        of the OA-* neurons in the window), "oa_neurons", "dh44_hz", "n_targets",
+        "vth_shift_mv", "noci_hz" (hit-afferent rate, hit side), "nociceptive_input"
+        (the modelled afferent -> octopamine path is on), "tau_decay_s"}.
     """
 
     brain_time: float
@@ -133,3 +139,4 @@ class BrainState:
     compute_rtf: float = 0.0
     probes: dict[str, float] = field(default_factory=dict)
     drive: dict | None = None
+    neuromod: dict = field(default_factory=dict)

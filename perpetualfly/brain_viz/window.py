@@ -258,6 +258,9 @@ class BrainRenderer:
         self.span = float(trace_span_s)
         self.group_by = group_by
         self._atlas = atlas if atlas is not None else load_atlas()
+        # octopamine stress gauge row (DESCENDING panel): shown once a state carries
+        # an enabled BrainState.neuromod (perpetualfly/brain/neuromod.py)
+        self._show_nm = False
         self._layout_panels()
         self.set_layout(layout)
 
@@ -315,6 +318,10 @@ class BrainRenderer:
         self._direct_stim_wall = -1e9
         self._rtf = None
         self._drive_ext = None
+        self._nm: dict = {}
+        self._tgt_nm = 0.0
+        self._disp_nm = 0.0
+        self._nm_hist: deque = deque()  # (wall, displayed level)
 
     # .................................................................. map geometry
     def _map_transform(self, lo: np.ndarray, hi: np.ndarray, flip_y: bool = False):
@@ -704,9 +711,24 @@ class BrainRenderer:
         _panel(img, r, "DESCENDING COMMANDS", f"DN firing rate, last {self.span:g} s")
         drive_h = 98
         top = r.y + 34
-        rows = len(_DN_ROWS)
+        rows = len(_DN_ROWS) + (1 if self._show_nm else 0)
         rh = (r.h - 34 - drive_h - 8) / rows
         self._dn_rows = []
+        self._nm_row = None
+        if self._show_nm:
+            k = len(_DN_ROWS)
+            y0 = int(top + k * rh)
+            pr = Rect(r.x + 86, y0 + 4, r.w - 86 - 76, int(rh) - 10)
+            self._nm_row = pr
+            col = NT_COLORS_BGR["OA"]
+            cv2.rectangle(img, (pr.x, pr.y), (pr.x2, pr.y2), (22, 18, 16), -1)
+            yy = int(pr.y2 - 0.5 * pr.h)
+            cv2.line(img, (pr.x, yy), (pr.x2, yy), GRID, 1)
+            cv2.line(img, (pr.x, pr.y2), (pr.x2, pr.y2), BORDER, 1)
+            put_text(img, "1", (pr.x + 4, pr.y + 11), FAINT, 9)
+            put_text(img, "PAIN/AROUSAL", (r.x + 12, y0 + int(rh / 2) - 6), col, 10, 700)
+            put_text(img, "octopamine", (r.x + 12, y0 + int(rh / 2) + 7), DIM, 10)
+            put_text(img, "(model)", (r.x + 12, y0 + int(rh / 2) + 19), FAINT, 10)
         for k, (name, gl, gr) in enumerate(_DN_ROWS):
             y0 = int(top + k * rh)
             pr = Rect(r.x + 86, y0 + 4, r.w - 86 - 76, int(rh) - 10)
@@ -723,7 +745,7 @@ class BrainRenderer:
         d = self._dn_drive
         cv2.line(img, (d.x, d.y - 4), (d.x2, d.y - 4), BORDER, 1)
         # time axis labels on the last row
-        pr = self._dn_rows[-1][3]
+        pr = self._nm_row if self._nm_row is not None else self._dn_rows[-1][3]
         put_text(img, f"-{self.span:g} s", (pr.x, pr.y2 + 11), FAINT, 9)
         put_text(img, "now", (pr.x2, pr.y2 + 11), FAINT, 9, 400, "right")
 
@@ -829,6 +851,18 @@ class BrainRenderer:
         self._tgt_dn = np.where(np.isfinite(self._tgt_dn), self._tgt_dn, 0.0)
         drive = getattr(s, "drive", None)
         self._drive_ext = drive if isinstance(drive, dict) else None
+        nm = getattr(s, "neuromod", None)
+        if isinstance(nm, dict) and nm.get("enabled"):
+            self._nm = nm
+            try:
+                lv = float(nm.get("octopamine", 0.0))
+            except (TypeError, ValueError):
+                lv = 0.0
+            self._tgt_nm = float(np.clip(lv, 0.0, 1.0)) if np.isfinite(lv) else 0.0
+            if not self._show_nm:
+                self._show_nm = True
+                self._static = self._draw_static()
+                self._disp_nm = self._tgt_nm
         # stimuli
         stims = list(getattr(s, "recent_stimuli", None) or [])
         for st in stims:
@@ -867,6 +901,7 @@ class BrainRenderer:
         self._disp_region += a * (self._tgt_region - self._disp_region)
         self._disp_nt += a * (self._tgt_nt - self._disp_nt)
         self._disp_dn += a * (self._tgt_dn - self._disp_dn)
+        self._disp_nm += a * (self._tgt_nm - self._disp_nm)
         # spike flashes decay (wall time constant)
         ftau = 0.16
         self._flash *= math.exp(-dt / ftau) if dt > 0 else 1.0
@@ -886,6 +921,10 @@ class BrainRenderer:
             self._raster_chunks.popleft()
         if self.state is not None:
             self._dn_hist.append((wall, self._disp_dn.copy()))
+            if self._show_nm:
+                self._nm_hist.append((wall, self._disp_nm))
+        while self._nm_hist and self._nm_hist[0][0] < cutoff:
+            self._nm_hist.popleft()
             if bt is not None:
                 self._bt_hist.append((wall, bt))
         while self._dn_hist and self._dn_hist[0][0] < cutoff:
@@ -900,6 +939,7 @@ class BrainRenderer:
         self._disp_region = self._tgt_region.copy()
         self._disp_nt = self._tgt_nt.copy()
         self._disp_dn = self._tgt_dn.copy()
+        self._disp_nm = self._tgt_nm
 
     # ------------------------------------------------------------------ draw
     def draw(self, wall: float | None = None) -> np.ndarray:
@@ -1058,7 +1098,61 @@ class BrainRenderer:
                 v = self._disp_dn[idx[g]]
                 side = "" if gr is None else ("L " if j == 0 else "R ")
                 put_text(img, f"{side}{v:.0f}", (vx, pr.y + 14 + 16 * j), col, 12, 600)
+        self._draw_nm(img, wall)
         self._draw_drive(img)
+
+    def _draw_nm(self, img, wall: float) -> None:
+        """Octopamine level (0..1, a model quantity driven by the OA neurons' spikes
+        and, if on, the modelled hit-afferent link, marked "*"): trace over the last
+        ``span`` s, value, OA-neuron / hit-afferent rates and a vertical gauge."""
+        pr = self._nm_row
+        if pr is None:
+            return
+        col = NT_COLORS_BGR["OA"]
+        for mw, lab in self._markers:
+            x = int(pr.x2 - (wall - mw) / self.span * pr.w)
+            if pr.x <= x <= pr.x2:
+                cv2.line(img, (x, pr.y), (x, pr.y2), (50, 50, 120), 1)
+        if len(self._nm_hist) >= 2:
+            tw = np.array([h[0] for h in self._nm_hist])
+            v = np.array([h[1] for h in self._nm_hist])
+            x = pr.x2 - (wall - tw) / self.span * pr.w
+            y = pr.y2 - np.clip(v, 0, 1) * (pr.h - 2)
+            m = x >= pr.x
+            if m.sum() >= 2:
+                pts = np.stack([x[m], y[m]], 1)
+                poly = np.vstack([pts, [[pts[-1, 0], pr.y2], [pts[0, 0], pr.y2]]])
+                layer = img.copy()
+                cv2.fillPoly(layer, [np.round(poly * 4).astype(np.int32)],
+                             tuple(int(c * 0.45) for c in col), cv2.LINE_AA, shift=2)
+                img[pr.y:pr.y2 + 1, pr.x:pr.x2 + 1] = layer[pr.y:pr.y2 + 1, pr.x:pr.x2 + 1]
+                cv2.polylines(img, [np.round(pts * 4).astype(np.int32)], False, col, 2,
+                              cv2.LINE_AA, shift=2)
+        lv = float(np.clip(self._disp_nm, 0, 1))
+        vx = pr.x2 + 10
+        put_text(img, f"{lv:.2f}", (vx, pr.y + 14), col, 13, 700)
+        try:
+            oa = float(self._nm.get("oa_rate_hz", 0.0))
+        except (TypeError, ValueError):
+            oa = 0.0
+        put_text(img, f"OA {oa:.1f} Hz", (vx, pr.y + 29), DIM, 9)
+        if self._nm.get("runaway"):
+            put_text(img, "RUNAWAY", (vx, pr.y + 41), BAD, 9, 700)
+        elif self._nm.get("nociceptive_input"):
+            try:
+                hit = float(self._nm.get("noci_hz", 0.0))
+            except (TypeError, ValueError):
+                hit = 0.0
+            put_text(img, f"hit {hit:.0f} Hz*", (vx, pr.y + 41), WARN, 9)
+        elif self._nm.get("noci_relay"):
+            put_text(img, "+hit relay*", (vx, pr.y + 41), WARN, 9)
+        # vertical gauge at the panel's right edge
+        gx, gw = self.r_dn.x2 - 14, 7
+        cv2.rectangle(img, (gx, pr.y), (gx + gw, pr.y2), (36, 30, 28), -1)
+        gy = int(pr.y2 - lv * pr.h)
+        if lv > 0:
+            cv2.rectangle(img, (gx, gy), (gx + gw, pr.y2), col, -1)
+        cv2.rectangle(img, (gx, pr.y), (gx + gw, pr.y2), BORDER, 1)
 
     def preview_drive(self) -> dict:
         """Simple readout of DN rates -> body command (display only, 'preview')."""

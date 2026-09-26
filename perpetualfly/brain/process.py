@@ -65,6 +65,10 @@ class BrainConfig:
     enable_ground_contact: bool = False
     synthetic: dict | None = None     # tests: {"n": 50, "p_conn": .1, "seed": 0}
     extra: dict = field(default_factory=dict)
+    # octopamine stress / arousal layer (perpetualfly/brain/neuromod.py,
+    # NeuromodConfig fields); None = off, engine untouched. Also settable at run
+    # time with BrainProcess.set_neuromod().
+    neuromod: dict | None = None
 
 
 class BrainSubscriber:
@@ -206,6 +210,11 @@ class BrainProcess:
         """Clear stimuli and return every neuron to rest (pace="sim": at ``sim_time``)."""
         self._cmd.put_nowait(("reset_state", sim_time))
 
+    def set_neuromod(self, cfg: dict | None) -> None:
+        """Enable / reconfigure (dict of ``NeuromodConfig`` fields) or disable
+        (None) the octopamine layer in the worker (applied at the next chunk)."""
+        self._cmd.put_nowait(("neuromod", None if cfg is None else dict(cfg)))
+
     def clock(self, sim_time: float) -> None:
         """pace="sim": the fly has simulated up to ``sim_time``; the brain may run to it."""
         self._cmd.put_nowait(("clock", float(sim_time)))
@@ -278,8 +287,27 @@ class _Model:
         self.n_by_nt = np.bincount(self._nt[self._nt_ok], minlength=len(NEUROTRANSMITTERS)).astype(float)
         self.n_regions = len(self.table.regions)
         self.n_by_region = np.bincount(self.table.region, minlength=self.n_regions).astype(float)
+        self.neuromod = None  # OctopamineModel (neuromod.py) when configured
+        if cfg.get("neuromod"):
+            self.configure_neuromod(cfg["neuromod"])
         self.load_s = time.time() - t0
         self.engine.run(1)  # JIT warm-up (numba cache makes this fast after the first time)
+
+    def configure_neuromod(self, d: dict | None) -> None:
+        """None / {"enabled": False, ...}: off (thresholds back to the scalar
+        model, the OA readout keeps running if the layer existed)."""
+        from dataclasses import replace
+
+        from .neuromod import OctopamineModel
+
+        if d is None:
+            if self.neuromod is not None:
+                self.neuromod.configure(replace(self.neuromod.cfg, enabled=False))
+            return
+        if self.neuromod is None:
+            self.neuromod = OctopamineModel(self.table, self.engine, d)
+        else:
+            self.neuromod.configure(d)
 
     def summarize(self, steps: np.ndarray, idx: np.ndarray, window_s: float,
                   brain_time: float, rtf: float, labels: list[str],
@@ -307,7 +335,9 @@ class _Model:
             active_frac_by_nt=frac_nt.astype(np.float32), rate_by_region=rate_r.astype(np.float32),
             descending={g: desc[g] for g in DESCENDING_GROUPS},
             raster_idx=d[sel].astype(np.int32), raster_t=(steps[sel] * dt_s).astype(np.float64),
-            total_spikes=int(len(idx)), recent_stimuli=list(labels), probes=probes, **extra)
+            total_spikes=int(len(idx)), recent_stimuli=list(labels), probes=probes,
+            **({"neuromod": self.neuromod.readout()} if self.neuromod is not None else {}),
+            **extra)
 
 
 def _synthetic_table(n: int = 50, p_conn: float = 0.1, seed: int = 0, **_):
@@ -395,10 +425,18 @@ def _worker_loop(cfg: dict, cmd_q, status_q, pubs: dict) -> None:
         kind, payload = cmd
         if kind == "stim":
             labels.extend(mapper.add(payload, eng.t))
+            if model.neuromod is not None:  # nociceptive relay (neuromod.py), if on
+                for rev in model.neuromod.relay_events(payload):
+                    labels.extend(lab.replace("manual:", "hit_relay:", 1)
+                                  for lab in mapper.add(rev, eng.t))
         elif kind == "reset_state":
             mapper.add(StimulusEvent(kind="reset"), eng.t)
             eng.reset_state()
             labels.append("reset_state")
+            if model.neuromod is not None:
+                model.neuromod.on_reset()
+        elif kind == "neuromod":
+            model.configure_neuromod(payload)
 
     def handle(cmd) -> bool:
         nonlocal clock
@@ -407,6 +445,9 @@ def _worker_loop(cfg: dict, cmd_q, status_q, pubs: dict) -> None:
             return False
         if kind == "clock":
             clock = max(clock, float(payload))
+            return True
+        if kind == "neuromod":
+            apply(cmd)
             return True
         if sim_paced and kind in ("stim", "reset_state"):
             t = payload.sim_time if kind == "stim" else payload
@@ -462,6 +503,8 @@ def _worker_loop(cfg: dict, cmd_q, status_q, pubs: dict) -> None:
         s, i = eng.run(max(1, n))
         now = time.perf_counter()
         busy_hist.append((now - t_run, max(1, n)))
+        if model.neuromod is not None:
+            model.neuromod.observe(i, max(1, n) * dt_s)
         if len(s):
             buf_steps.append(s)
             buf_idx.append(i)

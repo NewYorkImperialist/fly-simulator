@@ -85,7 +85,7 @@ def _run_steps(n_steps, step0, S,
                pois_idx, pois_p, pois_w,
                e11, e12, e22, v_0, v_th, v_rst, eps,
                active, is_active, n_active,
-               out_step, out_idx, counts, rng):
+               out_step, out_idx, counts, rng, vth, use_vth):
     """Advance the network. Only neurons in the *active set* (state differs from
     rest by more than ``eps`` mV) are integrated; a neuron at exact rest
     (v = v_0, g = 0) is a fixed point of the dynamics, so skipping it is exact.
@@ -100,7 +100,11 @@ def _run_steps(n_steps, step0, S,
 
     ``S`` is the packed per-neuron state (one cache line per neuron):
     ``S[i] = (v, g, blocked_until, refractory_steps)``; ``blocked_until`` is the first
-    step at which neuron i may be written again (spike step + max(refractory, 1))."""
+    step at which neuron i may be written again (spike step + max(refractory, 1)).
+
+    ``use_vth``: per-neuron thresholds ``vth[i]`` instead of the scalar ``v_th``
+    (neuromodulation, perpetualfly/brain/neuromod.py). With ``use_vth`` False the
+    arithmetic is exactly the unmodulated model's."""
     n_slots = ring.shape[0]
     cap = out_step.shape[0]
     n_out = 0
@@ -120,7 +124,7 @@ def _run_steps(n_steps, step0, S,
                 gi = e22 * gi
                 S[i, 0] = vi
                 S[i, 1] = gi
-                if vi > v_th:
+                if vi > (vth[i] if use_vth else v_th):
                     ring[slot, cnt] = i
                     cnt += 1
                     r = S[i, 3]
@@ -219,6 +223,9 @@ class LIFEngine:
         self._pois_p = np.zeros(0, dtype=np.float64)
         self.dropped_spikes = 0
         self._rng = np.random.default_rng(seed)  # per-engine stream (numba Generator)
+        # optional per-neuron thresholds (neuromodulation); None = scalar v_th
+        self.v_th_arr: np.ndarray | None = None
+        self._vth_dummy = np.zeros(1, dtype=np.float64)
 
     # ------------------------------------------------------------------ inputs
     @property
@@ -246,6 +253,17 @@ class LIFEngine:
         self._is_active[:] = 0
         self.n_active = 0
 
+    def threshold_array(self) -> np.ndarray:
+        """Per-neuron spike thresholds (mV), created on first use as ``v_th``
+        everywhere; write into it to modulate excitability. ``clear_threshold()``
+        returns to the scalar threshold (the exact unmodulated code path)."""
+        if self.v_th_arr is None:
+            self.v_th_arr = np.full(self.n, self.p.v_th, dtype=np.float64)
+        return self.v_th_arr
+
+    def clear_threshold(self) -> None:
+        self.v_th_arr = None
+
     # ------------------------------------------------------------------ running
     def run(self, n_steps: int) -> tuple[np.ndarray, np.ndarray]:
         """Advance ``n_steps`` of dt. Returns (spike_step, spike_neuron) arrays
@@ -257,7 +275,9 @@ class LIFEngine:
             self.ring_cnt, self.delay, self._pois_idx, self._pois_p, self.pois_w,
             e11, e12, e22, p.v_0, p.v_th, p.v_rst, self.eps,
             self._active, self._is_active, self.n_active,
-            self._out_step, self._out_idx, self.counts, self._rng)
+            self._out_step, self._out_idx, self.counts, self._rng,
+            self._vth_dummy if self.v_th_arr is None else self.v_th_arr,
+            self.v_th_arr is not None)
         self.step_count += int(n_steps)
         self.dropped_spikes += int(dropped)
         return self._out_step[:n_out].copy(), self._out_idx[:n_out].copy()
