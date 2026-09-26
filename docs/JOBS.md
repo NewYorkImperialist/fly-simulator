@@ -279,18 +279,94 @@ states that the knife stroke is a real recorded fly grooming bout.
 the fly stops carving, backs off or walks back, and resumes. This never triggered in
 the runs below.
 
-**Brain (`--brain`, off by default).** The job turns on the full body (proboscis
-joints) and treats the kebab as food: every 4 s it sends a 1 s sugar-GRN stimulus
-(the T key's set, labelled `KEBAB (sugar GRNs)`). The proboscis follows the brain's
-MN9 rate: fully extended at 60 Hz, smoothed with τ 0.15 s. The job drives the
-proboscis itself, because the brain-trigger path never interrupts a running action,
-and the carve action always runs. The food response is the connectome's wiring.
-"Kebab" is only a label on sugar input. The job trims `BrainLink.stim_log` to keep
-memory constant.
+**Brain reactions (`--brain`, off by default).** The job turns on the full body
+(proboscis joints). The proboscis follows the brain's MN9 rate: fully extended at
+60 Hz, smoothed with τ 0.15 s. The job drives the proboscis itself, because the
+brain-trigger path never interrupts a running action, and the carve action always
+runs. Everything the brain gets is event driven (there is no food timer any more):
 
-**Stress (optional).** If `session.stress` is an enabled handle (docs/STRESS.md),
-carve speed is multiplied by `1 + gain · (freq_mult − 1)`. `run_job.py` does not
-install stress, so this path is tested with a fake handle only.
+* **A blip per slice (touch).** Every cut sends a 40 ms pulse at 150 Hz to the
+  **right-side `body_mech` set** (302 sensory-ascending mechanosensory afferents,
+  sub-classes SA_DMT_*, SA_DLV, SA_MDA, SA_VTV_*; the set a whip hit on the right
+  drives), labelled `KNIFE TOUCH (body_mech R)`. This is a stand-in: touch on the
+  carving leg enters the VNC, which the model lacks. The brain's own leg afferents
+  (`leg_sa`, SA_VTV_pro_meso_meta) are 74 of 86 gustatory, and only 2 `body_mech`
+  neurons ride the prothoracic (front-leg segment) nerve. docs/SENSORY_SCREEN.md
+  found that `body_mech` reaches no behaviour DN, so the touch only lights the brain
+  up; it does not change behaviour. That is expected.
+* **Taste on events.** A launched shaving is tracked until it lands on the tray.
+  If it lands within `taste_radius` (1.5 mm) of the proboscis (the haustellum geom),
+  or if the proboscis comes within `mouth_reach` (0.4 mm) of a ripe chunk or any
+  shaving, the job sends a taste pulse: kind `taste`, sugar, for 0.5 s. The sugar set
+  is Shiu et al.'s left labellar LB3 set, the same stand-in the taste patches use
+  (docs/TASTE.md). The rate is `sugar_max_hz · hunger` (150 Hz when starving, at
+  least 50 Hz). There is a 1.2 s refractory period between pulse onsets. In practice
+  only landings trigger it: shavings land 1.3–2.3 mm from the proboscis (median 1.66
+  mm, measured over 5 s of carving), and the proboscis never gets near the meat
+  (≥ 1.6 mm). So a "taste" is "food landed within reach", not a contact. The fly
+  can't reach the tray, and shavings don't collide with the fly. MN9, and with it
+  the proboscis, follows these events. The food response is the connectome's.
+  "Kebab" is only a label on sugar input.
+* **Hunger / satiety (our phenomenological model, not connectome).** Satiety S
+  (0–1, starts at 0.2) rises by 0.07 per taste pulse (a bite). It decays as
+  `exp(−dt / 45 s)`, so hunger returns.
+  Hunger `1 − S` scales the sugar rate, and carving speed is multiplied by
+  `1 − 0.4 S`. Once S reaches 0.8 the fly is **sated**: taste events are ignored (no
+  pulse, counted as `tastes_ignored_sated`) until S falls below 0.3. This
+  hysteresis makes carving and feeding cycle (hungry → feeding → sated → hungry).
+  Flies do lose sugar responsiveness when fed (e.g. Inagaki et al. 2012), but the
+  numbers here are ours. The time constants are compressed for the show: a real fly
+  takes hours to get hungry again. The HUD line reads, for example,
+  `HUNGER 0.61 (model) feeding   carve x0.85   tastes 4   touches 41` (SATED while
+  food is ignored).
+
+The job trims `BrainLink.stim_log` to keep memory constant.
+
+**Stress and startle (`--stress`).** `run_job.py --job kebab --brain --stress`
+(`--stress` implies `--brain`) sets `cfg.stress.enabled`, and the Session installs
+the stress layer (docs/STRESS.md). Carve speed is multiplied by
+`1 + gain · (freq_mult − 1)` (gain 1: ×1.5 at arousal level 1), on top of the
+satiety factor. Jobs have no whip, so **key S** (forwarded by `run_job.py` to
+`job.handle_key`) **startles the chef**: `startle()` sends a `shove` on the thorax
+(intensity 0.6, 0.2 s, label `STARTLE (poke)`). With stress on, the brain worker adds
+the nociceptive relay (`an_walk` + `an_arousal` ascending neurons, a labelled VNC
+stand-in). The relay recruits the OA neurons, the octopamine level rises, and the
+carving speeds up, then calms down with the level's decay (τ 30 s). Without
+`--stress` a poke only drives the right/left body afferents (no speed-up).
+`startle_every_s > 0` pokes the chef automatically (headless demos).
+
+**Verified with the real brain** (headless, 2026-09-26, FlyWire v783, 138,639
+neurons, brain window off; frames rendered with `render_brain_frame` from the
+captured states and checked by eye):
+
+* *Blip per slice:* 180 s of carving gave 832 cuts and 832 touch pulses. Brain
+  windows (0.1 s) containing a touch averaged **1551 spikes** against **363** for
+  windows with no stimulus. The regions that rose were GNG (0.5 → 2.3 Hz mean),
+  FLA_R, SAD and PRW. The raster shows a GNG burst per cut. No behaviour DN
+  responded (walk / turn / MDN / GF stayed at 0), as the sensory screen predicts.
+  The brain-window chips read `MANUAL BODY_MECH R`, because the window labels with
+  the mapper label, not `details["label"]`.
+* *MN9 follows shavings:* 35 taste pulses in 180 s, all triggered by landings.
+  MN9 was 0 Hz in the 0.5 s before every pulse and peaked at **55–80 Hz** within
+  0.6 s when hungry. It fell to 25–45 Hz near satiety, because the sugar rate
+  scales with hunger. The proboscis extended to 40–80 %.
+* *Satiety cycle* (default constants): feeding 0–33 s (S 0.2 → 0.81), sated
+  33–78 s (S decays to 0.30, 138 food events ignored over the run), feeding
+  78–99 s, sated 99–143 s, feeding 143–159 s, sated again. That is 3 sated bouts in
+  180 s, a period of about 65 s. Carve speed ran between ×0.68 (full) and ×0.88
+  (hungry). **Shaving yield hardly changes** (40–51 per 10 s): above speed 1 the
+  yield is limited by the regrowth of the reachable band. Brain-off check, 15 s
+  after a 5 s warm-up: speed 0.7 / 1.0 / 1.5 gave 62 / 78 / 76 shavings. What
+  cycles visibly is the stroke tempo and the feeding.
+* *Stress* (`--stress`, satiety speed factor off for isolation, pokes at 20, 22 and
+  24 s): the arousal level was 0.12 before the pokes. It had crept up from 0
+  during 20 s of touch and taste pulses: a little OA recruitment. After the pokes
+  it went 0.45 → 0.74. Carve ×1.06 → **×1.37**, and the clip phase advanced at 1.34
+  s/s instead of 1.05. Then it calmed down: level 0.43 and ×1.21 at 60 s (τ 30 s).
+  The brain window showed walk / turn DN bursts at each poke and the PAIN/AROUSAL
+  row at 0.74 with `+hit relay*`. Yield: 22 → 29 shavings per 5 s for 5 s, then
+  back to 21–24 (regrowth-limited). RTF was 0.24 without stress and 0.10 with
+  stress.
 
 ### mowing
 
@@ -407,6 +483,8 @@ the same time:
 | `--rotate` smoke test (both jobs, rebuilding the Session) | 2.5 s | the job switched as expected | 0 | – |
 | `kebab` headless + 640×426 MP4 (20 s segments, keep 1) + timelapse every 3 s | 200 s | **1006 shavings**, 16 kebabs, 3.5 mg served, ~300 shavings/min steady (peak 382), ~88 of 199 chunks regrowing at any time, 0 repositions, 0 shavings lost, 0 instabilities | 0 / 0 | 0.26 |
 | `kebab --brain` (full body, real FlyWire brain) | 12 s | 72 shavings; 3 food pulses, MN9 40–60 Hz on each, proboscis driven; 0 falls | 0 / 0 | 0.27 |
+| `kebab --brain`, event-driven reactions (touch per cut, taste on landings, satiety) | 180 s | 832 shavings, 832 touch pulses, 35 taste pulses (MN9 55–80 Hz after each when hungry), 3 sated bouts | 0 / 0 | 0.24 |
+| `kebab --brain --stress`, 3 startle pokes at 20–24 s | 60 s | arousal 0.12 → 0.74, carve ×1.06 → ×1.37 → ×1.21 at 60 s | 0 / 0 | 0.10 |
 | `mowing` headless + 640×432 timelapse every 3 s (job renderer) | 185 s | **30 rows, 5 lawns**, 1251 mm² (0.00125 m²) mowed, 6627 blades cut, 30 pushes started, 1 back-away unstick, 0 instabilities | 0 / 0 | 0.47 |
 | `raking` headless + 640×432 timelapse every 3 s | 185 s | **46 leaves raked**, 2 piles completed, 2 gusts survived (47 leaves blown about, 14 out of the yard and back to the tree), 38 leaves fallen from the tree, 0 instabilities | 0 / 0 | 0.55 |
 

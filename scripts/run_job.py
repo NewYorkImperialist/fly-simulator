@@ -7,12 +7,16 @@
         --segment-s 60 --keep 3 --timelapse 5
     python scripts/run_job.py --rotate --rotate-minutes 10   # cycle through all jobs forever
 
+    python scripts/run_job.py --job kebab --brain --stress   # S startles the chef
+
 Keys (window): Q / ESC quit, C camera (job / follow / side / top), P pause,
-X explicit reset (counted), I screenshot (PNG with HUD).
+X explicit reset (counted), I screenshot (PNG with HUD); job keys are forwarded to
+the job (kebab: S = startle the chef, a poke; with --stress it speeds the carving up).
 
 Mirrors perpetualfly.app.Session construction (the job's props are compiled in via
 world_extensions); the physical whip and the connectome brain are off unless
---whip / --brain. --rotate rebuilds the Session between jobs (props are compiled in).
+--whip / --brain; --stress (implies --brain) installs the octopamine stress layer
+(docs/STRESS.md). --rotate rebuilds the Session between jobs (props are compiled in).
 """
 
 from __future__ import annotations
@@ -56,6 +60,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--brain", action="store_true",
                    help="run the connectome brain alongside (needs .[brain] + data/brain); "
                         "opens the brain window unless --headless / --no-brain-window")
+    p.add_argument("--stress", action="store_true",
+                   help="octopamine stress / arousal layer (docs/STRESS.md); implies --brain")
     p.add_argument("--no-brain-window", action="store_true",
                    help="with --brain: no brain window")
     p.add_argument("--seed", type=int, default=None, help="controller (CPG) seed")
@@ -66,6 +72,8 @@ def app_config(args) -> AppConfig:
     cfg = AppConfig()
     cfg.whip.enabled = bool(args.whip)
     cfg.logging.enabled = bool(args.log)
+    if getattr(args, "stress", False):
+        cfg.stress.enabled = True  # the Session installs it (needs the brain)
     if args.width:
         cfg.render.width = args.width
     if args.height:
@@ -75,12 +83,22 @@ def app_config(args) -> AppConfig:
     return cfg
 
 
+class KeyForwardingRunner(JobRunner):
+    """JobRunner that offers keys to the job first (``job.handle_key(k) -> bool``)."""
+
+    def _handle_key(self, k: str) -> None:
+        handle = getattr(self.job, "handle_key", None)
+        if handle is not None and handle(k):
+            return
+        super()._handle_key(k)
+
+
 def run_one(name: str, args, max_seconds: float | None, stop_flag: dict) -> dict:
     job_cfg = json.loads(args.job_config) if args.job_config and not args.rotate else None
     job = make_job(name, job_cfg)
     cfg = app_config(args)
     brain = None
-    if args.brain:
+    if args.brain or args.stress:
         from perpetualfly.brain_link import BrainLink, missing_requirements
 
         cfg.brain.enabled = True
@@ -97,10 +115,12 @@ def run_one(name: str, args, max_seconds: float | None, stop_flag: dict) -> dict
             brain.wait_ready()
             brain.start_window()
             print(f"brain: {brain.info.get('n_neurons', 0):,} neurons ready | window "
-                  f"{'on' if brain.window is not None else 'off'}", flush=True)
+                  f"{'on' if brain.window is not None else 'off'}"
+                  f"{' | stress on' if getattr(session, 'stress', None) is not None else ''}",
+                  flush=True)
         rec_dir = args.record / name if (args.record and args.rotate) else args.record
         tl_dir = rec_dir or Path(cfg.logging.runs_dir) / "jobs" / name
-        runner = JobRunner(session, job, headless=args.headless, record_dir=rec_dir,
+        runner = KeyForwardingRunner(session, job, headless=args.headless, record_dir=rec_dir,
                            segment_s=args.segment_s, keep_segments=args.keep,
                            record_fps=args.fps, timelapse_every_s=args.timelapse,
                            timelapse_dir=tl_dir, print_every_s=args.print_every)

@@ -24,14 +24,23 @@ knife, gives a kebab carver.
 * **Counters**: shavings carved (the work counter), kebabs completed (every
   ``shavings_per_kebab``), micrograms served (and the human-scale equivalent), and
   the carving rate.
-* **Brain (only with --brain)**: the kebab counts as food. Every ``food_every_s`` the
-  job sends a sugar-taste stimulus (sugar GRNs, the "T" key's set) to the connectome
-  brain. With the full body (the job turns on the proboscis joints when the brain is
-  enabled) the proboscis follows the brain's MN9 feeding motor neuron rate. The
-  food response is the model's real wiring; calling sugar input "kebab" is a label.
+* **Brain reactions (only with --brain)**, all event driven:
+
+  - every cut sends a brief touch pulse from the carving side (the right body
+    mechanosensory afferents, a stand-in for leg touch: a blip per slice);
+  - a shaving landing near the proboscis, or the proboscis near the meat / a
+    shaving, sends a sugar-taste pulse (Shiu et al.'s sugar GRNs, the taste-patch
+    stand-in). With the full body (proboscis joints on when the brain is enabled)
+    the proboscis follows the brain's MN9 rate. The food response is the model's
+    wiring; calling sugar input "kebab" is a label;
+  - hunger / satiety (a phenomenological model): each taste raises satiety, which
+    decays over time; satiety scales the sugar drive and the carving speed down,
+    and a sated fly ignores food until it is hungry again.
 * **Stress (optional)**: if the session has an enabled stress handle
   (``session.stress``, docs/STRESS.md), the carving playback speed scales with its
-  CPG frequency multiplier, so an aroused fly carves faster.
+  CPG frequency multiplier, so an aroused fly carves faster. ``startle()`` pokes
+  the chef (a "shove" on the thorax; with stress on, the brain adds the nociceptive
+  relay, which recruits the OA neurons).
 
 Knife and chef hat: visual-only geoms (no mass, no contacts) added to the fly's
 right front tarsus1 / thorax just before ``add_fly``. They never change the dynamics.
@@ -155,14 +164,41 @@ class KebabConfig(JobConfig):
     # ---- station keeping -----------------------------------------------------------
     drift_tol: float = 0.45  # mm from the station -> stop carving and walk back
     heading_tol_deg: float = 25.0
-    # ---- brain tie-in (only if the session has a brain) ----------------------------
-    food_every_s: float = 4.0
-    food_duration_s: float = 1.0
-    food_intensity: float = 0.8
+    # ---- brain reactions (only if the session has a brain) --------------------------
     proboscis: bool = True  # full body when the brain is on (MN9 -> proboscis)
     mn9_ref_hz: float = 60.0  # MN9 rate that extends the proboscis fully
+    # every cut: a brief touch pulse on the carving (right) side. The set is the app's
+    # body mechanosensory afferents (mapping.named_sets "body_mech"); leg touch itself
+    # enters the VNC, which the model lacks, so this is a stand-in (docs/JOBS.md)
+    touch_per_cut: bool = True
+    touch_set: str = "body_mech"
+    touch_side: str = "right"
+    touch_hz: float = 150.0
+    touch_duration_s: float = 0.04
+    # taste, driven by events: a shaving landing within taste_radius of the proboscis,
+    # or the proboscis within mouth_reach of the meat / a shaving -> a sugar pulse
+    # (Shiu et al.'s labellar sugar GRNs, the taste-patch stand-in, docs/TASTE.md)
+    taste_radius: float = 1.5  # mm (landings are 1.3-2.3 mm from it; median 1.66)
+    mouth_reach: float = 0.4  # mm
+    taste_duration_s: float = 0.5
+    taste_refractory_s: float = 1.2  # min time between taste pulse onsets
+    sugar_max_hz: float = 150.0  # sugar rate when starving (x hunger)
+    sugar_min_hz: float = 50.0
+    # hunger / satiety: a phenomenological model (ours; time constants compressed
+    # for the show: a real fly takes hours to get hungry again)
+    satiety0: float = 0.2
+    satiety_per_taste: float = 0.07  # satiety += this per taste pulse (a bite)
+    satiety_tau_s: float = 45.0  # satiety decays with this time constant
+    full_at: float = 0.8  # satiety >= this -> "sated": food is ignored ...
+    hungry_below: float = 0.3  # ... until satiety drops below this
+    satiety_carve_gain: float = 0.4  # carve speed *= 1 - gain * satiety
     # ---- stress tie-in -------------------------------------------------------------
     stress_speed_gain: float = 1.0  # carve speed *= 1 + gain * (freq_mult - 1)
+    # startle (key S in run_job.py): a poke on the thorax, sent as a "shove"; with
+    # --stress the brain adds the nociceptive relay (docs/STRESS.md)
+    startle_intensity: float = 0.6
+    startle_duration_s: float = 0.2
+    startle_every_s: float = 0.0  # > 0: startle automatically (headless demos)
     chef_hat: bool = True
     # key-light shadow map: the fly's and the knife's shadows (visual only; costs an
     # extra depth pass, ~6 ms per 960x640 frame on an M1)
@@ -565,6 +601,29 @@ class KebabJob(EternalJob):
             a = mj.mj_name2id(m, mj.mjtObj.mjOBJ_ACTUATOR, f"{fly}/{dof}-proboscispos")
             if a >= 0:
                 self.prob_ids.append((a, sign))
+        # the proboscis (haustellum) geom: the "mouth" for the taste triggers
+        self.mouth_gid = mj.mj_name2id(m, mj.mjtObj.mjOBJ_GEOM, f"{fly}/c_haustellum")
+        # shavings in flight (launched by a cut, not landed yet): landing detection
+        self._shav_flying = np.zeros(c.n_shavings, dtype=bool)
+        self._shav_t0 = np.zeros(c.n_shavings)
+        # brain reactions (only with a brain)
+        self.n_touch = 0
+        self.n_taste = 0
+        self.n_taste_ignored = 0  # taste events while sated (no pulse)
+        self.n_landed = 0
+        self.n_landed_near = 0
+        self.n_startles = 0
+        self.taste_reasons: dict[str, int] = {}
+        self.last_taste = ""
+        self.satiety = float(c.satiety0)
+        self.sated = self.satiety >= c.full_at
+        self.n_sated_bouts = 0
+        self.satiety_mult = 1.0
+        self.stress_mult = 1.0
+        self._touch_pending = 0
+        self._taste_ready = 0.0
+        self._last_rt: float | None = None
+        self._next_startle = c.startle_every_s if c.startle_every_s > 0 else float("inf")
         # counters (O(1) memory)
         self.shavings = 0
         self.kebabs = 0
@@ -575,11 +634,9 @@ class KebabJob(EternalJob):
         self.max_rate = 0.0
         self.mn9_hz = 0.0
         self.proboscis = 0.0
-        self.n_food = 0
         self.speed_mult = 1.0
         self._cut_times: deque = deque(maxlen=512)  # run times of recent cuts (rate)
         self._rate_t0 = self.run_time()
-        self._next_food = 0.0
         self._update_div = 0
         self._last_msg = ""
         self.on_reset()
@@ -595,6 +652,7 @@ class KebabJob(EternalJob):
     def reset_props(self) -> None:
         """A fresh kebab (all chunks back), shavings back on the tray (keyframe)."""
         self.scale[:] = 1.0
+        self._shav_flying[:] = False
         self._apply_chunk_visuals(np.arange(self.n_chunks))
         self.sim.data.ctrl[self.motor_id] = self.spin_rad_s
 
@@ -744,6 +802,9 @@ class KebabJob(EternalJob):
         rng = np.random.default_rng(self.shavings + 7)
         d.qvel[va:va + 3] = v_surf + radial * c.shaving_kick + np.array([0.0, 0.0, -2.0])
         d.qvel[va + 3:va + 6] = rng.normal(0.0, 8.0, 3)
+        self._shav_flying[i] = True
+        self._shav_t0[i] = sim.time
+        self._touch_pending += 1  # sent to the brain (if any) in after_physics
         self.scale[j] = 0.0
         self._apply_chunk_visuals([j])
         self._t_last_cut = sim.time
@@ -797,34 +858,164 @@ class KebabJob(EternalJob):
         c = self.cfg
         s = self.session
         rt = self.run_time()
+        dt = 0.0 if self._last_rt is None else max(rt - self._last_rt, 0.0)
+        self._last_rt = rt
         # stress: an aroused fly carves faster
         st = getattr(s, "stress", None)
         if st is not None and getattr(st, "enabled", False):
             fm = float(getattr(st, "freq_mult", 1.0))
-            self.speed_mult = max(0.2, 1.0 + c.stress_speed_gain * (fm - 1.0))
+            self.stress_mult = max(0.2, 1.0 + c.stress_speed_gain * (fm - 1.0))
         else:
-            self.speed_mult = 1.0
-        # brain: the kebab counts as food (sugar-taste neurons) every food_every_s
+            self.stress_mult = 1.0
         link = getattr(s, "brain", None)
-        if link is not None and rt >= self._next_food:
-            from perpetualfly.brain.schema import StimulusEvent
-
-            self._next_food = rt + c.food_every_s
-            link.send(StimulusEvent("manual", "none", c.food_intensity, c.food_duration_s, rt,
-                                    details={"set": "sugar", "label": "KEBAB (sugar GRNs)"}),
-                      source="job")
-            self.n_food += 1
-            log = getattr(link, "stim_log", None)
-            if isinstance(log, list) and len(log) > 400:
-                del log[:-200]  # constant memory over an eternal run
+        if link is not None:
+            self._brain_reactions(link, rt, dt)
+        else:
+            self._touch_pending = 0
+            self.satiety_mult = 1.0
+        self.speed_mult = self.stress_mult * self.satiety_mult
         # shavings that left the arena (or went NaN): back onto the tray
         d = self.sim.data
         for i, qa in enumerate(self.shav_qadr):
             p = d.qpos[qa:qa + 3]
             if (not np.all(np.isfinite(p))) or p[2] < -0.5 or abs(p[0]) > 60 or abs(p[1]) > 60:
                 self._park_shaving(i)
+                self._shav_flying[i] = False
                 self.n_shavings_lost += 1
         self.max_rate = max(self.max_rate, self.rate_per_min())
+
+    # ------------------------------------------------------------ brain reactions
+    def mouth_pos(self) -> np.ndarray:
+        """World position of the proboscis (haustellum geom centre; head fallback)."""
+        d = self.sim.data
+        if self.mouth_gid >= 0:
+            return d.geom_xpos[self.mouth_gid].copy()
+        th = d.xpos[self.sim.thorax_body_id]
+        return th + d.xmat[self.sim.thorax_body_id].reshape(3, 3) @ np.array([0.35, 0.0, -0.2])
+
+    def _send(self, link, ev) -> None:
+        link.send(ev, source="job")
+        log = getattr(link, "stim_log", None)
+        if isinstance(log, list) and len(log) > 400:
+            del log[:-200]  # constant memory over an eternal run
+
+    def _brain_reactions(self, link, rt: float, dt: float) -> None:
+        """Touch per cut, event-driven taste, hunger / satiety, auto startle."""
+        from perpetualfly.brain.schema import StimulusEvent
+
+        c = self.cfg
+        # 1. a blip per slice: the carving side's mechanosensory afferents
+        if self._touch_pending and c.touch_per_cut:
+            self._send(link, StimulusEvent(
+                "manual", c.touch_side, 1.0, c.touch_duration_s, rt,
+                details={"set": c.touch_set, "rate_hz": c.touch_hz,
+                         "label": f"KNIFE TOUCH ({c.touch_set} {c.touch_side[:1].upper()})"}))
+            self.n_touch += 1
+        self._touch_pending = 0
+        # 2. hunger / satiety: decay (hunger returns), hysteresis between the modes
+        if dt > 0 and c.satiety_tau_s > 0:
+            self.satiety *= math.exp(-dt / c.satiety_tau_s)
+        if self.sated and self.satiety < c.hungry_below:
+            self.sated = False
+            self.say(f"hungry again (satiety {self.satiety:.2f})")
+        # 3. taste events
+        key, why = self._taste_event()
+        if key:
+            self._taste(link, key, why, rt)
+        self.satiety_mult = max(0.1, 1.0 - c.satiety_carve_gain * self.satiety)
+        # 4. automatic startle (headless demos)
+        if rt >= self._next_startle:
+            self._next_startle = rt + c.startle_every_s
+            self.startle()
+
+    def _taste_event(self) -> tuple[str, str]:
+        """(kind, text) of a taste now (("", "") = none): a shaving landed near the
+        proboscis ("landed"), or the proboscis is within reach of a shaving
+        ("shaving") or of the meat ("meat")."""
+        c = self.cfg
+        d = self.sim.data
+        mouth = self.mouth_pos()
+        why = ""
+        t = self.sim.time
+        for i in np.flatnonzero(self._shav_flying):
+            qa, va = self.shav_qadr[i], self.shav_vadr[i]
+            p = d.qpos[qa:qa + 3]
+            if t - self._shav_t0[i] > 3.0:  # never settled (e.g. still sliding)
+                self._shav_flying[i] = False
+                continue
+            if (t - self._shav_t0[i] > 0.05 and p[2] < self.tray_top + 0.15
+                    and float(np.linalg.norm(d.qvel[va:va + 3])) < 3.0):
+                self._shav_flying[i] = False
+                self.n_landed += 1
+                dist = float(np.linalg.norm(p - mouth))
+                if dist < c.taste_radius:
+                    self.n_landed_near += 1
+                    why = why or f"shaving landed {dist:.1f} mm away"
+        if why:
+            return "landed", why
+        if c.mouth_reach > 0:
+            sh = np.array([d.qpos[qa:qa + 3] for qa in self.shav_qadr])
+            if float(np.min(np.linalg.norm(sh - mouth, axis=1))) < c.mouth_reach:
+                return "shaving", "proboscis on a shaving"
+            ripe = self.scale >= c.ripe_frac
+            if ripe.any():
+                dm = np.linalg.norm(self.chunk_centres()[ripe] - mouth, axis=1)
+                if float(np.min(dm)) < c.mouth_reach:
+                    return "meat", "proboscis on the meat"
+        return "", ""
+
+    def _taste(self, link, key: str, why: str, rt: float) -> bool:
+        """One taste: a sugar pulse scaled by hunger (none while sated / refractory).
+        Returns True if a pulse was sent."""
+        from perpetualfly.brain.schema import StimulusEvent
+
+        c = self.cfg
+        if self.sated:
+            self.n_taste_ignored += 1
+            return False
+        if rt < self._taste_ready:
+            return False
+        hunger = 1.0 - self.satiety
+        rate = max(c.sugar_min_hz, c.sugar_max_hz * hunger)
+        self._taste_ready = rt + c.taste_refractory_s
+        self._send(link, StimulusEvent(
+            "taste", "none", hunger, c.taste_duration_s, rt,
+            details={"tastes": ["sugar"], "sugar_hz": rate,
+                     "label": f"KEBAB TASTE ({why}; sugar GRNs {rate:.0f} Hz)"}))
+        self.n_taste += 1
+        self.taste_reasons[key] = self.taste_reasons.get(key, 0) + 1
+        self.last_taste = why
+        self.satiety = min(1.0, self.satiety + c.satiety_per_taste)
+        if not self.sated and self.satiety >= c.full_at:
+            self.sated = True
+            self.n_sated_bouts += 1
+            self.say(f"full (satiety {self.satiety:.2f}): ignoring the kebab for a while")
+        return True
+
+    def startle(self, side: str = "none") -> bool:
+        """Poke the chef: a "shove" on the thorax (body mechanosensory afferents; with
+        --stress the brain adds the nociceptive relay -> OA neurons -> arousal).
+        Needs a brain; returns True if sent."""
+        link = getattr(self.session, "brain", None)
+        if link is None:
+            return False
+        from perpetualfly.brain.schema import StimulusEvent
+
+        c = self.cfg
+        self._send(link, StimulusEvent("shove", side, c.startle_intensity, c.startle_duration_s,
+                                       self.run_time(),
+                                       details={"body": "thorax", "label": "STARTLE (poke)"}))
+        self.n_startles += 1
+        self.say(f"startle #{self.n_startles}: the chef is poked")
+        return True
+
+    def handle_key(self, k: str) -> bool:
+        """Job keys (run_job.py forwards unknown keys): S = startle the chef."""
+        if k == "s":
+            if not self.startle():
+                self.say("[kebab] startle needs --brain (and --stress for the speed-up)")
+            return True
+        return False
 
     def _park_shaving(self, i: int) -> None:
         d = self.sim.data
@@ -846,15 +1037,20 @@ class KebabJob(EternalJob):
         c = self.cfg
         ug = self.shavings * c.slice_ug
         human_kg = ug * 1e-9 * HUMAN_SCALE
+        brain = getattr(self.session, "brain", None) is not None
         lines = [
             f"kebabs {self.kebabs} (every {c.shavings_per_kebab})   served {ug / 1000:.3f} mg"
             f" = {human_kg:,.0f} kg human-scale   {self.rate_per_min():.0f}/min",
             f"spit {c.spin_rpm:.0f} rpm   regrowing {int(np.sum(self.scale < 1.0))}/{self.n_chunks}"
-            + (f"   stress x{self.speed_mult:.2f}" if self.speed_mult != 1.0 else "")
-            + (f"   MN9 {self.mn9_hz:.0f} Hz  proboscis {self.proboscis:.0%}"
-               if getattr(self.session, "brain", None) is not None else ""),
-            "knife stroke = a real recorded fly grooming bout",
+            + (f"   stress x{self.stress_mult:.2f}" if self.stress_mult != 1.0 else "")
+            + (f"   MN9 {self.mn9_hz:.0f} Hz  proboscis {self.proboscis:.0%}" if brain else ""),
         ]
+        if brain:
+            mode = "SATED" if self.sated else (
+                "hungry" if self.satiety < c.hungry_below else "feeding")
+            lines.append(f"HUNGER {1.0 - self.satiety:.2f} (model) {mode}   carve "
+                         f"x{self.speed_mult:.2f}   tastes {self.n_taste}   touches {self.n_touch}")
+        lines.append("knife stroke = a real recorded fly grooming bout")
         return lines
 
     def job_stats(self) -> dict:
@@ -863,4 +1059,7 @@ class KebabJob(EternalJob):
                 "rate_per_min": self.rate_per_min(), "max_rate_per_min": self.max_rate,
                 "regrowing": int(np.sum(self.scale < 1.0)), "carve_bouts": self.n_carve_bouts,
                 "repositions": self.n_repositions, "shavings_lost": self.n_shavings_lost,
-                "food_stimuli": self.n_food, "mn9_hz": self.mn9_hz}
+                "mn9_hz": self.mn9_hz, "touch_stimuli": self.n_touch,
+                "taste_stimuli": self.n_taste, "tastes_ignored_sated": self.n_taste_ignored,
+                "satiety": self.satiety, "sated_bouts": self.n_sated_bouts,
+                "carve_speed_mult": self.speed_mult, "startles": self.n_startles}

@@ -1,6 +1,7 @@
 """The doner kebab job (perpetualfly/jobs/kebab.py): props, visual-only knife, the
 recorded carving stroke, cutting / shavings / regrowth, explicit reset, and the
-optional brain (sugar stimulus, MN9 -> proboscis) and stress tie-ins with fakes."""
+optional brain reactions (touch per cut, event-driven taste, hunger / satiety,
+startle; MN9 -> proboscis) and stress tie-ins with fakes."""
 
 from __future__ import annotations
 
@@ -197,28 +198,169 @@ def test_cut_regrow_and_reset(kebab):
                                job._park[0][:3])
 
 
-def test_brain_and_stress_tie_ins_with_fakes(kebab):
-    session, job, _ = kebab
-    sent = []
-    fake_link = SimpleNamespace(send=lambda ev, source="": sent.append(ev), stim_log=[],
-                                latest=SimpleNamespace(probes={"MN9": 60.0}))
-    session.brain = fake_link
-    session.stress = SimpleNamespace(enabled=True, freq_mult=1.5)
+class _FakeLink:
+    def __init__(self, mn9=0.0):
+        self.sent = []
+        self.stim_log = []
+        self.latest = SimpleNamespace(probes={"MN9": mn9})
+
+    def update(self):  # Session.after_physics calls it
+        pass
+
+    def send(self, ev, source=""):
+        self.sent.append(ev)
+        self.stim_log.append(ev)
+
+    def kinds(self, kind, label=""):
+        return [e for e in self.sent if e.kind == kind and label in e.details.get("label", "")]
+
+
+def _land_near_mouth(job, i=0):
+    """Put shaving i, as if just launched by a cut, at rest on the tray below the mouth."""
+    d = job.sim.data
+    mouth = job.mouth_pos()
+    qa, va = job.shav_qadr[i], job.shav_vadr[i]
+    d.qpos[qa:qa + 3] = (mouth[0], mouth[1], job.tray_top + 0.035)
+    d.qvel[va:va + 6] = 0.0
+    job._shav_flying[i] = True
+    job._shav_t0[i] = job.sim.time - 0.5
+    return float(np.linalg.norm(d.qpos[qa:qa + 3] - mouth))
+
+
+def test_brain_reactions_touch_taste_satiety_with_fakes(kebab):
+    session, job, msgs = kebab
+    c = job.cfg
+    link = _FakeLink(mn9=60.0)
+    session.brain = link
+    job._shav_flying[:] = False
+    job.satiety, job.sated, job._taste_ready, job._last_rt = 0.2, False, 0.0, None
     try:
-        job._next_food = 0.0
+        # every cut -> one brief touch pulse on the carving side (body_mech R)
         job.after_physics()
-        assert len(sent) == 1 and sent[0].details["set"] == "sugar"
-        assert sent[0].duration_s == job.cfg.food_duration_s
-        assert job.speed_mult == pytest.approx(1.5)
-        job.after_physics()  # not again before food_every_s
-        assert len(sent) == 1
-        session.sim.step(200)  # updates read MN9 (no proboscis joints in this body)
+        assert link.sent == []  # no cut, no landing -> nothing (no timer any more)
+        job._cut(int(np.flatnonzero(job.scale >= job.cfg.ripe_frac)[0]), 50.0)
+        job._shav_flying[:] = False  # (the launched shaving is not tested here)
+        job.after_physics()
+        (touch,) = link.kinds("manual", "KNIFE TOUCH")
+        assert touch.details["set"] == "body_mech" and touch.side == "right"
+        assert touch.duration_s == c.touch_duration_s and touch.details["rate_hz"] == c.touch_hz
+        assert job.n_touch == 1
+        # a shaving landing near the proboscis -> a sugar taste pulse scaled by hunger
+        assert _land_near_mouth(job) < c.taste_radius
+        job.after_physics()
+        (taste,) = link.kinds("taste")
+        assert taste.details["tastes"] == ["sugar"]
+        assert taste.details["sugar_hz"] == pytest.approx(c.sugar_max_hz * 0.8)
+        assert "landed" in taste.details["label"] and job.taste_reasons == {"landed": 1}
+        assert job.satiety == pytest.approx(0.2 + c.satiety_per_taste, abs=1e-3)
+        # refractory: a second landing right away gives no pulse
+        _land_near_mouth(job, 1)
+        job.after_physics()
+        assert len(link.kinds("taste")) == 1 and job.n_landed_near == 2
+        # a landing far from the fly is not a taste
+        job._taste_ready = 0.0
+        d = session.sim.data
+        qa = job.shav_qadr[2]
+        d.qpos[qa:qa + 3] = (job._tray[1] - 0.3, job._tray[3] - 0.3, job.tray_top + 0.035)
+        d.qvel[job.shav_vadr[2]:job.shav_vadr[2] + 6] = 0.0
+        job._shav_flying[2], job._shav_t0[2] = True, session.sim.time - 0.5
+        job.after_physics()
+        assert len(link.kinds("taste")) == 1 and job.n_landed == 3
+        # satiety: fills up -> sated (food ignored), carving slows down ...
+        for k in range(40):
+            job._taste_ready = 0.0
+            _land_near_mouth(job, 3 + k % 5)
+            job.after_physics()
+            if job.sated:
+                break
+        assert job.sated and job.satiety >= c.full_at and job.n_sated_bouts == 1
+        assert any("full" in m for m in msgs)
+        n = len(link.kinds("taste"))
+        assert link.kinds("taste")[-1].details["sugar_hz"] < taste.details["sugar_hz"]
+        job._taste_ready = 0.0
+        _land_near_mouth(job, 9)
+        job.after_physics()
+        assert len(link.kinds("taste")) == n and job.n_taste_ignored == 1
+        assert job.speed_mult == pytest.approx(1 - c.satiety_carve_gain * job.satiety, abs=1e-3)
+        assert job.speed_mult < 0.75
+        assert any("HUNGER" in ln and "SATED" in ln for ln in job.hud_lines())
+        # ... and hunger returns: satiety decays with satiety_tau_s
+        s0 = job.satiety
+        job._last_rt = job.run_time() - 10.0
+        job.after_physics()
+        assert job.satiety == pytest.approx(s0 * math.exp(-10.0 / c.satiety_tau_s), rel=0.02)
+        job._last_rt = job.run_time() - 60.0
+        job.after_physics()
+        assert not job.sated and any("hungry again" in m for m in msgs)
+        # stress: an aroused fly carves faster (combined with the satiety factor)
+        session.stress = SimpleNamespace(enabled=True, freq_mult=1.5)
+        job.after_physics()
+        assert job.stress_mult == pytest.approx(1.5)
+        assert job.speed_mult == pytest.approx(1.5 * job.satiety_mult)
+        # startle (key S): a shove on the thorax (the brain adds the relay with --stress)
+        assert job.handle_key("s") and not job.handle_key("z")
+        (poke,) = link.kinds("shove")
+        assert poke.details["body"] == "thorax" and poke.intensity == c.startle_intensity
+        assert job.n_startles == 1
+        # MN9 is read and shown
+        session.sim.step(200)
         assert job.mn9_hz == 60.0 and job.prob_ids == []
         assert any("MN9 60 Hz" in ln for ln in job.hud_lines())
     finally:
         session.brain = None
         del session.stress
-        job.speed_mult = 1.0
+        job.speed_mult = job.stress_mult = job.satiety_mult = 1.0
+
+
+def test_brain_off_no_reactions(kebab):
+    """Without a brain nothing is sent and carving speed is unchanged."""
+    session, job, _ = kebab
+    assert getattr(session, "brain", None) is None
+    job._cut(int(np.flatnonzero(job.scale >= job.cfg.ripe_frac)[0]), 50.0)
+    job.after_physics()
+    assert job.speed_mult == 1.0 and job._touch_pending == 0
+    assert not job.startle() and job.handle_key("s")
+    assert not any("HUNGER" in ln for ln in job.hud_lines())
+
+
+def test_carving_sends_a_touch_per_cut_and_detects_landings(kebab):
+    """Running the job with a (fake) brain: one touch pulse per cut; the launched
+    shavings are seen landing."""
+    session, job, _ = kebab
+    link = _FakeLink()
+    session.brain = link
+    job._shav_flying[:] = False
+    job.n_landed = 0
+    try:
+        n0 = job.shavings
+        JobRunner(session, job, print_every_s=1e9, say=lambda m: None).run(max_seconds=1.5)
+        cuts = job.shavings - n0
+        assert cuts >= 3
+        assert len(link.kinds("manual", "KNIFE TOUCH")) == cuts
+        assert job.n_landed >= 1
+    finally:
+        session.brain = None
+        job.speed_mult = job.stress_mult = job.satiety_mult = 1.0
+
+
+def test_run_job_forwards_job_keys():
+    import importlib.util
+    from pathlib import Path
+
+    path = Path(__file__).resolve().parents[1] / "scripts" / "run_job.py"
+    spec = importlib.util.spec_from_file_location("run_job", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    args = mod.build_parser().parse_args(["--job", "kebab", "--stress"])
+    assert args.stress and mod.app_config(args).stress.enabled
+    seen = []
+    r = object.__new__(mod.KeyForwardingRunner)  # (no session needed for keys)
+    r.job = SimpleNamespace(handle_key=lambda k: seen.append(k) or k == "s")
+    r.quit_reason, r.renderer, r.paused = "max-seconds", None, False
+    r._handle_key("s")
+    assert seen == ["s"] and not r.paused
+    r._handle_key("p")  # not the job's: the runner's pause
+    assert r.paused and seen == ["s", "p"]
 
 
 def test_full_body_proboscis_follows_mn9():
