@@ -5,7 +5,9 @@ game HUD (score, lives, wave, time, events, honest label) and, on the right, a
 panel with what the brain sees (LC4 / LPLC2 drive per eye) and what it does
 (DNa01/02 turn, walk, MDN, giant fibre rates, the resulting drive). FOLLOW THE
 LEADER (``session.game_name == "chase"``) uses ``draw_chase_hud`` (following time,
-catches, distance meter, radar) and ``chase_panel`` (LC10a drive per eye).
+catches, distance meter, radar) and ``chase_panel`` (LC10a drive per eye); FLY
+THROUGH RINGS (``"rings"``) ``draw_rings_hud`` (rings, streak, flight line, ring
+radar) and ``rings_panel``.
 """
 
 from __future__ import annotations
@@ -340,14 +342,180 @@ def chase_panel(session, size=(400, 640)) -> np.ndarray:
     return img
 
 
+def draw_rings_hud(img: np.ndarray, session, *, high_score: int | None = None,
+                   paused: bool = False, recent_events: list | None = None,
+                   hint: str | None = None) -> np.ndarray:
+    """HUD of FLY THROUGH RINGS: score, lives, rings, streak, flight line, ring radar."""
+    g = session.game
+    c = g.cfg
+    H, W = img.shape[:2]
+    small = W < 800
+    over = img.copy()
+    cv2.rectangle(over, (0, 0), (W, 104 if small else 84), (0, 0, 0), -1)
+    cv2.addWeighted(over, 0.45, img, 0.55, 0, img)
+    text(img, "FLY BRAIN PLAYS: FLY THROUGH RINGS" if not small else "FLY THROUGH RINGS",
+         (12, 24), 0.62, YELLOW, 2)
+    lab = CONTROL_LABEL.get(session.brain.control, session.brain.control)
+    lab = lab.replace("constant walk", "straight flight")
+    text(img, lab, (12, 50), 0.48, GREEN if session.brain.control == "brain" else ORANGE, 1)
+    score = f"SCORE {int(g.score)}"
+    (sw, _), _ = cv2.getTextSize(score, FONT, 0.62, 2)
+    text(img, score, (W - sw - 14, 24), 0.62, WHITE, 2)
+    for k in range(c.lives):
+        _heart(img, W - sw - 40 - 26 * k, 18, 9, RED if k < g.lives else (70, 70, 70))
+    hs = f"BEST {high_score}" if high_score is not None else ""
+    lvl = f"LEVEL {g.level}  {c.difficulty}  {hs}"
+    stats = (f"rings {g.passed}   missed {g.missed}   crashes {g.crashes}   "
+             f"streak {g.streak} (best {g.best_streak})")
+    text(img, stats, (12, 74), 0.45, GREY)
+    if small:
+        text(img, lvl, (12, 96), 0.45, GREY)
+    else:
+        (ww, _), _ = cv2.getTextSize(lvl, FONT, 0.45, 1)
+        text(img, lvl, (W - ww - 14, 50), 0.45, GREY)
+    # flight line (bottom-left, above the footer)
+    fm = session.flight
+    alt = fm.altitude()
+    v = float(np.hypot(*session.sim.thorax_linvel()[:2]))
+    fl = (f"FLIGHT {fm.state.upper()}  {fm.freq:3.0f} Hz  alt {alt:4.1f} mm  "
+          f"v {v:3.0f} mm/s  set {session.pilot.speed:.0f} mm/s  heading cmd "
+          f"{np.degrees(session.pilot.yaw_rate):+4.0f} deg/s")
+    text(img, fl, (12, H - 92), 0.45, CYAN)
+    # ring radar (right): the fly at the bottom centre facing up, the next ring as a bar
+    r = g.course.target_ring()
+    if r is not None and g.state in ("playing", "trial"):
+        x0, y0 = W - 150, (118 if small else 100)
+        cw, ch = 136, 120
+        cv2.rectangle(img, (x0, y0), (x0 + cw, y0 + ch), (30, 30, 30), -1)
+        cv2.rectangle(img, (x0, y0), (x0 + cw, y0 + ch), (120, 120, 120), 1)
+        rng = 40.0  # mm shown ahead
+        sc = ch / rng
+        fx, fy = x0 + cw // 2, y0 + ch - 8
+        p = session.sim.com()[:2]
+        yaw = session.pilot.true_yaw()
+        cy_, sy_ = np.cos(yaw), np.sin(yaw)
+        for ring in g.course.done + g.course.rings:
+            rel = ring.center[:2] - p
+            fwd = cy_ * rel[0] + sy_ * rel[1]
+            lft = -sy_ * rel[0] + cy_ * rel[1]
+            if not (-5 < fwd < rng):
+                continue
+            n = np.array([np.cos(ring.yaw - yaw), np.sin(ring.yaw - yaw)])
+            t_ = np.array([-n[1], n[0]]) * ring.radius
+            a = (fx - int(sc * (lft + t_[1])), fy - int(sc * (fwd + t_[0])))
+            b = (fx - int(sc * (lft - t_[1])), fy - int(sc * (fwd - t_[0])))
+            col = (GREEN if ring.status == "passed" else RED if ring.status == "missed"
+                   else ORANGE if ring is r else (200, 170, 120))
+            cv2.line(img, a, b, col, 3 if ring is r else 2, cv2.LINE_AA)
+        cv2.fillPoly(img, [np.array([[fx, fy - 7], [fx - 5, fy + 4], [fx + 5, fy + 4]], np.int32)],
+                     (90, 170, 230), cv2.LINE_AA)
+        side = "left" if g.bearing_deg > 0 else "right"
+        text(img, f"next ring {max(-g.ring_rel[0], 0):4.1f} mm, {abs(g.bearing_deg):3.0f} deg "
+                  f"{side}", (x0 - 110, y0 + ch + 20), 0.45, WHITE)
+    now = g.time()
+    evs = [e for e in (recent_events if recent_events is not None else g.events)
+           if e.kind in ("pass", "miss", "crash", "level", "go", "respawn") and now - e.t < 1.2]
+    y = 150 if small else 132
+    for e in evs[-3:]:
+        col = {"pass": GREEN, "miss": RED, "crash": RED, "level": YELLOW,
+               "go": YELLOW}.get(e.kind, WHITE)
+        text(img, e.text, (W // 2 - 110, y), 0.9, col, 2)
+        y += 34
+    if g.state == "gameover":
+        over = img.copy()
+        cv2.rectangle(over, (W // 2 - 260, H // 2 - 80), (W // 2 + 260, H // 2 + 70), (0, 0, 0), -1)
+        cv2.addWeighted(over, 0.6, img, 0.4, 0, img)
+        text(img, "GAME OVER", (W // 2 - 120, H // 2 - 30), 1.3, RED, 3)
+        text(img, f"score {int(g.score)}   rings {g.passed}   best streak {g.best_streak}",
+             (W // 2 - 215, H // 2 + 10), 0.6, WHITE)
+        text(img, "R restart   1/2/3 difficulty   Q quit", (W // 2 - 175, H // 2 + 45), 0.55, GREY)
+    elif g.state == "ready":
+        msg = "TAKE-OFF" if fm.state == "takeoff" else "GET READY: fly through the orange ring"
+        text(img, msg, (W // 2 - 230, H // 2 - 90), 0.85, YELLOW, 2)
+    elif g.state == "respawn":
+        text(img, "CRASHED: relaunching", (W // 2 - 150, H // 2 - 90), 0.85, RED, 2)
+    if paused:
+        text(img, "PAUSED (space)", (W // 2 - 110, H // 2 + 110), 0.9, YELLOW, 2)
+    _footer(img, hint)
+    return img
+
+
+def rings_panel(session, size=(400, 640)) -> np.ndarray:
+    """What the brain sees (the next ring -> LC10a per eye) and what it does."""
+    W, H = size
+    img = np.full((H, W, 3), PANEL_BG, np.uint8)
+    b = session.brain
+    g = session.game
+    rt = g.time()
+    text(img, "THE BRAIN", (14, 28), 0.7, YELLOW, 2, outline=False)
+    if b.control == "none":
+        text(img, "disconnected (control): heading rate 0", (14, 52), 0.45, ORANGE, 1,
+             outline=False)
+    else:
+        lag = b.lag(rt)
+        st = b.latest
+        rtf = f"x{st.realtime_factor:.2f}" if st is not None else "-"
+        text(img, f"FlyWire v783 LIF, 138,639 neurons  lag {lag or 0:.2f}s {rtf}",
+             (14, 52), 0.4, GREY, 1, outline=False)
+    y = 86
+    text(img, "SEES (next ring -> LC10a pursuit neurons, Hz)", (14, y), 0.45, CYAN, 1,
+         outline=False)
+    y += 30
+    pur = b.pursuit_drive(rt)
+    mir = b.control == "mirror"
+    for eye in ("left", "right"):
+        tgt = {"left": "right", "right": "left"}[eye] if mir else eye
+        _bar(img, 14, y, W - 28, 12, pur[eye], 150, CYAN, f"{eye} eye -> {tgt} LC10a")
+        y += 32
+    if g.course.target_ring() is not None:
+        side = "left" if g.bearing_deg > 0 else "right"
+        text(img, f"ring {max(-g.ring_rel[0], 0):4.1f} mm ahead, {abs(g.bearing_deg):3.0f} deg "
+                  f"to the {side}", (14, y), 0.45, WHITE, 1, outline=False)
+    else:
+        text(img, "no ring in view", (14, y), 0.45, GREY, 1, outline=False)
+    y += 30
+    r = b.rates if b.control != "none" else {}
+    text(img, "DOES (descending neurons, Hz)", (14, y), 0.45, GREEN, 1, outline=False)
+    y += 30
+    rows = [
+        ("turn L  DNa01/02 L -> heading left", r.get("turn_L", 0.0), 80, GREEN),
+        ("turn R  DNa01/02 R -> heading right", r.get("turn_R", 0.0), 80, GREEN),
+        ("walk  BDN2/oDN1/P9 (not mapped in flight)",
+         0.5 * (r.get("walk_L", 0) + r.get("walk_R", 0)), 80, GREY),
+        ("MDN (not mapped in flight)", 0.5 * (r.get("backward_L", 0) + r.get("backward_R", 0)),
+         40, GREY),
+        ("giant fibre DNp01 (not mapped here)", r.get("escape", 0.0), 200, RED),
+    ]
+    for label, v, vmax, col in rows:
+        _bar(img, 14, y, W - 28, 12, float(v), vmax, col, label)
+        y += 32
+    y += 4
+    p = session.pilot
+    text(img, f"heading command {np.degrees(p.yaw_rate):+5.0f} deg/s (turn {p.turn:+.2f})",
+         (14, y), 0.5, WHITE, 1, outline=False)
+    arrow = ("<- turning left" if p.turn > 0.05 else
+             ("turning right ->" if p.turn < -0.05 else "straight"))
+    text(img, arrow, (14, y + 24), 0.5, YELLOW, 1, outline=False)
+    y += 52
+    for ln in _wrap("Brain responses are real connectome wiring: one eye's LC10a drives the "
+                    "same side's DNa01/02 (turn toward). Flight is real flapping-wing "
+                    "aerodynamics; speed and altitude are held by the flight controller. "
+                    "What the brain sees and how its outputs map to controls is our game "
+                    "interface.", 48):
+        text(img, ln, (14, y), 0.4, (190, 210, 190), 1, outline=False)
+        y += 17
+    return img
+
+
 def compose(frame_rgb: np.ndarray, session, *, panel: bool = True, **hud_kw) -> np.ndarray:
     img = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR)
-    chase = getattr(session, "game_name", "asteroids") == "chase"
-    (draw_chase_hud if chase else draw_hud)(img, session, **hud_kw)
+    name = getattr(session, "game_name", "asteroids")
+    hud_fn, panel_fn = {"chase": (draw_chase_hud, chase_panel),
+                        "rings": (draw_rings_hud, rings_panel)}.get(name, (draw_hud, brain_panel))
+    hud_fn(img, session, **hud_kw)
     if not panel:
         return img
     H = img.shape[0]
-    panel_fn = chase_panel if chase else brain_panel
     if H >= 600:
         p = panel_fn(session, (400, H))
     else:  # the panel needs ~600 px: draw it at 640 and scale it to fit

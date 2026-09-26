@@ -427,3 +427,196 @@ def test_play_script_chase_synthetic(tmp_path):
                    "--width", "320", "--height", "240"])
     assert rc == 0
     assert len(list(frames.glob("chase_*.png"))) == 1
+
+
+# ---------------------------------------------------------------------------
+# game 3: FLY THROUGH RINGS (real flapping-wing flight)
+# ---------------------------------------------------------------------------
+
+from perpetualfly.games import (  # noqa: E402
+    RINGS_DIFFICULTIES,
+    RingCourse,
+    RingsConfig,
+    rings_level_params,
+    turn_command,
+)
+from perpetualfly.games.rings_experiment import (  # noqa: E402
+    format_rings_summary,
+    make_ring_specs,
+    summarize_rings,
+)
+
+
+def test_turn_command_directions():
+    assert turn_command({}) == 0.0
+    assert turn_command({"turn_L": 50.0}) > 0.9  # left DNa01/02 -> steer left
+    assert turn_command({"turn_R": 50.0}) < -0.9
+    assert abs(turn_command({"turn_L": 30.0, "turn_R": 30.0})) < 1e-12
+    assert turn_command({"turn_L": -5.0}) == 0.0
+
+
+def test_rings_levels_and_difficulty():
+    c = RingsConfig()
+    p1, p3 = rings_level_params(c, 1), rings_level_params(c, 3)
+    assert p1["speed"] == RINGS_DIFFICULTIES["normal"].speed and p3["speed"] > p1["speed"]
+    assert p3["max_shift_mm"] > p1["max_shift_mm"]
+    e = rings_level_params(RingsConfig(difficulty="easy"), 1)
+    h = rings_level_params(RingsConfig(difficulty="hard"), 1)
+    assert e["speed"] < h["speed"] and e["radius_mm"] > h["radius_mm"]
+
+
+def test_ring_course_layout_without_sim():
+    course = RingCourse(RingsConfig(), seed=3)
+    course.start(np.array([0.0, 0.0, 6.0]), 0.0, first_offset_mm=4.0)
+    rs = course.rings
+    assert len(rs) == course.cfg.n_rings
+    assert np.allclose(rs[0].center, [course.cfg.first_dist_mm, 4.0, course.cfg.altitude_mm])
+    xs = [r.center[0] for r in rs]
+    assert np.allclose(np.diff(xs), course.cfg.spacing_mm)
+    for a, b in zip(rs, rs[1:]):
+        step = abs(b.center[1] - a.center[1])
+        assert course.cfg.min_shift_mm - 1e-9 <= step <= course.max_shift + 1e-9
+    s, lat, vert = RingCourse.plane_coords(rs[0], np.array([20.0, 1.0, 6.5]))
+    assert s < 0 and lat < 0 and vert == pytest.approx(0.5)
+    first = rs[0]
+    done = course.advance("passed")
+    assert done is first and done.status == "passed" and course.done == [first]
+    assert len(course.rings) == course.cfg.n_rings and course.target_ring() is not first
+
+
+def test_rings_experiment_summary():
+    specs = make_ring_specs(4, seed=1)
+    assert [s.offset_mm > 0 for s in specs] == [True, False, True, False]
+    assert all(3.5 <= abs(s.offset_mm) <= 7.0 for s in specs)
+    rows = []
+    for i in range(4):
+        rows.append({"trial": i, "control": "brain", "through": i < 3, "why": "crossed",
+                     "radial_mm": 1.0 + i, "initial_turn_toward_deg": 10.0})
+        rows.append({"trial": i, "control": "none", "through": False, "why": "crossed",
+                     "radial_mm": 5.0, "initial_turn_toward_deg": 0.0})
+    summ = summarize_rings(rows)
+    assert summ["conditions"]["brain"]["through"] == 3
+    assert summ["conditions"]["brain"]["initial_turn_toward"] == "4/4"
+    p = summ["paired"]["brain_vs_none"]
+    assert p["through_only_brain"] == 3 and p["through_only_none"] == 0
+    assert p["first_closer"] == "4/4"
+    assert "brain vs none" in format_rings_summary(summ)
+
+
+@pytest.fixture(scope="module")
+def rings():
+    from perpetualfly.games.session import RingsSession
+
+    s = RingsSession(GameBrain("none"), RingsConfig(lives=2, takeoff=False, ready_s=0.3),
+                     seed=0)
+    yield s
+    s.close()
+
+
+def _fly_to_ring(s, offset, timeout=2.0):
+    """Straight flight (no brain) at one ring ``offset`` mm to the left."""
+    g = s.game
+    g.state = "trial"
+    g.last_outcome = None
+    g.start_course(first_offset_mm=offset, n=1)
+    t0 = g.time()
+    while g.last_outcome is None and g.time() - t0 < timeout:
+        s.step()
+    return g.last_outcome
+
+
+def test_rings_flight_through_and_miss(rings):
+    s = rings
+    s.restart()
+    _steps(s, 0.35)
+    assert s.pilot.airborne and s.flight.state == "forward"
+    assert abs(s.flight.altitude() - s.cfg.altitude_mm) < 0.6
+    o = _fly_to_ring(s, 0.0)
+    assert o is not None and o["through"] and o["radial_mm"] < 1.0
+    o = _fly_to_ring(s, 6.0)
+    assert o is not None and not o["through"] and o["lateral_mm"] < -4.0
+    assert s.game.passed == 1 and s.game.missed == 1 and s.game.lives == s.cfg.lives  # trial
+
+
+def test_ring_on_the_left_drives_left_lc10a(rings):
+    s = rings
+    s.restart()
+    _steps(s, 0.35)
+    g = s.game
+    g.state = "trial"
+    g.start_course(first_offset_mm=8.0, n=1)
+    n0 = len(s.vision.sent)
+    _steps(s, 0.05)
+    evs = s.vision.sent[n0:]
+    assert evs and all(e.kind == "manual" and e.details["set"] == "LC10a" for e in evs)
+    assert {e.side for e in evs} == {"left"} and g.bearing_deg > 10
+    g.start_course(first_offset_mm=-8.0, n=1)
+    n0 = len(s.vision.sent)
+    _steps(s, 0.05)
+    assert {e.side for e in s.vision.sent[n0:]} == {"right"}
+
+
+def test_heading_command_turns_the_flying_fly(rings):
+    s = rings
+    s.restart()
+    _steps(s, 0.35)
+    y0 = s.pilot.true_yaw()
+    for _ in range(40):  # 0.2 s of full left command
+        s.sim.step(s.chunk_steps)
+        s.pilot.update(1.0, s.chunk_steps * s.sim.timestep)
+    dy = math.degrees((s.pilot.true_yaw() - y0 + math.pi) % (2 * math.pi) - math.pi)
+    assert 8.0 < dy < 35.0, dy  # 120 deg/s commanded, minus the low-pass / tracking lag
+    assert s.pilot.airborne
+
+
+def test_rings_miss_costs_lives_gameover_restart(rings):
+    s = rings
+    s.restart()
+    g = s.game
+    _steps(s, g.cfg.ready_s + 0.1)
+    assert g.state == "playing" and g.course.target_ring() is not None
+    for _ in range(2):  # force misses: the next ring far to the side
+        g.course.rings[0].center[1] += 15.0
+        g._begin_ring()
+        t0 = g.time()
+        n = g.missed
+        while g.missed == n and g.time() - t0 < 2.0:
+            s.step()
+    assert g.missed == 2 and g.state == "gameover" and g.lives == 0
+    assert any(e.kind == "miss" for e in g.events)
+    s.restart("easy")
+    assert g.state == "ready" and g.lives == g.cfg.lives and g.score == 0
+    assert s.pilot.speed == RINGS_DIFFICULTIES["easy"].speed
+    g.cfg.difficulty = "normal"
+    s.restart()
+
+
+def test_rings_hud_frame(rings):
+    from perpetualfly.games.hud import compose
+    from perpetualfly.games.session import make_renderer
+
+    rings.restart()
+    _steps(rings, rings.cfg.ready_s + 0.1)
+    r = make_renderer(rings.sim, 320, 240, **rings.camera)
+    try:
+        img = compose(rings.render(r), rings)
+    finally:
+        r.close()
+    assert img.shape == (240, 320 + 150, 3) and img[:, 320:].mean() > 5
+
+
+def test_play_script_rings_synthetic(tmp_path):
+    import importlib.util
+    from pathlib import Path
+
+    path = Path(__file__).resolve().parents[1] / "scripts" / "play.py"
+    spec = importlib.util.spec_from_file_location("play_script_rings", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    hs = tmp_path / "hs.json"
+    frames = tmp_path / "frames"
+    rc = mod.main(["--game", "rings", "--synthetic-brain", "--air-start", "--max-seconds", "1.0",
+                   "--highscores", str(hs), "--frames", str(frames), "--frame-times", "0.9",
+                   "--width", "320", "--height", "240"])
+    assert rc == 0
+    assert len(list(frames.glob("rings_*.png"))) == 1

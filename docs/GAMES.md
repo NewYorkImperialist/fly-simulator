@@ -12,11 +12,14 @@
 Files: `perpetualfly/games/` (`asteroids.py` rocks + game rules, `vision.py` the eyes,
 `brain_io.py` brain worker + mapping, `session.py` wiring, `hud.py`, `runner.py`,
 `experiment.py`; game 2: `chase.py` leader fly + LC10a eyes + rules,
-`chase_experiment.py`), `scripts/play.py`, `tests/test_games.py`. Nothing in the app
-(`app.py`, `config.py`) was changed. Each game builds its own `Simulation`.
+`chase_experiment.py`; game 3: `rings.py` hoops + flight pilot + rules,
+`rings_experiment.py`), `scripts/play.py`, `tests/test_games.py`. Nothing in the app
+(`app.py`, `config.py`) was changed. Each game builds its own `Simulation` (game 3: a `FlightSimulation`).
 
-Games: **1. ASTEROID DODGE** (`--game asteroids`, the looming channel: turn *away*)
-and **2. FOLLOW THE LEADER** (`--game chase`, the pursuit channel: turn *toward*).
+Games: **1. ASTEROID DODGE** (`--game asteroids`, the looming channel: turn *away*),
+**2. FOLLOW THE LEADER** (`--game chase`, the pursuit channel: turn *toward*) and
+**3. FLY THROUGH RINGS** (`--game rings`, the same pursuit channel piloting the real
+flapping-wing flight model).
 
 ## Game 1: ASTEROID DODGE
 
@@ -602,3 +605,207 @@ then deleted.
   closed.
 * **One experiment.** Results are from one brain seed, 24 paired trials, normal
   difficulty and a 6 s horizon.
+
+## Game 3: FLY THROUGH RINGS (real flight)
+
+The fly **flies**: the flapping-wing flight model of docs/FLIGHT.md (MuJoCo fluid
+forces on the beating wings, dt 5e-5 s, no external force anywhere) with
+`FlightMode` (jump take-off, forward flight, crash detection) and its
+`HoverController`. Orange hoops stand across the flight path at varying lateral
+offsets. The next ring is the brain's target: its bearing drives the LC10a pursuit
+neurons on the side where it is (the FOLLOW THE LEADER interface, unchanged), and
+the left–right DNa01/02 difference sets the **heading rate** of the flight
+controller. The connectome turns the fly toward the ring.
+
+### Embodiment
+
+* **Flight.** `RingsSession` builds a `FlightSimulation` + `ActionManager` +
+  `FlightMode`. A new game starts with the real take-off: `FlightMode.takeoff()`
+  (long-mode jump, wings on at the end of the leg stroke, ~0.17 s after the start),
+  then forward flight at the level's speed (50 mm/s on normal) with the COM held
+  6 mm above the ground. Relaunches after a crash, and experiment trials, use an
+  **air start**: the fly is placed at 6 mm in the hover posture and held for 40 ms
+  while the wingbeat fades in, then released. A free start drops ~2 mm before the
+  wings reach full stroke.
+* **Controller inputs.** The game uses only `FlightMode`'s own inputs: forward
+  speed (`_speed`), heading goal (`_yaw_goal`, which the heading reference follows at
+  ≤ 6 rad/s) and altitude clearance. Three game settings:
+  * the heading loop is stiffened (`yaw_wn` 30 → 80 rad/s, ζ 1). With the default
+    loop, the heading lagged the goal by ~0.15 s and overshot by ~18° in forward
+    flight (measured on a scripted 150°/s turn);
+  * velocity control only (`xy_zeta` 3; the position set point follows the fly, as
+    in escape flight);
+  * the altitude integral starts from a per-speed trim (`Z_TRIM`, measured over 3 s
+    of level flight). Without the trim, the fly flies ~0.8 mm high for ~1.5 s.
+* **Heading.** The eyes' gaze frame and the game use the yaw of the level stroke
+  frame (`FlightPilot.true_yaw`). `Simulation.heading()` projects the thorax x axis,
+  which points ~48° nose-up in the hover posture, so any bank leaks into it (up to
+  ~24° at the 25° roll limit).
+* **Rings.** `RingCourse` is a pool of 4 mocap hoops. Each hoop is 20 capsules on a
+  vertical circle (radius 3 mm on normal, tube 0.22 mm) plus a thin post to the
+  ground. They are purely visual (contype 0). Three are on screen: the target is
+  orange, later ones pale blue, the one just passed turns green or red. Layout: the
+  first ring is 30 mm ahead, then one every 32 mm along the course. Each ring steps
+  laterally by ±U(2, max_shift) from the previous one (max_shift 6 mm on normal;
+  course centre ±10 mm). A ring faces the direction from the previous ring.
+* **Outcome.** When the thorax COM crosses the ring plane, it is **through** if it
+  lies within `radius − 0.3 mm` of the centre. Otherwise it is **missed** ("clipped
+  the rim" within ±0.8 mm of the hoop). A ring also counts as missed when it stays
+  > 110° off the heading for 0.3 s ("turned away"), or when it is not reached within
+  2.5× the straight-line flight time. After a turned-away miss, a new course is laid
+  out ahead of the fly.
+* **Crash.** A `FlightMode` crash (tilt > 120° or a body contact for 50 ms), or a
+  model blow-up, costs a life. The fly falls for 0.4 s, then gets an air start.
+
+### What the brain sees and does (interface, ours)
+
+* **Input.** `RingVision` = `PursuitVision` (game 2) aimed at the target ring's
+  centre, with the ring radius as the object size. It uses the same
+  `pursuit_response`: rate = 150 Hz × size(θ) × ramp(azimuth 0→30°) × field of view
+  → `StimulusEvent("manual", side=eye, details={"set": "LC10a", ...})`. A ring
+  straight ahead drives neither eye. A near ring (θ > 30–60°) keeps half its drive.
+  We know of no data on how LC10a responds to a hoop; the ring's centre is simply
+  the pursuit target.
+* **Output.** turn = tanh(turn_L / 25 Hz) − tanh(turn_R / 25 Hz) (DNa01/02 group
+  means, as in `descending_to_drive`), low-passed with τ = 60 ms. The heading rate
+  is 120°/s × turn, integrated into `FlightMode`'s heading goal. For `none`, turn = 0.
+* **Gain choice (disclosed).** We first used 240°/s per unit turn, the walking
+  games' measured CPG turn rate. With it, the flying fly oscillated ±40° around the
+  ring direction and passed 3 of 5 rings in a 6 s game. In one pilot game each (seed
+  0, normal), 180°/s passed 10 of 13 rings and 120°/s passed 12 of 14. We kept 120.
+  The experiment below used a different seed (1). No other parameter was tuned on
+  brain runs.
+* **Not controlled by the brain:**
+  * forward speed: fixed per level. The walk DNs (BDN2/oDN1/P9) and MDN are walking
+    commands, and we found no principled flight-speed or brake mapping;
+  * altitude: held by the controller. Rings have no vertical offset: LC10a gives no
+    elevation signal we use, and the model's descending groups have no flight
+    altitude channel;
+  * giant fibre: not mapped. It stayed at 0 Hz in every trial.
+* **Game.** Each ring through scores 100 × min(streak, 5) × level. Every 5 rings is a
+  new level (+5 mm/s, +0.5 mm lateral step). A miss or a crash costs a life (3
+  lives). High scores go to `runs/games_highscores.json` under `rings`. The
+  difficulties differ as follows:
+
+  | difficulty | speed (mm/s) | max lateral step (mm) | ring radius (mm) |
+  |---|---|---|---|
+  | easy | 40 | 4 | 3.5 |
+  | normal | 50 | 6 | 3.0 |
+  | hard | 60 | 8 | 2.6 |
+
+  The hoop radius is compiled into the model, so R / 1 / 2 / 3 change speed and
+  lateral steps but keep the session's radius.
+
+### Scientific check: does the brain fly through rings better than chance?
+
+`--experiment N` runs paired single-ring trials (`rings_experiment.py`):
+
+* **Trial i.** The ring's lateral offset alternates sides, with magnitude
+  U(3.5, 7) mm, so a straight flight always misses. A settling jitter of
+  U(0, 20) ms is added. Both are replayed under brain / mirror / none.
+* **Each trial:**
+  1. reset the model and the brain (neurons at rest);
+  2. air start at the origin heading +x;
+  3. 0.5 s of straight flight with no ring;
+  4. one ring appears 30 mm ahead;
+  5. the trial ends at the ring plane, or on turned away / timeout / crash.
+
+Real FlyWire brain, headless, 16 trials × 3 conditions, seed 1. This took 4.3 min
+wall (≈ 2.3 s per trial; one trial stalled 140 s while the machine was busy):
+
+| condition | trials | through the ring | mean distance from the ring centre (mm)¹ | turned away / crashed | initial turn toward the ring, first 0.3 s (p) | mean initial turn toward (deg) |
+|---|---|---|---|---|---|---|
+| **brain** | 16 | **15/16 (94%)** | **1.07 ± 0.22** | 0 / 0 | **16/16** (p = 3e-5) | +14.9 |
+| mirror | 16 | 0/16 (0%) | 21.2 ± 0.9 | 13 / 0 | 0/16 (p = 3e-5) | −14.8 |
+| none | 16 | 0/16 (0%) | 5.33 ± 0.28 | 0 / 0 | – | 0 |
+
+| comparison | pairs | through only in first | through only in second | McNemar p | first closer to the centre | Wilcoxon p |
+|---|---|---|---|---|---|---|
+| brain vs none | 16 | 15 | 0 | 6e-5 | 16/16 | 3e-5 |
+| brain vs mirror | 16 | 15 | 0 | 6e-5 | 16/16 | 3e-5 |
+
+¹ At the ring plane, or where the trial ended for the mirror's 13 turned-away
+trials.
+
+* The brain turned toward the ring in every trial and flew through 15 of 16 rings.
+  The single miss clipped the rim: 2.97 mm from the centre, with a pass limit of
+  2.7 mm.
+* The mirror turned away in every trial. In 13 trials it turned so far that the ring
+  ended up behind the fly (max heading change ~79°).
+* The disconnected fly crossed every ring plane at its offset.
+* DN peaks per trial: DNa01/02 on the ring's side 25–125 Hz (group means per 20 ms
+  window). MDN and the giant fibre were 0 Hz in all 48 trials.
+
+This is the same connectome property as game 2 (LC10a → ipsilateral DNa01/02), now
+closing the loop through a flying body. The flight dynamics sit between the DNs and
+the path: heading tracking, the crab angle while the velocity catches up, and the
+altitude loop.
+
+In pilot games (normal difficulty, levels 1–3, 50–60 mm/s) the brain passed 12 of
+14 and 10 of 13 rings (gains 120 and 180°/s). Most misses clip the rim after a
+lateral step of 5–7 mm.
+
+### Commands
+
+```
+# play (window; SPACE pause, R restart (take-off again), 1/2/3 difficulty, B brain window, Q quit)
+.venv/bin/python scripts/play.py --game rings --brain --window
+# headless frames / clip; air start instead of the take-off
+.venv/bin/python scripts/play.py --game rings --brain --frames runs/rings --frame-times 1.2,1.6 --width 800 --height 600
+.venv/bin/python scripts/play.py --game rings --brain --air-start --record runs/rings.mp4
+# controls
+.venv/bin/python scripts/play.py --game rings --brain --control mirror
+.venv/bin/python scripts/play.py --game rings --brain --control none
+# the experiment (numbers above)
+.venv/bin/python scripts/play.py --game rings --brain --experiment 16 --seed 1 --json runs/rings_exp.json
+# tests (no connectome needed)
+.venv/bin/python -m pytest tests/test_games.py -k "ring or turn_command"
+```
+
+Speed: without the brain, ~0.65× real time. With the real brain, 0.3–0.6× (the
+brain panel shows its real-time factor).
+
+API: `RingsSession(GameBrain("brain").start(), RingsConfig(), seed=0)`, then
+`step()` in a loop. `session.render(renderer)` gives the frame: the camera follows
+the flying fly without the altitude zoom-out, and without the heading freeze that
+the hover posture's pitch would trigger.
+
+### Frames checked (game 3)
+
+Renderer PNGs at 800×600 + panel, read by eye, then deleted (disk):
+
+* **take-off (t = 0.1 s)**: the fly seen from behind, airborne, wings spread,
+  legs hanging. HUD "GET READY", flight line `FLIGHT FORWARD 218 Hz alt 6.1 mm`.
+* **approach (brain, 1.2 s)**: the orange ring ahead, slightly right. The right
+  eye's LC10a is at 44 Hz, and the heading command is −32°/s ("turning right"). Two
+  pale-blue rings behind it, the radar shows the ring bar ahead.
+* **through (brain, 1.6 s)**: the fly just past a **green** (passed) ring, "THROUGH!
+  +100". The next ring is 20° left: left LC10a 111 Hz, DNa01/02 L 75 Hz, R 0,
+  heading command +100°/s ("turning left").
+* **missed (none, 2.5 s)**: a **red** ring passing to the left of the fly, "MISSED",
+  one heart gone. The panel reads "disconnected (control): heading rate 0" while the
+  left LC10a still gets 44 Hz from the next ring.
+* The window was checked with injected keys (pause, restart with take-off, hard) and
+  closed.
+
+### Limitations
+
+* **Two thirds of the loop are ours.** The interface (ring centre → LC10a rate,
+  DNa01/02 → heading rate, gain 120°/s chosen from pilot games) and the flight
+  controller (an engineered PID; see docs/FLIGHT.md) are designed by us. The brain
+  supplies only the side-to-side sign and the timing of the turn command.
+* **Heading only.** Speed and altitude are fixed and the rings are at the flight
+  altitude. No brain output is mapped to them.
+* **The rings are not physical.** Passing is judged geometrically at the thorax COM
+  (radius − 0.3 mm), so a wing tip can go through a hoop. Wing-tip contact would
+  need colliding hoops, and a hard contact can blow up the dt 5e-5 fluid model.
+* **Visual model.** The ring is treated as a small moving target (LC10a pursuit).
+  Real flies would also see its optic flow, looming and edges. The eyes' gaze is
+  level and follows the body yaw, low-passed with 80 ms (head stabilisation assumed).
+* **Scope of the claim.** 16 paired trials give an unambiguous difference
+  (15/16 vs 0/16), but they cover a single speed (50 mm/s), distance (30 mm) and
+  offset range (3.5–7 mm).
+* The model's left bias (game 2) probably shows here too: in the brain trials the
+  per-trial LC10a peak averaged 26 Hz on the left vs 90 Hz on the right (8 rings on
+  each side). This is consistent with left rings being centred faster, but we did
+  not test it separately.

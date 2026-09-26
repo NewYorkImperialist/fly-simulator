@@ -161,6 +161,115 @@ class ChaseSession:
         self.sim.close()
 
 
+class RingsSession:
+    """Wiring for FLY THROUGH RINGS: flight world + flying fly + hoops + eyes (LC10a)
+    + brain (docs/GAMES.md, game 3).
+
+    The fly is a ``FlightSimulation`` (flapping wings in MuJoCo's fluid model, dt
+    5e-5 s) with ``FlightMode`` (take-off, forward flight, crash detection) and an
+    ``ActionManager`` (the take-off jump). ``step()`` = one physics chunk
+    (``chunk_steps`` x 5e-5 s = 5 ms; the eyes send LC10a events in a post-step
+    hook), then ``brain.update``, then the heading command (DNa01/02 -> heading
+    rate on ``FlightMode``'s heading goal), then the game rules."""
+
+    game_name = "rings"
+    # chase camera behind and a little above the flying fly (the rings ahead in view)
+    camera = {"distance": 16.0, "elevation": -14.0, "azimuth": 0.0}
+
+    def __init__(self, brain: GameBrain | None = None, cfg=None, *, seed: int = 0,
+                 app_cfg=None, chunk_steps: int = 100, response=None) -> None:
+        from perpetualfly.actions.base import ActionManager
+        from perpetualfly.config import AppConfig, FlightModeConfig
+        from perpetualfly.flight import FlightSimulation
+        from perpetualfly.flight.mode import FlightMode
+        from perpetualfly.games.rings import (
+            FlightPilot, RingCourse, RingsConfig, RingsGame, RingVision, turn_command)
+
+        self._turn_command = turn_command
+        self.cfg = cfg or RingsConfig()
+        self.brain = brain or GameBrain("none")
+        self.brain.map.jump = False
+        self.app_cfg = app_cfg or AppConfig()
+        self.course = RingCourse(self.cfg, seed=seed + 11)
+        self.sim = FlightSimulation(self.app_cfg, world_extensions=[self.course.extension])
+        self.course.attach(self.sim)
+        self.actions = ActionManager(self.sim)
+        self.flight = FlightMode(self.sim, self.actions,
+                                 FlightModeConfig(enabled=True, hover_s=None))
+        self.pilot = FlightPilot(self.sim, self.flight, self.cfg)
+        self.chunk_steps = int(chunk_steps)
+        self.jump_times: list[float] = []
+        self.unstable = 0
+        self._crash_count = 0
+        self.sim.reset()
+        self.game = RingsGame(self.sim, self.course, self.pilot, self.cfg, seed=seed,
+                              on_respawn=self._on_respawn)
+        self.vision = RingVision(self.sim, self.course, self.pilot.true_yaw,
+                                 sink=self.brain.on_pursuit, time_fn=self.game.time,
+                                 response=response)
+        self.vision.attach()
+        self._last_rt = self.game.time()
+        self.brain.reset(self.game.time())
+
+    def _on_respawn(self) -> None:
+        self.brain.reset(self.game.time())
+
+    def run_time(self) -> float:
+        return self.game.time()
+
+    def turn(self, run_time: float) -> float:
+        """DNa01/02 left-right command in [-1, 1] from the latest (fresh) brain state."""
+        b = self.brain
+        if not b.connected or b.latest is None or b.latest.sim_time is None:
+            return 0.0
+        if run_time - float(b.latest.sim_time) > b.map.stale_after_s:
+            return 0.0
+        return self._turn_command(b.rates, self.cfg.r_ref_hz)
+
+    def step(self) -> None:
+        from perpetualfly.simulation import SimulationInstabilityError
+
+        crashed = False
+        try:
+            self.sim.step(self.chunk_steps)
+        except SimulationInstabilityError:
+            # the model blew up (it happens after hard crashes): count it as a crash
+            self.unstable += 1
+            crashed = True
+            self.game._reset_fly()
+        if self.flight.counts.get("crash", 0) != self._crash_count:
+            self._crash_count = self.flight.counts.get("crash", 0)
+            crashed = True
+        rt = self.game.time()
+        self.brain.update(rt)
+        dt = max(0.0, rt - self._last_rt)
+        self._last_rt = rt
+        self.pilot.update(self.turn(rt), dt)
+        self.game.after_physics(crashed)
+
+    def restart(self, difficulty: str | None = None) -> None:
+        self.game.restart(difficulty)
+        self._crash_count = self.flight.counts.get("crash", 0)
+        self._last_rt = self.game.time()
+        self.brain.reset(self.game.time())
+
+    def render(self, renderer) -> np.ndarray:
+        """Frame for the HUD: the camera follows the flying fly without zooming out
+        for its altitude (``ground_z`` just under it) or freezing its heading for the
+        hover posture's ~48 deg pitch."""
+        sim = self.sim
+        p = sim.thorax_position()
+        flying = self.pilot.airborne
+        return renderer.render(sim.data, sim.time, p,
+                               self.pilot.true_yaw() if flying else sim.heading(),
+                               ground_z=float(p[2]) - 2.0 if flying else 0.0,
+                               tilt_deg=0.0 if flying else sim.tilt_deg())
+
+    def close(self) -> None:
+        self.vision.detach()
+        self.sim.close()
+
+
 def make_renderer(sim, width: int = 960, height: int = 640, distance: float = 24.0,
                   elevation: float = -24.0, azimuth: float = -15.0):
     """Follow camera behind the fly, high enough to see the rocks coming."""

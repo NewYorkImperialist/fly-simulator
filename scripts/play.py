@@ -21,6 +21,11 @@ by us. See docs/GAMES.md.
     # game 2, FOLLOW THE LEADER: a leader fly weaves ahead; LC10a (pursuit) -> DNa01/02
     .venv/bin/python scripts/play.py --game chase --brain --window
     .venv/bin/python scripts/play.py --game chase --brain --experiment 24 --json runs/chase_exp.json
+
+    # game 3, FLY THROUGH RINGS: real flapping-wing flight; the next ring -> LC10a ->
+    # DNa01/02 -> heading rate of the flight controller (speed / altitude held)
+    .venv/bin/python scripts/play.py --game rings --brain --window
+    .venv/bin/python scripts/play.py --game rings --brain --experiment 16 --json runs/rings_exp.json
 """
 
 from __future__ import annotations
@@ -51,6 +56,8 @@ def parse_args(argv=None):
     p.add_argument("--jump", action="store_true",
                    help="giant fibre (DNp01) > 60 Hz triggers a jump (off by default)")
     p.add_argument("--jump-mode", choices=("long", "short"), default="long")
+    p.add_argument("--air-start", action="store_true",
+                   help="rings: start in the air instead of the jump take-off")
     # presentation
     p.add_argument("--window", action="store_true", help="OpenCV game window")
     p.add_argument("--brain-window", action="store_true",
@@ -74,7 +81,7 @@ def parse_args(argv=None):
     # experiment
     p.add_argument("--experiment", type=int, default=None, metavar="N",
                    help="paired trials per condition (brain, mirror, none): single rocks "
-                        "(asteroids) or leader runs (chase)")
+                        "(asteroids), leader runs (chase) or single rings (rings)")
     p.add_argument("--controls", default="brain,mirror,none")
     p.add_argument("--rock-speed", type=float, default=10.0, help="experiment rock speed (mm/s)")
     p.add_argument("--trial-seconds", type=float, default=6.0,

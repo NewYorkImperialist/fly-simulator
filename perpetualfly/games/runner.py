@@ -102,7 +102,10 @@ class GameRunner:
         from perpetualfly.games.hud import compose
         from perpetualfly.games.session import render_frame
 
-        rgb = render_frame(self.renderer, self.session.sim)
+        if hasattr(self.session, "render"):
+            rgb = self.session.render(self.renderer)
+        else:
+            rgb = render_frame(self.renderer, self.session.sim)
         return compose(rgb, self.session, panel=self.panel, high_score=self.best(),
                        paused=self.paused, hint=KEYS_HELP)
 
@@ -350,7 +353,19 @@ def play(args) -> int:
               f"({brain.info.get('n_neurons', '?')} neurons)", flush=True)
     runner = None
     try:
-        if args.game == "chase":
+        if args.game == "rings":
+            from perpetualfly.games.rings import RINGS_DIFFICULTIES, RingsConfig
+            from perpetualfly.games.session import RingsSession
+
+            if args.difficulty not in RINGS_DIFFICULTIES:
+                print(f"difficulty must be one of {sorted(RINGS_DIFFICULTIES)}", file=sys.stderr)
+                return 2
+            session = RingsSession(brain, RingsConfig(difficulty=args.difficulty,
+                                                      lives=args.lives,
+                                                      takeoff=not args.air_start),
+                                   seed=args.seed)
+            title = "FLY THROUGH RINGS"
+        elif args.game == "chase":
             from perpetualfly.games.chase import CHASE_DIFFICULTIES, ChaseConfig
             from perpetualfly.games.session import ChaseSession
 
@@ -400,7 +415,15 @@ def play(args) -> int:
 def _experiment(session, args) -> int:
     controls = tuple(args.controls.split(","))
     say = lambda m: print(m, flush=True)  # noqa: E731
-    if getattr(session, "game_name", "asteroids") == "chase":
+    if getattr(session, "game_name", "asteroids") == "rings":
+        from perpetualfly.games.rings_experiment import (
+            format_rings_summary, run_rings_experiment, summarize_rings)
+
+        rows = run_rings_experiment(session, args.experiment, controls=controls, seed=args.seed,
+                                    say=say)
+        summ = summarize_rings(rows)
+        text = format_rings_summary(summ)
+    elif getattr(session, "game_name", "asteroids") == "chase":
         from perpetualfly.games.chase_experiment import (
             format_chase_summary, run_chase_experiment, summarize_chase)
 
