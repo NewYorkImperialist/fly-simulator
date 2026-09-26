@@ -48,23 +48,19 @@ import numpy as np
 
 from perpetualfly.actions.base import ActionCommand
 from perpetualfly.actions.behaviours import Groom
+from perpetualfly.jobs import kebab_assets as A
 from perpetualfly.jobs.base import CameraPreset, EternalJob, JobConfig
 from perpetualfly.jobs.geometry import PROP_BIT, add_box, contact_kwargs, quat_axis_angle
 from perpetualfly.jobs.registry import register_job
 from perpetualfly.terrain import TERRAIN_BIT
 
 P = "kebab/"
+# box orientations whose local +z face looks along world -x / -y (for tiled faces)
+FACE_MX = quat_axis_angle((0, 1, 0), -math.pi / 2)
+FACE_MY = quat_axis_angle((1, 0, 0), math.pi / 2)
 
-STEEL = (0.72, 0.73, 0.76, 1.0)
-DARK_STEEL = (0.25, 0.25, 0.28, 1.0)
-GLOW = (1.0, 0.35, 0.08, 1.0)
-CORE = (0.66, 0.36, 0.26, 1.0)  # inner meat (exposed where chunks were cut)
-CRUST = (0.36, 0.18, 0.08, 1.0)
-RAW = np.array([0.86, 0.47, 0.45])  # regrowing chunk colour at the start
 BROWNS = np.array([[0.55, 0.29, 0.12], [0.62, 0.34, 0.15], [0.48, 0.24, 0.10],
                    [0.68, 0.40, 0.19], [0.58, 0.31, 0.16]])
-TILE = (0.93, 0.92, 0.88, 1.0)
-WOOD = (0.45, 0.26, 0.12, 1.0)
 BLADE = (0.86, 0.88, 0.92, 1.0)
 HAT = (0.98, 0.98, 0.98, 1.0)
 
@@ -168,6 +164,9 @@ class KebabConfig(JobConfig):
     # ---- stress tie-in -------------------------------------------------------------
     stress_speed_gain: float = 1.0  # carve speed *= 1 + gain * (freq_mult - 1)
     chef_hat: bool = True
+    # key-light shadow map: the fly's and the knife's shadows (visual only; costs an
+    # extra depth pass, ~6 ms per 960x640 frame on an M1)
+    shadows: bool = True
     stuck_timeout_s: float = 90.0
 
 
@@ -234,7 +233,9 @@ class KebabJob(EternalJob):
         spec = world.mjcf_root
         wb = spec.worldbody
         sx, sy = self.spit_xy
-        rng = np.random.default_rng(c.seed + 11)
+        rng = np.random.default_rng(c.seed + 11)  # chunk layout + shaving parking
+        vrng = np.random.default_rng(c.seed + 12)  # visual detail only (mesh noise)
+        vis = contact_kwargs("visual")
         # --- the fly's knife and chef hat: added to the fly spec right before add_fly
         orig_add_fly = world.add_fly
 
@@ -244,65 +245,99 @@ class KebabJob(EternalJob):
             return orig_add_fly(fly, *a, **kw)
 
         world.add_fly = add_fly
-        # --- floor: kebab shop tiles
-        mat = spec.material("grid")
-        if mat is not None:
-            mat.rgba = TILE
+        self._add_materials(spec)
+        self._add_shop(spec)
         # --- the spit: hinge body turning about z
         spit = wb.add_body(name=P + "spit", pos=(sx, sy, 0.0))
         spit.add_joint(name=P + "spin", type=mj.mjtJoint.mjJNT_HINGE, axis=(0, 0, 1),
                        damping=1e-7, armature=1e-6)
-        rod_top = c.meat_z1 + 0.55
+        rod_top = c.meat_z1 + 0.3
         spit.add_geom(name=P + "rod", type=mj.mjtGeom.mjGEOM_CYLINDER, size=(0.05, rod_top / 2, 0),
-                      pos=(0, 0, rod_top / 2 + 0.06), rgba=STEEL, mass=1e-4,
-                      **contact_kwargs("visual"))
-        spit.add_geom(name=P + "rod_tip", type=mj.mjtGeom.mjGEOM_SPHERE, size=(0.09, 0, 0),
-                      pos=(0, 0, rod_top + 0.06), rgba=STEEL, mass=0.0, **contact_kwargs("visual"))
-        spit.add_geom(name=P + "cap", type=mj.mjtGeom.mjGEOM_CYLINDER,
-                      size=(c.r_top * 0.93, 0.05, 0), pos=(0, 0, c.meat_z1 + 0.03), rgba=CRUST,
-                      mass=0.0, **contact_kwargs("visual"))
+                      pos=(0, 0, rod_top / 2 + 0.06), material=P + "chrome", mass=1e-4, **vis)
+        tip = A.lathe(np.array([0.0, 0.05, 0.05, 0.0]), rod_top + np.array([0.0, 0.0, 0.03, 0.2]), 16)
+        A.add_mesh(spec, P + "rod_tip_mesh", tip)
+        spit.add_geom(name=P + "rod_tip", type=mj.mjtGeom.mjGEOM_MESH, meshname=P + "rod_tip_mesh",
+                      material=P + "chrome", mass=0.0, **vis)
+        # drip plate under the meat
         spit.add_geom(name=P + "collar", type=mj.mjtGeom.mjGEOM_CYLINDER,
-                      size=(0.45, 0.06, 0), pos=(0, 0, c.meat_z0 - 0.06), rgba=STEEL,
-                      mass=0.0, **contact_kwargs("visual"))
-        # meat: rings of chunks on the cone surface over an inner core
+                      size=(c.r_bottom * 0.98, 0.035, 0), pos=(0, 0, c.meat_z0 - 0.04),
+                      material=P + "chrome", mass=0.0, **vis)
+        noise = A.SurfaceNoise(vrng, 0.055)
+
+        def radius(z):  # radius_at, vectorised
+            f = np.clip((np.asarray(z) - c.meat_z0) / (c.meat_z1 - c.meat_z0), 0.0, 1.0)
+            return c.r_bottom + f * (c.r_top - c.r_bottom)
+        v_span = (c.meat_z0, c.meat_z1)
+        # inner core (exposed where slabs were cut) and the charred crown
+        n_pr = 24
+        zp = np.linspace(c.meat_z0 + 0.02, c.meat_z1 - 0.02, n_pr)
+        rp = np.array([self.radius_at(z) - c.chunk_t * 0.9 for z in zp])
+        core = A.lathe(np.r_[0.0, rp, 0.0], np.r_[zp[0], zp, zp[-1]], 40,
+                       radial_noise=lambda th, z: 0.6 * noise(th, z), u_repeat=3.0,
+                       v_coord=3.0 * np.r_[0.0, (zp - v_span[0]) / (v_span[1] - v_span[0]), 1.0])
+        A.add_mesh(spec, P + "core_mesh", core)
+        spit.add_geom(name=P + "core", type=mj.mjtGeom.mjGEOM_MESH, meshname=P + "core_mesh",
+                      material=P + "meat_inner", mass=0.0, **vis)
+        rt = c.r_top
+        cr = np.array([0.0, rt * 0.93, rt * 0.99, rt * 0.93, rt * 0.7, rt * 0.4, 0.07, 0.0])
+        cz = c.meat_z1 + np.array([-0.12, -0.12, -0.02, 0.06, 0.1, 0.11, 0.1, 0.1])
+        crown = A.lathe(cr, cz, 48, radial_noise=lambda th, z: 0.7 * noise(th, z * 3.0),
+                        v_coord=np.linspace(0, 1.5, len(cr)), u_repeat=4.0)
+        A.add_mesh(spec, P + "crown_mesh", crown)
+        spit.add_geom(name=P + "cap", type=mj.mjtGeom.mjGEOM_MESH, meshname=P + "crown_mesh",
+                      material=P + "meat_top", mass=0.0, **vis)
+        # meat: rings of curved slabs on the cone surface over the core. The random
+        # draws on ``rng`` (thickness, height, colour, z jitter) are the same as for the
+        # former box chunks, so the carving geometry is unchanged.
         n_r = c.n_rings
         dz = (c.meat_z1 - c.meat_z0) / n_r
         self._chunk_names: list[str] = []
         self._chunk_colors: list[np.ndarray] = []
         self._chunk_ring: list[int] = []
+        self._chunk_local: list[tuple[float, float, float]] = []  # centre, spit frame
+        self._chunk_theta: list[float] = []
+        self._chunk_depth: list[float] = []
         for k in range(n_r):
             zc = c.meat_z0 + (k + 0.5) * dz
             r = self.radius_at(zc)
-            spit.add_geom(name=f"{P}core{k}", type=mj.mjtGeom.mjGEOM_CYLINDER,
-                          size=(r - c.chunk_t * 0.9, dz / 2, 0), pos=(0, 0, zc), rgba=CORE,
-                          mass=0.0, **contact_kwargs("visual"))
             n = max(8, int(round(2 * math.pi * r / c.chunk_w)))
             off = rng.uniform(0, 2 * math.pi)
+            wm, wp, wa = vrng.integers(1, 4), vrng.uniform(0, 2 * math.pi), vrng.uniform(0.02, 0.045)
+
+            def zwave(th, wm=wm, wp=wp, wa=wa):  # this layer's wavy rim
+                return wa * math.sin(wm * th + wp)
             for i in range(n):
                 th = off + 2 * math.pi * i / n
                 t = c.chunk_t * rng.uniform(0.85, 1.15)
                 rc = r - t / 2
-                half = (t / 2, math.pi * r / n * 1.08, dz / 2 * rng.uniform(0.95, 1.08))
+                half_z = dz / 2 * rng.uniform(0.95, 1.08)
                 col = BROWNS[rng.integers(len(BROWNS))] * rng.uniform(0.9, 1.08)
                 if k == n_r - 1:
                     col = col * 0.8  # the top ring is the crispiest
                 col = np.clip(col, 0, 1)
+                zj = zc + dz * rng.uniform(-0.06, 0.06)
                 name = f"{P}chunk{k}_{i}"
-                spit.add_geom(name=name, type=mj.mjtGeom.mjGEOM_BOX, size=half,
-                              pos=(rc * math.cos(th), rc * math.sin(th),
-                                   zc + dz * rng.uniform(-0.06, 0.06)),
-                              quat=quat_axis_angle((0, 0, 1), th), rgba=(*col, 1.0),
-                              mass=0.0, **contact_kwargs("visual"))
+                hw = math.pi / n * 1.08
+                # (drawn 25 % taller than the chunk: neighbouring layers overlap)
+                slab = A.meat_slab(th - hw, th + hw, zj - 1.25 * half_z, zj + 1.25 * half_z,
+                                   radius, t, noise, vrng, v_span=v_span, zwave=zwave)
+                A.add_mesh(spec, name + "_mesh", slab)
+                spit.add_geom(name=name, type=mj.mjtGeom.mjGEOM_MESH, meshname=name + "_mesh",
+                              material=P + "meat_cooked", rgba=(*self._tint(col), 1.0),
+                              mass=0.0, **vis)
                 self._chunk_names.append(name)
                 self._chunk_colors.append(col)
                 self._chunk_ring.append(k)
+                self._chunk_local.append((rc * math.cos(th), rc * math.sin(th), zj))
+                self._chunk_theta.append(th)
+                self._chunk_depth.append(t)
         act = spec.add_actuator(name=P + "motor", target=P + "spin",
                                 trntype=mj.mjtTrn.mjTRN_JOINT)
         act.set_to_velocity(kv=c.spin_kv)
-        # --- base, drip tray (only shavings touch it), heater
+        # --- base (motor housing), drip tray (only shavings touch it), heater
         rmax = max(c.r_bottom, c.r_top)
-        add_box(wb, P + "base", (0.5, 0.5, 0.1), (sx, sy, 0.1), rgba=DARK_STEEL,
-                collide="visual")
+        wb.add_geom(name=P + "base", type=mj.mjtGeom.mjGEOM_CYLINDER, size=(0.5, 0.1, 0),
+                    pos=(sx, sy, 0.1), material=P + "steel", **vis)
         tx0, tx1 = sx - rmax - 0.75, sx + rmax + 0.35
         ty0, ty1 = sy - rmax - 0.9, sy + rmax + 0.9
         tray_kw = dict(contype=TERRAIN_BIT, conaffinity=0)
@@ -310,8 +345,8 @@ class KebabJob(EternalJob):
         tray_c.update(tray_kw)
         wb.add_geom(name=P + "tray", type=mj.mjtGeom.mjGEOM_BOX,
                     size=((tx1 - tx0) / 2, (ty1 - ty0) / 2, self.tray_top / 2),
-                    pos=((tx0 + tx1) / 2, (ty0 + ty1) / 2, self.tray_top / 2), rgba=STEEL,
-                    **tray_c)
+                    pos=((tx0 + tx1) / 2, (ty0 + ty1) / 2, self.tray_top / 2),
+                    material=P + "tray_steel", **tray_c)
         lip_h = 0.16
         for nm, half, pos in (
                 ("lip_near", (0.03, (ty1 - ty0) / 2, lip_h / 2), (tx0, (ty0 + ty1) / 2, lip_h / 2)),
@@ -319,22 +354,34 @@ class KebabJob(EternalJob):
                 ("lip_l", ((tx1 - tx0) / 2, 0.03, lip_h / 2), ((tx0 + tx1) / 2, ty1, lip_h / 2)),
                 ("lip_r", ((tx1 - tx0) / 2, 0.03, lip_h / 2), ((tx0 + tx1) / 2, ty0, lip_h / 2))):
             wb.add_geom(name=P + nm, type=mj.mjtGeom.mjGEOM_BOX, size=half, pos=pos,
-                        rgba=STEEL, **tray_c)
+                        material=P + "steel", **tray_c)
         self._tray = (tx0, tx1, ty0, ty1)
         hx = sx + rmax + 0.55
         hz = (c.meat_z0 + c.meat_z1) / 2 + 0.1
-        add_box(wb, P + "heater", (0.07, rmax + 0.5, (c.meat_z1 - c.meat_z0) / 2 + 0.35),
-                (hx, sy, hz), rgba=DARK_STEEL, collide="visual")
-        spec.add_material(name=P + "glow", rgba=GLOW, emission=1.0)
-        for j in range(4):
-            z = c.meat_z0 + 0.25 + j * (c.meat_z1 - c.meat_z0 - 0.4) / 3
+        h_half = (c.meat_z1 - c.meat_z0) / 2 + 0.35
+        add_box(wb, P + "heater", (0.07, rmax + 0.5, h_half), (hx, sy, hz),
+                material=P + "heater_steel", collide="visual")
+        # ceramic burner tiles (emissive), in a steel frame, plus a hood on top
+        for j in range(3):
+            zj = c.meat_z0 + 0.05 + (j + 0.5) * (c.meat_z1 - c.meat_z0 - 0.1) / 3
             wb.add_geom(name=f"{P}glow{j}", type=mj.mjtGeom.mjGEOM_BOX,
-                        size=(0.02, rmax + 0.3, 0.06), pos=(hx - 0.08, sy, z), rgba=GLOW,
-                        material=P + "glow", **contact_kwargs("visual"))
+                        size=((c.meat_z1 - c.meat_z0 - 0.1) / 6 - 0.04, rmax + 0.28, 0.02),
+                        pos=(hx - 0.08, sy, zj), quat=FACE_MX, material=P + "glow", **vis)
+        add_box(wb, P + "hood", (0.35, rmax + 0.55, 0.04), (hx - 0.26, sy, hz + h_half + 0.02),
+                quat=quat_axis_angle((0, 1, 0), -0.25), material=P + "heater_steel", collide="visual")
+        # warm glow from the burners onto the meat
+        wb.add_light(name=P + "heat_light", type=mj.mjtLightType.mjLIGHT_SPOT,
+                     pos=(hx - 0.3, sy, hz), dir=(-1.0, 0.0, -0.05), diffuse=(0.95, 0.42, 0.14),
+                     specular=(0.35, 0.18, 0.06), ambient=(0.0, 0.0, 0.0), cutoff=80.0,
+                     exponent=1.0, castshadow=False, attenuation=(0.4, 0.0, 0.12))
         # --- shaving pool: free bodies resting on the tray (a pile from earlier)
         kw = contact_kwargs("dynamic", friction=1.0)
         kw["contype"] = PROP_BIT
         kw["conaffinity"] = TERRAIN_BIT | PROP_BIT  # tray, floor, each other; not the fly
+        n_var = 3
+        for v in range(n_var):
+            md = A.curled_slice(0.36, 0.25, 0.035, 0.035 + 0.02 * v, vrng)
+            A.add_mesh(spec, f"{P}shaving_mesh{v}", md)
         self._park: list[tuple[float, ...]] = []
         for i in range(c.n_shavings):
             px = tx0 + 0.3 + (i % 3) * 0.3 + rng.uniform(-0.08, 0.08)
@@ -345,9 +392,83 @@ class KebabJob(EternalJob):
             b = wb.add_body(name=f"{P}shaving{i}", pos=(px, py, pz), quat=q)
             b.add_freejoint(name=f"{P}shaving{i}_free")
             col = np.clip(BROWNS[i % len(BROWNS)] * 1.05, 0, 1)
+            # physics: a simple ellipsoid (hidden, group 3); looks: a curled slice
             b.add_geom(name=f"{P}shaving{i}_g", type=mj.mjtGeom.mjGEOM_ELLIPSOID,
-                       size=(0.17, 0.12, 0.03), rgba=(*col, 1.0), mass=c.shaving_mass, **kw)
+                       size=(0.17, 0.12, 0.03), rgba=(*col, 1.0), mass=c.shaving_mass,
+                       group=3, **kw)
+            b.add_geom(name=f"{P}shaving{i}_vis", type=mj.mjtGeom.mjGEOM_MESH,
+                       meshname=f"{P}shaving_mesh{i % n_var}", material=P + "meat_cooked",
+                       rgba=(*self._tint(col), 1.0), mass=0.0, **vis)
             self._park.append((px, py, pz, *q))
+
+    @staticmethod
+    def _tint(col) -> np.ndarray:
+        """Per-chunk colour variation as a multiplier on the meat texture."""
+        return np.clip(0.45 + 0.55 * np.asarray(col) / BROWNS.max(axis=0), 0.0, 1.0)
+
+    def _add_materials(self, spec) -> None:
+        c = self.cfg
+        tex = A.meat_textures(c.seed)
+        for nm in ("raw", "seared", "cooked", "inner", "top"):
+            A.add_texture(spec, f"{P}tex_meat_{nm}", tex[nm])
+            gloss = {"raw": 0.5, "seared": 0.35, "cooked": 0.55, "inner": 0.45, "top": 0.35}[nm]
+            A.add_textured_material(spec, f"{P}meat_{nm}", f"{P}tex_meat_{nm}", rgba=(1, 1, 1, 1),
+                                    specular=gloss, shininess=0.6)  # juicy / fatty sheen
+        A.add_texture(spec, P + "tex_steel", A.steel_texture(c.seed))
+        A.add_textured_material(spec, P + "steel", P + "tex_steel", rgba=(1, 1, 1, 1),
+                                specular=0.8, shininess=0.75, texuniform=True, texrepeat=(1.5, 1.5))
+        A.add_textured_material(spec, P + "tray_steel", P + "tex_steel", rgba=(1, 1, 1, 1),
+                                specular=0.8, shininess=0.75, reflectance=0.18, texuniform=True,
+                                texrepeat=(1.5, 1.5))
+        spec.add_material(name=P + "chrome", rgba=(0.55, 0.56, 0.6, 1), specular=1.0,
+                          shininess=0.95)
+        # the burner housing catches some of its own glow
+        A.add_textured_material(spec, P + "heater_steel", P + "tex_steel", rgba=(1.0, 0.86, 0.78, 1),
+                                specular=0.6, shininess=0.6, emission=0.3, texuniform=True,
+                                texrepeat=(1.5, 1.5))
+        A.add_texture(spec, P + "tex_glow", A.heater_texture(c.seed))
+        A.add_textured_material(spec, P + "glow", P + "tex_glow", rgba=(1, 1, 1, 1), emission=1.0,
+                                texuniform=True, texrepeat=(2.0, 2.0))
+
+    def _add_shop(self, spec) -> None:
+        """Shop floor tiles, a tiled back wall, a counter, and the light rig."""
+        c = self.cfg
+        sx, sy = self.spit_xy
+        wb = spec.worldbody
+        vis = contact_kwargs("visual")
+        mat = spec.material("grid")
+        if mat is not None:
+            A.add_texture(spec, P + "tex_floor", A.floor_texture(c.seed))
+            mat.textures[mj.mjtTextureRole.mjTEXROLE_RGB] = P + "tex_floor"
+            mat.rgba = (1.0, 1.0, 1.0, 1.0)
+            mat.reflectance = 0.08
+            mat.texrepeat = [v * 4.0 for v in mat.texrepeat]  # 0.5 mm tiles (4 mm period kept)
+        A.add_texture(spec, P + "tex_wall", A.wall_texture(c.seed))
+        A.add_textured_material(spec, P + "wall", P + "tex_wall", rgba=(1, 1, 1, 1), specular=0.5,
+                                shininess=0.6, texuniform=True, texrepeat=(1.2, 1.2))
+        # (boxes turned so the tiled face is the box's local +z face: MuJoCo maps a
+        # uniform 2D texture on a box by its local x, y)
+        wy = sy + 7.0
+        add_box(wb, P + "wall", (16.0, 6.0, 0.1), (sx - 2.0, wy + 0.1, 6.0), quat=FACE_MY,
+                material=P + "wall", collide="visual")
+        add_box(wb, P + "wall_side", (6.0, 9.0, 0.1), (sx + 7.0, wy - 9.0, 6.0), quat=FACE_MX,
+                material=P + "wall", collide="visual")
+        # light rig: a key spot (shadows) from the front left, a cool rim from behind
+        # spot-light shadow maps span znear..zfar (x extent = 1 mm here): a larger
+        # near plane gives them enough depth precision (no acne on the fly)
+        spec.visual.map.znear = 0.05
+        spec.visual.headlight.ambient = (0.28, 0.28, 0.28)
+        spec.visual.headlight.diffuse = (0.32, 0.32, 0.32)
+        spec.visual.headlight.specular = (0.15, 0.15, 0.15)
+        key_pos = np.array([sx - 7.0, sy - 7.0, 16.0])
+        tgt = np.array([sx - 1.0, sy, 1.2])
+        wb.add_light(name=P + "key", type=mj.mjtLightType.mjLIGHT_SPOT, pos=tuple(key_pos),
+                     dir=tuple(tgt - key_pos), diffuse=(0.62, 0.6, 0.56), specular=(0.5, 0.5, 0.5),
+                     cutoff=45.0, exponent=0.5, castshadow=bool(c.shadows))
+        rim_pos = np.array([sx + 2.0, sy + 5.0, 6.0])
+        wb.add_light(name=P + "rim", type=mj.mjtLightType.mjLIGHT_SPOT, pos=tuple(rim_pos),
+                     dir=tuple(tgt - rim_pos), diffuse=(0.25, 0.28, 0.33), specular=(0.4, 0.4, 0.45),
+                     cutoff=35.0, exponent=2.0, castshadow=False)
 
     def _dress_fly(self, fly) -> None:
         """Knife on the right front tarsus1, chef hat on the head (visual only)."""
@@ -356,21 +477,47 @@ class KebabJob(EternalJob):
         tarsus = root.body("rf_tarsus1")
         a, d = self.KNIFE_ANCHOR, self.KNIFE_DIR
         q = _quat_from_x_axis(d, up_hint=(0.0, 1.0, 0.0))
+        R = np.empty(9)
+        mj.mju_quat2Mat(R, np.asarray(q))
+        R = R.reshape(3, 3)  # columns: knife x (blade), y (across the flat), z (spine)
         L = self.cfg.blade_len
-        tarsus.add_geom(name="kebab_knife_handle", type=mj.mjtGeom.mjGEOM_BOX,
-                        size=(0.12, 0.035, 0.035), pos=tuple(a - d * 0.06), quat=q, rgba=WOOD, **vis)
-        tarsus.add_geom(name="kebab_knife_guard", type=mj.mjtGeom.mjGEOM_BOX,
-                        size=(0.012, 0.06, 0.05), pos=tuple(a + d * 0.07), quat=q, rgba=DARK_STEEL,
-                        **vis)
+        start = 0.08
+        # the cutting reference: a hidden box along the blade (blade_points uses it)
         tarsus.add_geom(name="kebab_blade", type=mj.mjtGeom.mjGEOM_BOX,
-                        size=(L / 2, 0.012, 0.055), pos=tuple(a + d * (0.08 + L / 2)), quat=q,
-                        rgba=BLADE, **vis)
+                        size=(L / 2, 0.012, 0.055), pos=tuple(a + d * (start + L / 2)), quat=q,
+                        rgba=(*BLADE[:3], 0.0), contype=0, conaffinity=0, group=3, mass=0.0)
+        A.add_texture(root, "kebab_tex_blade", A.blade_texture(self.cfg.seed))
+        A.add_textured_material(root, "kebab_blade_steel", "kebab_tex_blade", rgba=(1, 1, 1, 1),
+                                specular=1.0, shininess=0.97)
+        root.add_material(name="kebab_bolster_steel", rgba=(0.78, 0.79, 0.82, 1), specular=1.0,
+                          shininess=0.9)
+        root.add_material(name="kebab_handle_black", rgba=(0.045, 0.045, 0.05, 1), specular=0.7,
+                          shininess=0.7)
+        mats = {"blade": "kebab_blade_steel", "bolster": "kebab_bolster_steel",
+                "handle": "kebab_handle_black"}
+        geom_names = {"blade": "kebab_blade_vis", "bolster": "kebab_knife_guard",
+                      "handle": "kebab_knife_handle"}
+        for part, md in A.knife_meshes(L, start).items():
+            A.add_mesh(root, f"kebab_knife_{part}_mesh", A.transform(md, R, a))
+            tarsus.add_geom(name=geom_names[part], type=mj.mjtGeom.mjGEOM_MESH,
+                            meshname=f"kebab_knife_{part}_mesh", material=mats[part], **vis)
+        # rivets: short steel cylinders through the handle (axis = knife y)
+        Rr = np.column_stack([R[:, 2], R[:, 0], R[:, 1]])
+        qr = np.empty(4)
+        mj.mju_mat2Quat(qr, Rr.ravel())
+        for j, x in enumerate((start - 0.235, start - 0.165, start - 0.095)):
+            p = a + R @ np.array([x, 0.0, -0.014])
+            tarsus.add_geom(name=f"kebab_knife_rivet{j}", type=mj.mjtGeom.mjGEOM_CYLINDER,
+                            size=(0.0085, 0.0285, 0), pos=tuple(p), quat=tuple(qr),
+                            material="kebab_bolster_steel", **vis)
         if self.cfg.chef_hat:
             th = root.body("c_thorax")
-            th.add_geom(name="kebab_hat_band", type=mj.mjtGeom.mjGEOM_CYLINDER,
-                        size=(0.17, 0.07, 0), pos=(0.3, 0.0, 0.42), rgba=HAT, **vis)
-            th.add_geom(name="kebab_hat_puff", type=mj.mjtGeom.mjGEOM_ELLIPSOID,
-                        size=(0.24, 0.24, 0.17), pos=(0.3, 0.0, 0.6), rgba=HAT, **vis)
+            root.add_material(name="kebab_hat_cloth", rgba=HAT, specular=0.15, shininess=0.2)
+            for part, md in A.chef_hat_meshes().items():
+                A.add_mesh(root, f"kebab_hat_{part}_mesh",
+                           A.transform(md, np.eye(3), np.array([0.3, 0.0, 0.35])))
+                th.add_geom(name=f"kebab_hat_{part}", type=mj.mjtGeom.mjGEOM_MESH,
+                            meshname=f"kebab_hat_{part}_mesh", material="kebab_hat_cloth", **vis)
 
     # ------------------------------------------------------------ attach / reset
     def on_attach(self) -> None:
@@ -383,7 +530,19 @@ class KebabJob(EternalJob):
         self.motor_id = m.actuator(P + "motor").id
         self.blade_gid = m.geom(f"{fly}/kebab_blade").id
         self.chunk_gid = np.array([m.geom(n).id for n in self._chunk_names])
-        self.chunk_base_size = m.geom_size[self.chunk_gid].copy()
+        self.spit_bid = m.body(P + "spit").id
+        # chunk centres / frames in the spit frame (the former box chunks' poses: the
+        # cut test and the shaving launch use them, not the mesh geoms' centroids)
+        self.chunk_local = np.array(self._chunk_local)
+        th = np.array(self._chunk_theta)
+        self.chunk_radial = np.column_stack([np.cos(th), np.sin(th), np.zeros_like(th)])
+        self.chunk_lquat = np.array([quat_axis_angle((0, 0, 1), a) for a in th])
+        # a cut slab sinks into the core and grows back out along its radial direction
+        self.chunk_pos0 = m.geom_pos[self.chunk_gid].copy()
+        self.chunk_sink = 0.9 * np.array(self._chunk_depth)
+        m.geom_sameframe[self.chunk_gid] = 0  # geom_pos is edited at runtime
+        self.meat_mat = np.array([m.material(P + f"meat_{nm}").id
+                                  for nm in ("raw", "seared", "cooked")])
         self.chunk_col = np.array(self._chunk_colors)
         self.n_chunks = len(self.chunk_gid)
         self.scale = np.ones(self.n_chunks)  # 1 = full chunk on the spit, 0 = just cut
@@ -453,18 +612,30 @@ class KebabJob(EternalJob):
         h = self.cfg.blade_len / 2
         return np.stack([p, p + ax * (h / 2), p + ax * h])
 
+    def chunk_centres(self) -> np.ndarray:
+        """(n, 3) world centres of the chunks (the carving test points)."""
+        d = self.sim.data
+        b = self.spit_bid
+        return d.xpos[b] + self.chunk_local @ d.xmat[b].reshape(3, 3).T
+
     def _apply_chunk_visuals(self, idx) -> None:
         m = self.sim.model
         idx = np.asarray(idx, dtype=np.int64)
         if idx.size == 0:
             return
-        s = self.scale[idx]
+        s = np.clip(self.scale[idx], 0.0, 1.0)
         g = self.chunk_gid[idx]
-        m.geom_size[g] = self.chunk_base_size[idx] * np.maximum(s, 0.05)[:, None]
-        # regrowing meat starts raw pink and browns in front of the heater
-        w = np.clip(s, 0.0, 1.0)[:, None] ** 2
-        col = (1 - w) * RAW + w * self.chunk_col[idx]
-        m.geom_rgba[g, :3] = col
+        # a regrowing slab pushes back out of the core
+        m.geom_pos[g] = (self.chunk_pos0[idx]
+                         - ((1.0 - s) * self.chunk_sink[idx])[:, None] * self.chunk_radial[idx])
+        # regrowing meat starts raw pink and browns in front of the heater:
+        # raw -> seared -> cooked textures, the tint easing into the chunk's own
+        w = s ** 2
+        stage = np.where(w < 0.3, 0, np.where(w < 0.65, 1, 2))
+        m.geom_matid[g] = self.meat_mat[stage]
+        tint = self._tint(self.chunk_col[idx])
+        f = np.clip((w - 0.65) / 0.35, 0.0, 1.0)[:, None]
+        m.geom_rgba[g, :3] = np.where(stage[:, None] == 2, (1 - f) * 1.0 + f * tint, 1.0)
         m.geom_rgba[g, 3] = np.where(s < 0.08, 0.0, 1.0)
 
     def carving(self) -> bool:
@@ -544,7 +715,7 @@ class KebabJob(EternalJob):
         ripe = self.scale >= c.ripe_frac
         if not ripe.any():
             return
-        centres = d.geom_xpos[self.chunk_gid]
+        centres = self.chunk_centres()
         dist = np.min(np.linalg.norm(centres[None, :, :] - pts[:, None, :], axis=2), axis=0)
         dist[~ripe] = np.inf
         j = int(np.argmin(dist))
@@ -555,10 +726,10 @@ class KebabJob(EternalJob):
         c = self.cfg
         sim = self.sim
         d = sim.data
-        g = self.chunk_gid[j]
-        pos = d.geom_xpos[g].copy()
+        b = self.spit_bid
+        pos = d.xpos[b] + d.xmat[b].reshape(3, 3) @ self.chunk_local[j]
         q = np.empty(4)
-        mj.mju_mat2Quat(q, d.geom_xmat[g])
+        mj.mju_mulQuat(q, d.xquat[b], self.chunk_lquat[j])
         sx, sy = self.spit_xy
         radial = np.array([pos[0] - sx, pos[1] - sy, 0.0])
         rn = np.linalg.norm(radial)
@@ -665,11 +836,11 @@ class KebabJob(EternalJob):
     def camera_target(self) -> np.ndarray:
         sx, sy = self.spit_xy
         p = self.sim.thorax_position()
-        return np.array([0.55 * p[0] + 0.45 * (sx - 0.6), 0.5 * (p[1] + sy), 2.2])
+        return np.array([0.55 * p[0] + 0.45 * (sx - 0.6), 0.5 * (p[1] + sy), 1.7])
 
     def camera_preset(self) -> CameraPreset:
         # from the fly's right (-y), a little from the front and above
-        return CameraPreset(azimuth=58.0, elevation=-10.0, distance=9.5, tau_s=0.5)
+        return CameraPreset(azimuth=55.0, elevation=-17.0, distance=7.6, tau_s=0.5)
 
     def job_hud_lines(self) -> list[str]:
         c = self.cfg

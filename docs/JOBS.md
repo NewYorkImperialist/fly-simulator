@@ -212,19 +212,39 @@ offset. The job counts revolutions, distance (surface travel) and top speed (max
 
 **Scene.** A vertical spit (hinge about z, driven by a velocity actuator at 12 rpm)
 stands 1.7 mm in front of the carving station. Its meat is an inverted cone 2.5 mm
-tall (r 0.9 mm at the bottom, 1.25 mm at the top): 10 rings, 199 browned chunks
-(visual box geoms on the spit body) over a pinkish core. Behind it is a heater with
-glowing bars, and below it a steel drip tray and base. The floor is shop tiles. The
-fly wears a chef hat. The props are fly-scale: the doner is about as tall as the fly
-is long.
+tall (r 0.9 mm at the bottom, 1.25 mm at the top): 10 layers, 199 curved meat slabs
+(visual mesh geoms on the spit body) over an inner core, under a browned crown with
+the skewer tip poking out. Behind it is a burner with glowing ceramic tiles and a
+warm light on the meat; below it a steel drip plate, motor housing and drip tray.
+The shop has terracotta floor tiles and tiled walls. The fly wears a pleated chef's
+toque. The props are fly-scale: the doner is about as tall as the fly is long.
 
-**Knife.** A handle, guard and 0.8 mm blade sit on the right front `rf_tarsus1`.
-They are visual-only geoms with no mass and no contacts, added to the fly spec just
-before `add_fly` (the extension wraps `world.add_fly` once). They cannot change the
-dynamics: the fly still weighs 1.02 mg and no contact pair involves them. I chose
-the knife's direction by searching over the recorded stroke. With it, the tip is
-more than 1.6 mm ahead of the thorax 58 % of the time and never goes below the
-floor.
+**Looks (`jobs/kebab_assets.py`, visual only).** All meshes, textures and materials
+are generated in code (numpy, OpenCV resizes) and passed to MjSpec directly; nothing
+is written to disk. The slabs follow the cone (smooth surface noise shared by all of
+them, a slight dome, rounded top / bottom edges and a wavy rim per layer, so the
+cone reads as pressed, stacked layers), with meat textures (layered grain, fat
+streaks, crispy dark and golden shreds). A cut slab is hidden and sinks into the
+core; while it regrows it pushes back out and swaps texture raw (pink, white fat) →
+seared → cooked. The carving test and the shaving launch use the former box
+chunks' centres and frames (`chunk_centres()`), not the meshes, and the chunk
+layout uses the same random draws as before, so carving is unchanged (15 s headless:
+90 shavings before and after). Shavings are curled slice meshes; their physics is
+still the hidden 3 µg ellipsoid. Lights: a key spot with shadows (`shadows=False`
+turns the shadow map off; it costs ~6 ms per 960×640 frame), a cool rim light, the
+warm burner light and a dimmer headlight. `visual.map.znear` is raised to 0.05 (×
+extent 1 mm) so the spot-light shadow map has enough depth precision.
+
+**Knife.** A chef's knife sits on the right front `rf_tarsus1`: a tapered 0.8 mm
+blade mesh (spine, primary grind, bevelled edge, belly curving up to the point) in
+polished steel (fake environment-reflection texture, high specular), a steel
+bolster, and a black handle with three steel rivets. They are visual-only geoms with
+no mass and no contacts, added to the fly spec just before `add_fly` (the extension
+wraps `world.add_fly` once). They cannot change the dynamics: the fly still weighs
+1.02 mg and no contact pair involves them. The cut test reads a hidden box
+(`kebab_blade`, alpha 0, group 3) along the blade. I chose the knife's direction by
+searching over the recorded stroke. With it, the tip is more than 1.6 mm ahead of
+the thorax 58 % of the time and never goes below the floor.
 
 **Stroke.** `CarveStroke` is a `Groom` subclass. It loops the recorded NeuroMechFly
 front-leg grooming clip, with the mid legs extended and the mid / hind legs planted
@@ -242,8 +262,8 @@ recorded clip. `Groom` itself is not changed here.
 (mid-blade to tip) against the ripe chunks. A point within 0.2 mm of a chunk centre,
 with the tip moving faster than 12 mm/s, cuts that chunk. There is at most one cut
 per 0.12 s. The blade and meat do not collide physically: the cut is a geometric
-test. When a chunk is cut, it is hidden (size and alpha), and a shaving from a pool
-of 18 free bodies (3 µg ellipsoids, recycled oldest first) is launched from the
+test. When a chunk is cut, it is hidden (alpha, and sunk into the core), and a shaving from a pool
+of 18 free bodies (3 µg ellipsoids drawn as curled slices, recycled oldest first) is launched from the
 chunk's pose with the spit's surface speed plus an outward kick. It falls onto the
 tray with real physics. Shavings touch only the tray, the floor and each other, not
 the fly. A shaving that goes NaN or leaves the arena is put back on the tray

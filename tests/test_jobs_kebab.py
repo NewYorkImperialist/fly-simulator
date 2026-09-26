@@ -7,6 +7,7 @@ from __future__ import annotations
 import math
 from types import SimpleNamespace
 
+import mujoco as mj
 import numpy as np
 import pytest
 
@@ -64,6 +65,55 @@ def test_props_knife_is_visual_only(kebab):
     sh = m.geom("kebab/shaving0_g").id
     assert m.geom_contype[sh] == PROP_BIT and not (m.geom_conaffinity[sh] & FLY_BIT)
     assert "carve" in session.STATIONARY_ACTIONS  # standing to carve is not "stuck"
+
+
+def test_visual_assets_build(kebab):
+    """Procedural meshes / textures (perpetualfly/jobs/kebab_assets.py) are closed,
+    outward-facing meshes and valid images, and the compiled scene uses them: meat
+    slabs are massless visual meshes, the cutting reference box is hidden."""
+    from perpetualfly.jobs import kebab_assets as A
+
+    tex = A.meat_textures(0)
+    assert set(A.MEAT_STAGES) <= set(tex) and "inner" in tex
+    for img in (*tex.values(), A.steel_texture(0), A.blade_texture(0), A.heater_texture(0),
+                A.floor_texture(0), A.wall_texture(0)):
+        assert img.dtype == np.uint8 and img.ndim == 3 and img.shape[2] == 3
+        assert img.std() > 1.0  # not a flat colour
+    rng = np.random.default_rng(0)
+    meshes = [*A.knife_meshes(0.8, 0.08).values(), *A.chef_hat_meshes().values(),
+              A.curled_slice(0.36, 0.25, 0.035, 0.04, rng),
+              A.meat_slab(0.0, 0.3, 1.0, 1.25, lambda z: 1.0 + 0 * z, 0.16,
+                          A.SurfaceNoise(rng, 0.05), rng)]
+    for md in meshes:
+        assert md.signed_volume() > 0
+        assert md.faces.min() >= 0 and md.faces.max() < len(md.verts)
+        assert md.uv.shape == (len(md.verts), 2)
+        # closed: every edge is shared by exactly two faces
+        e = np.sort(np.concatenate([md.faces[:, [0, 1]], md.faces[:, [1, 2]],
+                                    md.faces[:, [2, 0]]]), axis=1)
+        _, counts = np.unique(e, axis=0, return_counts=True)
+        assert np.all(counts == 2)
+    session, job, _ = kebab
+    m = session.sim.model
+    assert np.all(m.geom_type[job.chunk_gid] == int(mj.mjtGeom.mjGEOM_MESH))
+    assert np.all(np.isin(m.geom_matid[job.chunk_gid], job.meat_mat))
+    assert np.all(m.geom_contype[job.chunk_gid] == 0)
+    # the meat meshes add no mass: the spit weighs what its rod does
+    assert m.body_mass[job.spit_bid] == pytest.approx(1e-4)
+    sh = m.body("kebab/shaving0").id
+    assert m.body_mass[sh] == pytest.approx(job.cfg.shaving_mass)
+    blade = m.geom("nmf/kebab_blade").id  # the hidden cutting reference
+    assert m.geom_rgba[blade, 3] == 0.0 and m.geom_group[blade] == 3
+    for name in ("nmf/kebab_blade_vis", "nmf/kebab_knife_guard", "kebab/shaving0_vis"):
+        g = m.geom(name).id
+        assert m.geom_type[g] == int(mj.mjtGeom.mjGEOM_MESH)
+        assert m.geom_contype[g] == 0 and m.geom_conaffinity[g] == 0
+    # chunk centres (the carving test points) sit on the cone, just inside its surface
+    cen = job.chunk_centres()
+    sx, sy = job.spit_xy
+    r = np.hypot(cen[:, 0] - sx, cen[:, 1] - sy)
+    expect = np.array([job.radius_at(z) for z in cen[:, 2]])
+    assert np.all(np.abs(expect - r) < job.cfg.chunk_t)
 
 
 def test_carves_shavings(kebab):
