@@ -231,6 +231,7 @@ class Session:
         check_feature_config(cfg)
         # optional features (installed at the end of __init__; None when off)
         self.job = None  # EternalJob (--job; set by install_job)
+        self.edit_clock = None  # the job's hit-stop / slow-mo clock (install_job)
         self.course = None  # CourseRun (--course; set by install_course)
         self.vision = None  # LoomingVision (--whip-vision, or the swatter's own)
         self.real_vision = None  # RealVision (--real-vision) / CompoundEyes (eyes_only)
@@ -484,6 +485,12 @@ class Session:
 
     def run_time(self) -> float:
         return self.metrics.run_time_at(self.sim.time)
+
+    def present_time(self) -> float:
+        """Run time + the time a job's hit-stop / slow-motion edit held the picture
+        (``PresentationClock``; = run_time without one). Recordings are paced by it."""
+        c = self.edit_clock
+        return self.run_time() + (c.lag if c is not None else 0.0)
 
     def auto_hits_allowed(self) -> bool:
         """Auto-perturber gate: not FALLEN / RECOVERING and on its feet for
@@ -774,7 +781,12 @@ class Session:
     def step(self, n: int) -> None:
         """``sim.step(n)``; with a job an instability (NaN / blow-up) is recovered by
         an explicit, counted reset (``job.recover("instability")``, like JobRunner),
-        otherwise it propagates."""
+        otherwise it propagates. A job's hit-stop / slow motion (edit effect,
+        ``EternalJob.time_scale``) runs fewer of the ``n`` steps."""
+        if self.edit_clock is not None:
+            n = self.edit_clock.steps(n)
+            if n <= 0:
+                return
         try:
             self.sim.step(n)
         except SimulationInstabilityError as e:
@@ -1521,13 +1533,13 @@ def run(
                 print(media.stop_recording(), flush=True)
                 log_locked("record_stop", path=str(media.rec_path), frames=media.rec_frames)
             else:
-                path = media.start_recording(st.frame_rt if st.threaded else session.run_time())
+                path = media.start_recording(st.frame_rt if st.threaded else session.present_time())
                 session.media.append(str(path))
                 log_locked("record_start", path=str(path), fps=media.fps)
                 print(f"[record] recording the fly view to {path} ({media.fps:g} fps of sim "
                       f"time; M stops)", flush=True)
         if media.recording:
-            rt = st.frame_rt if st.threaded else session.run_time()
+            rt = st.frame_rt if st.threaded else session.present_time()
             if media.due(rt):
                 media.add(frame if frame is not None else render_now(), rt)
 
@@ -1592,7 +1604,7 @@ def run(
             elif k in ("[", "]"):
                 msg = session.step_difficulty(-1 if k == "[" else 1)
             elif k == "i":
-                st.shot = (session.run_time(),
+                st.shot = (session.present_time(),
                            list(brain.recent) if brain is not None else [])
                 msg = None  # the main loop prints the file names
             elif k == "m":
@@ -1637,9 +1649,13 @@ def run(
             # ---- live window, physics in a worker thread (default) ----------
             from fly_simulator.physics_thread import PhysicsThread
 
+            clock = session.edit_clock
             runner = PhysicsThread(sim, cfg.render.thread_chunk_steps, after_chunk=after_physics,
                                    max_realtime_factor=cfg.render.max_realtime_factor,
-                                   step_fn=session.step)
+                                   step_fn=session.step,
+                                   time_fn=(lambda: sim.time + clock.lag) if clock is not None else None,
+                                   hold_fn=(lambda: clock.last_held_s / max(cfg.render.max_realtime_factor or 1.0, 1e-3))
+                                   if clock is not None else None)
             runner.start()
             try:
                 next_frame = time.perf_counter()
@@ -1649,7 +1665,7 @@ def run(
                         frame_renderer.update_scene(sim.data, sim.time, sim.thorax_position(),
                                                     sim.heading(), **camera_kw())
                         st.hud = hud_lines()
-                        st.frame_rt = session.run_time()
+                        st.frame_rt = session.present_time()
                     frame = frame_renderer.draw()
                     keys = display_frame(frame)
                     if keys:
@@ -1680,6 +1696,9 @@ def run(
                 if not st.paused:
                     session.step(chunk)
                     after_physics()
+                    held = session.edit_clock.last_held_s if session.edit_clock is not None else 0.0
+                    if viewer is not None and held > 0:  # a held chunk takes its time on screen
+                        time.sleep(held / max(cfg.render.max_realtime_factor or 1.0, 1e-3))
                 show = viewer is not None and time.perf_counter() - last_shown >= frame_period
                 frame = None
                 if writer is not None or show:
@@ -1700,7 +1719,7 @@ def run(
                 # Never run faster than max_realtime_factor x real time (rarely
                 # binding: this model + controller is usually slower than real time).
                 wall = time.perf_counter() - wall_start
-                ahead = (session.run_time() - sim_start) / cfg.render.max_realtime_factor - wall
+                ahead = (session.present_time() - sim_start) / cfg.render.max_realtime_factor - wall
                 if ahead > 0 and not st.paused and not headless:
                     time.sleep(ahead)
                 if st.done:
@@ -1798,9 +1817,10 @@ def _make_renderer(session: Session):
     cfg = session.cfg
     r = FrameRenderer(session.sim.model, cfg.render, cfg.camera)
     if session.job is not None:
-        from fly_simulator.jobs import JobCamera
+        from fly_simulator.jobs import JobCamera, install_post_process
 
         r.camera = JobCamera(cfg.camera, session.job)
+        install_post_process(r, session.job)  # the job's edit effects (if any)
     return r
 
 

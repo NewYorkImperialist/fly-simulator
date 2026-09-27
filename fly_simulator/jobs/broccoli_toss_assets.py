@@ -17,6 +17,7 @@ import math
 from functools import lru_cache
 
 import cv2
+import mujoco as mj
 import numpy as np
 
 from fly_simulator.jobs.kebab_assets import (  # noqa: F401  (re-exported helpers)
@@ -449,3 +450,31 @@ def door_texture(h: int = 256, w: int = 128) -> np.ndarray:
     for k in range(0, w, 16):
         img[int(h * 0.30):int(h * 0.62), k] = (0.85, 0.72, 0.52)
     return _to_u8(img)
+
+
+# ---------------------------------------------------------------------------
+# blast puff texture (a cube map: the puffs are ellipsoids)
+# ---------------------------------------------------------------------------
+
+
+def puff_cube_texture(seed: int = 0, n: int = 64, lo: float = 0.35) -> np.ndarray:
+    """Six (n, n) faces of billowy fractal noise stacked vertically (6n, n, 3), grey
+    values lo..1 (they multiply the puff colour): the fire / smoke puffs get lumps,
+    dark folds and bright cores instead of flat shading."""
+    rng = np.random.default_rng(seed)
+    faces = []
+    for _ in range(6):
+        v = fbm(n, n, 3, 3, rng, octaves=3, gain=0.5)
+        v = (v - v.min()) / max(float(v.max() - v.min()), 1e-6)
+        v = 1.0 - np.abs(2.0 * v - 1.0)  # "billows": ridges where the noise crosses 0.5
+        faces.append(lo + (1.0 - lo) * v ** 0.8)
+    img = np.concatenate(faces, 0)
+    return _to_u8(np.repeat(img[..., None], 3, axis=2))
+
+
+def add_cube_texture(spec, name: str, img: np.ndarray):
+    """Cube texture from six stacked square faces (6n, n, 3) uint8."""
+    h, w, _ = img.shape
+    tex = spec.add_texture(name=name, type=mj.mjtTexture.mjTEXTURE_CUBE, width=w, height=h, nchannel=3)
+    tex.data = np.ascontiguousarray(img).tobytes()
+    return tex

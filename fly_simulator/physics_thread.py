@@ -45,13 +45,21 @@ class PhysicsThread:
         max_realtime_factor: float | None = None,
         switch_interval_s: float = 0.001,
         step_fn: Callable[[int], None] | None = None,
+        time_fn: Callable[[], float] | None = None,
+        hold_fn: Callable[[], float] | None = None,
     ) -> None:
         """``after_chunk()`` runs in the worker, under the lock, after every chunk
         (stats, printing). Returning True stops the worker (e.g. max sim time).
         ``step_fn(n)`` replaces ``sim.step(n)`` (e.g. the app's job-aware step that
-        recovers from instabilities)."""
+        recovers from instabilities). ``time_fn()``: the clock the real-time cap
+        paces (default ``sim.time``; the app passes the presentation time, so a
+        job's hit-stop / slow motion still takes its time on screen). ``hold_fn()``:
+        seconds of wall time to wait after a chunk, outside the lock (a held chunk
+        is shown for its presentation time even when physics runs behind)."""
         self.sim = sim
         self.step_fn = step_fn or sim.step
+        self.time_fn = time_fn or (lambda: self.sim.time)
+        self.hold_fn = hold_fn
         self.chunk_steps = max(1, int(chunk_steps))
         self.after_chunk = after_chunk
         self.max_realtime_factor = max_realtime_factor
@@ -95,7 +103,7 @@ class PhysicsThread:
 
     def reset_clock(self) -> None:
         """Restart the real-time cap reference (call after reset / unpause)."""
-        self._clock_wall, self._clock_sim = time.perf_counter(), self.sim.time
+        self._clock_wall, self._clock_sim = time.perf_counter(), self.time_fn()
 
     @contextmanager
     def locked(self) -> Iterator[None]:
@@ -118,6 +126,11 @@ class PhysicsThread:
                     done = self.after_chunk() if self.after_chunk is not None else False
                 if done:
                     return
+                if self.hold_fn is not None:
+                    hold = self.hold_fn()
+                    if hold > 0:
+                        time.sleep(hold)
+                        self.reset_clock()
                 self._throttle()
         except BaseException as e:  # surfaced in the main thread by raise_if_failed()
             self.error = e
@@ -126,6 +139,6 @@ class PhysicsThread:
         cap = self.max_realtime_factor
         if not cap:
             return
-        ahead = (self.sim.time - self._clock_sim) / cap - (time.perf_counter() - self._clock_wall)
+        ahead = (self.time_fn() - self._clock_sim) / cap - (time.perf_counter() - self._clock_wall)
         if ahead > 0:
             time.sleep(ahead)

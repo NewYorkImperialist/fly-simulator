@@ -304,6 +304,31 @@ class EternalJob:
     def job_stats(self) -> dict[str, Any]:
         return {}
 
+    # ------------------------------------------------------ edit effects (optional)
+    def post_process(self, frame: np.ndarray, t: float) -> np.ndarray:
+        """Screen-space post-process of every rendered job frame (RGB uint8, H x W x 3),
+        applied before the HUD is drawn: the window, M recordings, rolling
+        recordings, timelapses and screenshots all get it (``FrameRenderer.draw``
+        calls it when ``install_post_process`` wired it). ``t`` = run time of the
+        rendered state. For *edit effects* (flash, bloom, shake, ...): label them
+        as such. Default: identity (the runner does not even call it)."""
+        return frame
+
+    def time_scale(self, present_dt: float) -> float:
+        """Presentation-time edit (hit-stop / slow motion; an *edit effect*): the
+        runner calls this once per chunk with the chunk's nominal duration (s) and
+        simulates only this fraction of it (1 = normal, 0 = freeze: the displayed
+        frame is held; recordings are paced by ``Session.present_time``). The
+        physics is untouched: the same step sequence, only fewer steps per
+        displayed frame. Default: 1."""
+        return 1.0
+
+    def has_post_process(self) -> bool:
+        return type(self).post_process is not EternalJob.post_process
+
+    def has_time_scale(self) -> bool:
+        return type(self).time_scale is not EternalJob.time_scale
+
     # ------------------------------------------------------ helpers for jobs
     def add_work(self, amount: float = 1.0) -> None:
         self.work += amount

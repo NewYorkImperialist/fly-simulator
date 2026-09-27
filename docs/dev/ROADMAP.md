@@ -93,3 +93,18 @@ Everything planned so far, compared. Effort estimates are rough (one developer, 
 
 ## Next job (queued after bowling)
 - **broccoli_toss** — done 2026-09-27 (docs/JOBS.md#broccoli_toss). a fly-scale streamer's room (desk, glowing monitors with a generic "LIVE" stream, RGB strips, ring light, mic, posters, gaming chair). The host fly (real physics, walking) brings a plate of broccoli to the viewer fly (posed / animated in the gaming chair, facing the monitors). The viewer takes it, ponders it for 0.75–1 s (head tilt, plate still; with `--brain` the bitter pathway fires), then in one sudden casual flick throws the whole plate over its shoulder without looking. The plate flies with real physics; where it lands behind, everything explodes (a labelled cartoon blast: flash, fireball, shockwave impulse; props then move with real physics; debris and broccoli rain). The viewer keeps watching, unbothered; the room rebuilds; repeat forever. Counters: plates yeeted, explosions, stream viewers, vegetables eaten: 0. No real streamer names or likenesses.
+
+## Overnight queue (2026-09-27, one agent at a time)
+Broccoli edit: finishing the current brief (throw, camera, timing, edit effects), then no further broccoli work without the user.
+1. Bowling: debug (user sees the ball/fly stop at the rails) + tune so strikes/spares happen sometimes.
+2. Job: taste tester (conveyor of sugar/bitter samples; the real brain approves/rejects).
+3. Job: pizza chef.
+4. Job: trampoline.
+5. Job: delivery pilot (real flight between platforms).
+6. Game: Pong (brain as paddle controller).
+7. Game: plane/flight game (real flight).
+8. `--game` inside run_sim.py.
+9. Polish: older job scenes (sisyphus, hamster wheel, mowing, raking) to the newer visual standard.
+10. Dead hang: fewer twist-offs (falls should come from grip fatigue), real-brain flinch test.
+11. More jobs: snow shoveling, mini golf, jump rope, DJ, dishwasher, barista, shopping carts, crop duster, bouncer, air-traffic controller.
+12. Bigger features: smell without runaway (model fix + odour tracking), squash damage; RL recovery training only if free disk ≥ 3 GB; BANC nerve cord feasibility study (research notes, no big downloads).

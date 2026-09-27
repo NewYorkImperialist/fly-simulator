@@ -106,6 +106,12 @@ class FrameRenderer:
         model.vis.global_.fovy = cam_cfg.fovy
         self.scene_option = mj.MjvOption()
         self.set_reflections(render_cfg.reflections)
+        # optional screen-space post-process ``post_process(frame, t) -> frame``
+        # (a job's edit effects); ``post_clock()`` gives its t (read in update_scene,
+        # i.e. under the physics lock in threaded mode)
+        self.post_process = None
+        self.post_clock = None
+        self._post_t = 0.0
 
     def set_reflections(self, on: bool) -> None:
         """Floor reflections on/off (a scene render flag; survives update_scene)."""
@@ -125,9 +131,14 @@ class FrameRenderer:
         """``cam_kw``: ``ground_z``, ``tilt_deg`` (see SmoothFollowCamera.update)."""
         cam = self.camera.update(t, target, heading, **cam_kw)
         self.renderer.update_scene(data, camera=cam, scene_option=self.scene_option)
+        if self.post_process is not None:
+            self._post_t = float(self.post_clock()) if self.post_clock is not None else float(t)
 
     def draw(self) -> np.ndarray:
-        return self.renderer.render()  # (H, W, 3) uint8 RGB
+        frame = self.renderer.render()  # (H, W, 3) uint8 RGB
+        if self.post_process is not None:
+            frame = self.post_process(frame, self._post_t)
+        return frame
 
     def close(self) -> None:
         self.renderer.close()

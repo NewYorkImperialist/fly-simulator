@@ -114,6 +114,18 @@ across resets), `fly_xy()`, `fly_down()`, `fly_moved(window_s)`, `say(msg)`.
   and C cycles job / follow / side / top.
 * `stats()` merges the base counters with `job_stats()` (printed by the runner,
   returned by `JobRunner.run`).
+* Optional **edit effects** (label them as such in the job's docs / HUD):
+  `post_process(frame_rgb, t) -> frame_rgb` is a screen-space post-process of every
+  rendered job frame, before the HUD (`install_post_process` wires it into the
+  `FrameRenderer`, so the window, M recordings, rolling recordings, timelapses and
+  screenshots of both `run_job.py` and `run_sim.py --job` get it; the default is
+  identity and is not even called). `time_scale(present_dt) -> float` is a
+  hit-stop / slow-motion request in presentation time: `install_job` gives the
+  session a `PresentationClock` (`session.edit_clock`) that runs only that fraction
+  of each chunk's physics steps (0 = the frame is held) and keeps
+  `session.present_time()` (run time + the held time), which recordings are paced by;
+  in a window a held chunk still takes its time on screen. The physics step sequence
+  is unchanged (same results), only fewer steps per displayed frame.
 
 ### Props and contacts (`jobs/geometry.py`)
 
@@ -713,29 +725,48 @@ kitchen.
    the head tilts down at it and rocks (pitch +18°, roll ±14°), a mid leg taps the
    armrest, a hind leg swings; `hmm...`. The head swings back to the monitors 0.35 s
    before the end;
-4. `flick` (0.2 s): the right front leg dips (windup 0.1 s) and flicks up and back
-   over the right shoulder, the picture's left on the webcam as in the meme (0.1 s) with the plate on its tip, head still on the
-   monitors. At the release the plate and its 4 florets become free bodies with a
-   **launch velocity set by the job (engineered, labelled)**: an aimed ballistic arc
-   that peaks `apex_mm` = 3.2 mm above the release and lands around `target_xy`
-   (-7.4, -2.6) ± 0.9 mm among the props, plus a 45 rad/s tumble; the florets get
-   ±25 mm/s scatter. The leg does not exert this velocity. Typical launch: (-113,
-   -20, +251) mm/s from 4.6 mm up;
-5. `flight`: real physics. Gravity makes it quick at this scale: 55–65 ms from
-   release to landing (a fly-scale throw is ~26× faster than a human one, Froude
-   scaling). The first contact of the plate with anything but its own florets is
-   the landing (timeout 1 s, 0 timeouts so far);
-6. `boom` (1.8 s): **cartoon blast (engineered, labelled)**: a yellow core flash, 12
-   orange / yellow fireball puffs that grow and fade, 9 smoke puffs that rise and
-   fade, a dust ring rolling out along the floor (emissive primitives on a mocap
-   body; their sizes, offsets and material alphas are animated), a point light that
-   flashes the room orange, a camera shake, and **one shockwave velocity kick** (an
-   impulse) to every breakable prop within 9 mm: Δv = 230 mm/s × (2 mm / max(r, 2
-   mm))^0.6 × U(0.8, 1.2) along the outward direction with an upward bias, plus a
-   random spin. From then on the props fly, tumble and collide with real contacts.
-   The pool of 14 debris chips and the florets is launched from the blast centre
-   (120–300 mm/s) and rains down with real physics. The plate itself is shattered
-   (parked);
+4. `flick` (0.17 s): hold → a tiny anticipation (`windup_s` 0.12 s, eased: the plate
+   dips toward the chest and cocks a little, the torso turns 4° to its left and leans
+   in, the head dips) → the **snap** (`throw_s` 0.05 s, u^2.2: velocity ~0 then a
+   spike at the release): the right front leg whips up and back over the right
+   shoulder (the picture's left, as in the meme), the torso twists 26° to its right
+   (the viewer's mocap mount), leans back 8° into the chair and rolls the right
+   shoulder up, the head jerks up and counter-turns (it never looks), the left front
+   leg lets go. The plate hangs from the right front "hand", banks edge-first toward
+   the throw and swings out beyond the hand; its face never turns to the webcam (no
+   slow flip). At the release the plate and its 4 florets become free bodies with a
+   **launch velocity set by the job (engineered, labelled)**: aimed to reach
+   `target_xy` (-6.6, -5.0) ± 0.9 mm (the can pyramid) in `flight_s` = 50 ms, a fast
+   flat throw (~210 mm/s; translation dominates), spinning 60 rad/s about its own
+   axis; the florets get ±25 mm/s scatter. The leg does not exert this velocity.
+   **Follow-through / recoil (engineered, labelled):** from the release damped
+   springs (`_Springs`, stepped every 1 ms) take over: the arm overshoots and swings
+   back to rest, the torso / lean / roll / head wobble back in 2–4 decaying swings,
+   the hind legs kick, and the **chair recoils** (the chair is a mocap body, nudged
+   back 0.1–0.2 mm and yawed, the viewer rides on it);
+5. `flight`: real physics, but short: the blast goes off at the plate's first contact
+   with anything but its own florets or at the `flight_s` timer, whichever comes
+   first (47 ms in the seeded runs): at 30 fps that is 1–2 frames from release to
+   boom, at the GIF's 15 fps one;
+6. `boom` (2.6 s): **cartoon blast (engineered, labelled)**, near-instant: a white-hot
+   core that is big at once and collapses in 30 ms; 80 lumpy fire ellipsoids (random
+   axes and orientations, a billowy noise cube-map texture, each with its own
+   direction, 0–35 ms onset, 12–30 ms growth, cooling white → yellow → orange → red →
+   soot, rise, wobble and burn-out) that burst out to full size in a few tens of ms
+   and fill the background on the picture's left and above; 24 darker smoke
+   ellipsoids that roll up later; 40 spark streaks (capsules along their velocity),
+   56 embers and a dust ring (all emissive primitives on a mocap body, animated
+   vectorised); a point light at the blast and a warm **rim spot** from behind the
+   viewer's right shoulder onto its back / side, the chair and the rug, both
+   flickering with the fire; the viewer's materials glow for an instant. The key
+   light's shadow is off while the room burns (MuJoCo's shadow map blacked out the
+   emissive puffs). **One shockwave velocity kick** (an impulse) to every breakable
+   prop within 9 mm: Δv = 230 mm/s × (2 mm / max(r, 2 mm))^0.6 × U(0.8, 1.2) along
+   the outward direction with an upward bias, plus a random spin. From then on the
+   props fly, tumble and collide with real contacts. The pool of 14 debris chips and
+   the florets is launched from the blast centre (120–300 mm/s) and rains down with
+   real physics. The plate itself is shattered (parked). The blast also shoves the
+   viewer and the chair forward (a kick to the recoil springs);
 7. `aftermath` (2.4 s): the viewer keeps watching the monitors, unbothered, the host
    stands there, the stream viewers go up (+80 + 12 % × U(0.6, 1.4)), chat scrolls
    fast;
@@ -752,12 +783,48 @@ touch the fly. While intact they are **parked kinematically**: contacts off, gra
 compensated, at rest on their spots, so the solver has no resting contacts to hold
 (this took the step time from 0.5 ms to 0.19 ms: 134 → 14 contacts). They, the plate
 and the florets go live (contacts + gravity) at the release; the debris goes live at
-the blast. The camera is a fixed "webcam" on the (shallow) desk under the monitors,
-centred on the gaming chair with a wide 64° view, so the whole chair and the viewer are
-in frame and the viewer faces it. The blast (scaled ×2.6, spread sideways and up, with
-28 floating embers) fills the background on the picture's left and above, but every
-puff is clamped to stay behind the chair back, so the viewer stays in front of it,
-unbothered, and glances off to the side afterwards, like the meme edits.
+the blast. The camera is a "webcam" on the (shallow) desk under the monitors with a
+wide 64° view. While the host walks it is wider and higher (azimuth 180°, elevation
+-13°, 5 mm); from the handover to the end of the aftermath it glides (0.6 s) into the
+meme's framing: chest-high (elevation -10°, 4.3 mm, look-at 3.45 mm up), the chair
+centred with its whole back in view, slightly off-axis from the picture's left
+(azimuth 172°) so the plate visibly flies back past the viewer. The blast (scaled ×3)
+fills the background on the picture's left and above, but every puff is clamped to
+stay behind the chair back, so the viewer stays in front of it, unbothered, and
+glances off to the side afterwards, like the meme edits.
+
+**Edit effects (a video edit, not physics; labelled `EDIT FX (not physics)` in the
+HUD during the beat).** Matched against the meme edit frame by frame (a 10 fps clip:
+hold, a one-frame anticipation, the arm up with the plate leaving the frame, then one
+white "impact frame" with speed lines and a dark silhouette, two overexposed,
+punched-in frames, then saturated fire behind the unbothered person, zoomed in ~1.4×
+for the rest):
+
+* **hit-stop / slow motion** (`time_scale`, presentation time): 0.07 s at ×0.02 (a
+  near-freeze: 2 frames at 30 fps), then 0.4 s at ×0.3, ramping back to ×1 over
+  0.25 s (~0.36 s of presentation time added per blast; recordings and the GIF show
+  it, the physics sequence is unchanged);
+* **impact flash** (counted in frames, so it never lingers): frame 1 is an "impact
+  frame" (a high-contrast negative with a warm white burst out of the blast, streaked
+  by the zoom blur), frames 2–4 are overexposed by ×3.4 / ×2 / ×1.3 plus a white /
+  yellow lift strongest toward the blast (the viewer overexposed too), then the
+  normal image; a chromatic fringe (R / B pulled apart 4 → 1 px) on frames 2–4;
+* **zoom blur** out of the blast (5 taps, 8 % → 0 in ~0.2 s), **bloom** (bright pass,
+  blurred at 1/4 and 1/8 size, added back warm: the glow engulfs the silhouette at
+  the blast, a weaker halo while the room burns), a brief exposure lift and a warm
+  grade that fades with the fire;
+* **camera kick, damped shake and punch-in** (one `warpAffine`): a 3 %-of-width kick
+  at the impact, the opposite smaller swing next, 7 / 5.5 Hz oscillations decaying
+  with τ = 0.14 s (2–4 visible swings) plus a ±1.6° roll; the zoom punches to ×1.25
+  and settles at ×1.14 while the room burns, then eases back as it rebuilds;
+* **ghosting** at the hit (the previous output blended in at 45 / 30 / 15 %) and a
+  **motion smear** on the throw's fastest frames (the snap and the flight: what moved
+  since the last frame gets a directional blur along the throw, blended with the
+  previous frame).
+
+`post_process` costs 7–9 ms per 600×400 frame during the blast (numpy / OpenCV, measured
+in the render loop), less on the smear and zoom-ease frames, nothing otherwise (identity). `edit_fx: false` turns all of it
+off (no post-process, no hit-stop).
 
 **Brain (`--brain`, off by default).** During the ponder the job sends a bitter taste
 pulse every 0.5 s (0.4 s at 150 Hz: `StimulusEvent("taste", tastes=["bitter"])`, the
@@ -775,7 +842,8 @@ The HUD adds `bitter pulses N (stand-in ...)`.
 (always), room rebuilds, props launched, plus a message line (`the host fly: 'made you
 broccoli'`, `hmm...`, `*flick*`, `KA-BOOM! (cartoon blast) chat goes wild: +N
 viewers`, `rebuilding the room`) and the label line `(viewer: posed kinematic fly;
-plate launch + blast: cartoon, see docs)`.
+plate launch + blast: cartoon, see docs)`, plus `EDIT FX (not physics): hit-stop,
+slow-mo x0.3, flash, bloom, shake, punch-in` during the impact's edit beat.
 
 **Verified** (headless, 2026-09-27, `run_job.py --job broccoli_toss --headless
 --max-seconds 150`): **10 plates yeeted, 10 explosions, 10 room rebuilds**, 130 props
@@ -788,16 +856,34 @@ runs too. Frames checked by eye (job renderer): the host walking in with the pla
 on its back, the handover, the ponder close-up, the plate on the right front leg over
 the shoulder, the plate in the air over the chair, the fireball and dust ring with
 props flying, the aftermath with the viewer still facing the monitors, the rebuilt
-room. Tests: `tests/test_jobs_broccoli_toss.py` (7 tests, ~36 s: scene / viewer
-without free joint, actuators or contacts; the full phase order and a 0.75–1 s ponder;
-the launch goes backward and up and lands behind the chair; the blast moves props and
-the rebuild puts them back; counters and HUD; bitter pulses with a fake brain; a
-reset mid-cycle).
+room. After the snap / edit rework (2026-09-27): `run_job.py --job broccoli_toss
+--headless --max-seconds 20`: 2 plates yeeted, 2 explosions, 26 props launched,
+flights 44–47 ms, 0 falls, 0 auto-recoveries, **0 instabilities**, RTF 0.26;
+`run_sim.py --job broccoli_toss --headless --max-seconds 5` runs, and its `--record`
+MP4 has the post-process and the slow motion in it. The throw → boom segment was
+rendered at 30 fps (and 15 fps for the GIF) and checked frame by frame against the
+meme clip: at 30 fps 5 frames of flick (4 of anticipation, 1 smeared snap), 2 of
+flight, 2 hit-stop frames (the impact frame + an overexposed one), 2 more flash
+frames, ~12 slow-motion frames while the fireball fills the background; at 15 fps
+release → impact frame is one frame, as in the clip. Tests:
+`tests/test_jobs_broccoli_toss.py` (10 tests, ~35 s: scene / viewer without free
+joint, actuators or contacts; the full phase order and a 0.75–1 s ponder; the launch
+goes backward and lands behind the chair, fast and flat, and the blast follows within
+`flight_s`; the plate never turns face-on to the webcam, the torso twists and the
+chair recoils, both back at rest after the cycle; the hit-stop / slow-mo schedule and
+the presentation-clock lag of one blast; the post-process is identity when idle and
+the impact frame is bright; the blast moves props and the rebuild puts them back;
+counters and HUD; bitter pulses with a fake brain; a reset mid-cycle; the
+`PresentationClock` step accounting).
 
 **Limitations.** The viewer is posed, not simulated (no dynamics, it can't be
-knocked over), the carry, handover, launch velocity, blast, debris launch and rebuild
-are engineered (above). The flick is fast in real time (the flight is ~60 ms): the
-GIF shows it at 5× slow motion; the live window runs at RTF ~0.3, so it reads there.
+knocked over), the carry, handover, launch velocity, follow-through / recoil
+springs, blast, debris launch and rebuild are engineered (above); the flash,
+hit-stop, slow motion, shake, punch-in, blur and ghosting are edit effects. The
+viewer is a fly, so the "arm" is a thin front leg: the snap reads mostly through the
+plate, the smear and the torso twist. The blast's screen centre for the zoom blur /
+flash is a fixed point of the webcam framing (`blast_screen`), not projected. In a
+live window the hit-stop is honoured by waiting (the job runs at RTF ~0.3 anyway).
 The host's arrival heading is within ~5–25° of the viewer, not exact. Blast-launched
 props sometimes fly out toward the camera (invisible walls keep them in the room).
 The chat on the monitors is geometry over a static texture (no text).

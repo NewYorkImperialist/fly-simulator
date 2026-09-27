@@ -15,6 +15,12 @@
 * ``JobCamera``: ``SmoothFollowCamera`` with an extra "job" mode (the job's preset).
 * ``JobRunner``: headless / window loop with auto-recovery from instabilities,
   rolling MP4 segments, timelapse, status lines.
+* Optional edit effects of a job (``EternalJob.post_process`` / ``time_scale``):
+  ``install_post_process(renderer, job)`` wires the screen-space post-process into a
+  ``FrameRenderer``; ``PresentationClock`` (``session.edit_clock``, made by
+  ``install_job`` when the job has a ``time_scale``) turns hit-stop / slow motion into
+  fewer physics steps per chunk and keeps the presentation time
+  (``session.present_time()``) that recordings are paced by.
 """
 
 from __future__ import annotations
@@ -73,7 +79,48 @@ def install_job(session: "Session", job_or_name, job_cfg: JobConfig | dict | Non
 
     session.after_physics = after_physics
     session.job = job
+    session.edit_clock = PresentationClock(job, session.sim.timestep) if job.has_time_scale() else None
     return job
+
+
+class PresentationClock:
+    """Presentation time for a job's hit-stop / slow-motion edit (an edit effect).
+
+    ``steps(n)`` asks ``job.time_scale(n * dt)`` and returns how many of the ``n``
+    nominal physics steps to run (fractions carried over, so a scale of 0.3 runs
+    exactly 30 % of the steps); ``lag`` is the presentation time that has passed
+    without simulation (grows by the length of every freeze / slow-mo beat, a
+    float, no memory growth). The physics step sequence is unchanged."""
+
+    def __init__(self, job: EternalJob, timestep: float) -> None:
+        self.job, self.dt = job, float(timestep)
+        self.lag = 0.0
+        self.last_scale = 1.0
+        self.last_held_s = 0.0  # presentation time the last chunk did not simulate
+        self._frac = 0.0
+
+    def steps(self, n: int) -> int:
+        n = int(n)
+        scale = float(self.job.time_scale(n * self.dt))
+        scale = min(max(scale if math.isfinite(scale) else 1.0, 0.0), 1.0)
+        self.last_scale = scale
+        if scale >= 1.0:
+            self._frac = 0.0
+            self.last_held_s = 0.0
+            return n
+        want = n * scale + self._frac
+        k = min(int(want), n)
+        self._frac = want - k
+        self.lag += (n - k) * self.dt
+        self.last_held_s = (n - k) * self.dt
+        return k
+
+
+def install_post_process(renderer, job: EternalJob) -> None:
+    """Wire ``job.post_process`` into a ``FrameRenderer`` (only if the job has one)."""
+    if job.has_post_process():
+        renderer.post_process = job.post_process
+        renderer.post_clock = job.run_time
 
 
 def create_job_session(job_or_name, app_cfg: "AppConfig | None" = None,
@@ -181,6 +228,7 @@ class JobRunner:
         self.renderer = None
         self.viewer = None
         self.n_instabilities = 0
+        self._held_s = 0.0
         self.quit_reason = "max-seconds"
         self.paused = False
         self.hud_on = False  # TAB shows / hides the HUD text in the window (off by default)
@@ -196,10 +244,16 @@ class JobRunner:
 
             self.renderer = FrameRenderer(self.sim.model, self.cfg.render, self.cfg.camera)
             self.renderer.camera = JobCamera(self.cfg.camera, self.job)
+            install_post_process(self.renderer, self.job)
         return self.renderer
 
+    def present_time(self) -> float:
+        """Run time + the job's hit-stop / slow-mo lag: recordings are paced by it."""
+        return self.session.present_time()
+
     def render(self, hud: bool = True) -> tuple[np.ndarray, np.ndarray | None]:
-        """(clean RGB frame, RGB frame with the HUD or None)."""
+        """(clean RGB frame, RGB frame with the HUD or None). Both include the job's
+        post-process (edit effects); the HUD is drawn after it."""
         r = self.ensure_renderer()
         sim = self.sim
         x, y, _ = sim.thorax_position()
@@ -227,8 +281,14 @@ class JobRunner:
     def step_chunk(self) -> None:
         from fly_simulator.simulation import SimulationInstabilityError
 
+        n = self.chunk
+        clock = getattr(self.session, "edit_clock", None)
+        if clock is not None:  # hit-stop / slow motion (edit effect): fewer steps
+            n = clock.steps(n)
+        self._held_s = clock.last_held_s if clock is not None else 0.0
         try:
-            self.sim.step(self.chunk)
+            if n > 0:
+                self.sim.step(n)
         except SimulationInstabilityError as e:
             self.n_instabilities += 1
             self.say(f"[{self.job.name}] physics instability #{self.n_instabilities}: "
@@ -280,7 +340,7 @@ class JobRunner:
         if self.media.recording:
             self.say(self.media.stop_recording())
         else:
-            self.say(f"[recording] -> {self.media.start_recording(self.session.run_time())}  (M stops)")
+            self.say(f"[recording] -> {self.media.start_recording(self.session.present_time())}  (M stops)")
 
     def run(self, max_seconds: float | None = None,
             stop: Callable[[], bool] | None = None) -> dict:
@@ -302,19 +362,23 @@ class JobRunner:
             while True:
                 if not self.paused:
                     self.step_chunk()
+                    if self.viewer is not None and self._held_s > 0:
+                        # a held / slowed chunk still takes its presentation time on screen
+                        time.sleep(self._held_s / max(self.cfg.render.max_realtime_factor or 1.0, 1e-3))
                 rt = s.run_time()
-                need_rec = self.recorder is not None and self.recorder.due(rt)
-                need_tl = self.timelapse is not None and self.timelapse.due(rt)
+                pt = s.present_time()  # recordings: presentation time (hit-stop / slow-mo)
+                need_rec = self.recorder is not None and self.recorder.due(pt)
+                need_tl = self.timelapse is not None and self.timelapse.due(pt)
                 show = self.viewer is not None and time.perf_counter() - last_shown >= period
-                need_m = self.media is not None and self.media.recording and self.media.due(rt)
+                need_m = self.media is not None and self.media.recording and self.media.due(pt)
                 if need_rec or need_tl or show or need_m:
                     clean, hud = self.render()
                     if need_m:
-                        self.media.add(hud if self.hud_on else clean, rt)
+                        self.media.add(hud if self.hud_on else clean, pt)
                     if need_rec:
-                        self.recorder.add(hud, rt)
+                        self.recorder.add(hud, pt)
                     if need_tl:
-                        self.timelapse.add(hud, rt)
+                        self.timelapse.add(hud, pt)
                     if show:
                         last_shown = time.perf_counter()
                         self.viewer.show(hud if self.hud_on else clean)

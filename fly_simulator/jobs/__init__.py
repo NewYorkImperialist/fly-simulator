@@ -10,13 +10,15 @@ from fly_simulator.jobs.registry import available_jobs, get_job, make_job, regis
 from fly_simulator.jobs.runtime import (
     JobCamera,
     JobRunner,
+    PresentationClock,
     create_job_session,
     install_job,
+    install_post_process,
     job_props_present,
 )
 
 __all__ = [
-    "CameraPreset", "EternalJob", "JobCamera", "JobConfig", "JobRunner", "Steering",
+    "CameraPreset", "EternalJob", "JobCamera", "JobConfig", "JobRunner", "PresentationClock", "Steering",
     "available_jobs", "create_job_session", "format_uptime", "get_job", "install_job",
-    "job_props_present", "make_job", "register_job",
+    "install_post_process", "job_props_present", "make_job", "register_job",
 ]

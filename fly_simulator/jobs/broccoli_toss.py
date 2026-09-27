@@ -39,19 +39,27 @@ Sequence (a state machine in ``update``, every 1 ms):
 3. ``ponder`` (0.75-1 s): the viewer holds the plate still in front of its head, tilts
    its head at it, adjusts its legs a little (with ``--brain``: a bitter taste
    pulse, labelled stand-in, see below);
-4. ``flick``: one sudden casual flick of the right front leg over the right shoulder (the picture's left);
-   the head is already back on the monitors (it never looks). At release the plate
-   becomes a free body with a **launch velocity set by the job** (engineered,
-   labelled: aimed so the ballistic arc peaks ``apex_mm`` above the release point
-   and lands among the props behind the chair; the leg does not exert it). The
-   broccoli florets ride on it as pooled free bodies;
-5. ``flight``: real physics (gravity, contacts). The first contact of the plate
-   with anything (or a timeout) is the landing;
-6. ``boom``: **cartoon blast** (engineered, labelled): a bright emissive flash and
-   fireball (spheres expanding and fading), a light flash, a smoke ring, a
-   shockwave that applies one radial velocity kick (an impulse) to the breakable
-   props in range, pooled debris chips and broccoli launched from the blast
-   centre, and a camera shake. After the kick every prop flies with real physics;
+4. ``flick``: hold -> a tiny anticipation -> one violent snap of the right front leg
+   over the right shoulder (the picture's left) with a torso twist / lean / shoulder
+   roll on the viewer's mount and a head jerk; the head stays on the monitors (it
+   never looks). At release the plate becomes a free body with a **launch velocity
+   set by the job** (engineered, labelled: aimed to reach the props behind the chair
+   in ``flight_s``, a fast flat throw spinning about its own axis; the leg does not
+   exert it). The broccoli florets ride on it as pooled free bodies. Damped springs
+   then give the follow-through and the recoil of the viewer and the chair
+   (kinematic, labelled);
+5. ``flight``: real physics (gravity, contacts), ~50 ms: the first contact of the
+   plate with anything or the ``flight_s`` timer sets the blast off;
+6. ``boom``: **cartoon blast** (engineered, labelled): a white-hot core, a lumpy
+   fireball of textured emissive ellipsoids that cool from white to red, smoke,
+   spark streaks, embers, a dust ring, the blast light and a rim light on the
+   viewer, a shockwave that applies one radial velocity kick (an impulse) to the
+   breakable props in range, pooled debris chips and broccoli launched from the
+   blast centre. After the kick every prop flies with real physics. **Edit effects**
+   (a video edit, not physics, labelled in the HUD): a hit-stop and slow motion in
+   presentation time (``time_scale``) and a screen-space post-process
+   (``post_process``: impact frame, flash, bloom, zoom blur, fringe, camera kick,
+   damped shake, punch-in, ghosting; a motion smear on the throw frames);
 7. ``aftermath``: the viewer keeps facing the monitors, unbothered; the host stands
    there; the stream viewer count goes up; chat scrolls fast;
 8. ``rebuild``: the room rebuilds (**kinematic**, counted): every prop glides back
@@ -126,22 +134,34 @@ class BroccoliConfig(JobConfig):
     ponder_min_s: float = 0.75
     ponder_max_s: float = 1.0
     look_back_s: float = 0.15  # the head swings back to the monitors before the flick
-    windup_s: float = 0.10
-    throw_s: float = 0.10  # the flick (release at its end)
+    windup_s: float = 0.12  # the tiny anticipation (the plate dips, the torso winds up a little)
+    throw_s: float = 0.05  # the snap (accelerating; the release at its end)
+    twist_deg: float = 26.0  # torso twist (to its right) at the release; springs back after
     flight_timeout_s: float = 1.0
     boom_s: float = 2.6
     webcam_fovy: float = 64.0
-    blast_scale: float = 2.6
-    blast_front_x: float = -1.6  # nothing of the blast comes nearer the camera than this (chair back ~ -0.6)  # fireball / smoke size (the meme edit: it fills the background)
-    n_embers: int = 28
+    blast_scale: float = 3.0  # fireball / smoke size (the meme edit: it fills the background)
+    blast_front_x: float = -1.6  # nothing of the blast comes nearer the camera than this (chair back ~ -0.6)
+    n_embers: int = 56
+    # ---- edit effects (post-process + presentation time; not physics) ------------
+    edit_fx: bool = True  # False: no post-process, no hit-stop / slow motion
+    hit_stop_s: float = 0.07  # presentation seconds of near-freeze at the impact
+    hit_stop_scale: float = 0.02  # sim speed during the hit-stop
+    slowmo_s: float = 0.40  # then slow motion ...
+    slowmo_scale: float = 0.30
+    slowmo_ramp_s: float = 0.25  # ... ramping back to normal speed
+    punch_in: float = 0.25  # zoom kick at the impact (x1.25), settling at ...
+    zoom_hold: float = 1.14  # ... this zoom while the room burns
+    shake_px: float = 0.03  # first camera kick, as a fraction of the frame width
+    blast_screen: tuple = (0.2, 0.45)  # where the blast sits in the picture (radial blur / flash centre)
     aftermath_s: float = 2.4
     rebuild_s: float = 1.4
     fetch_s: float = 0.6  # at the kitchenette: the next plate
     # ---- the launch (engineered: aimed ballistic arc) -------------------------------
-    target_xy: tuple = (-7.2, -3.8)  # where the plate is aimed (among the props, the picture's left)
+    target_xy: tuple = (-6.6, -5.0)  # where the plate is aimed (the can pyramid, the picture's left)
     target_jitter: float = 0.9
-    apex_mm: float = 3.2  # the arc peaks this far above the release point
-    plate_spin: float = 45.0  # rad/s tumble
+    flight_s: float = 0.05  # aimed time of flight; the blast goes off at the first contact or then
+    plate_spin: float = 60.0  # rad/s, mostly about the plate's own axis (it spins, no face-on flip)
     plate_radius: float = 0.85
     plate_mass: float = 4e-5  # g (40 ug)
     floret_mass: float = 6e-6
@@ -152,7 +172,6 @@ class BroccoliConfig(JobConfig):
     blast_up: float = 0.7  # upward bias of the kick direction
     blast_spin: float = 25.0  # rad/s random spin
     debris_speed: tuple = (120.0, 300.0)
-    shake_mm: float = 0.35
     # ---- the stream -----------------------------------------------------------------
     viewers0: int = 1337
     chat_speed: float = 0.35  # mm/s chat scroll (x6 after a blast)
@@ -197,6 +216,33 @@ def _slerp(q0, q1, s: float) -> np.ndarray:
         th = math.acos(d)
         q = (math.sin((1 - s) * th) * q0 + math.sin(s * th) * q1) / math.sin(th)
     return q / np.linalg.norm(q)
+
+
+class _Springs:
+    """Damped springs for the throw's follow-through and recoil (semi-implicit Euler,
+    stepped every job update, deterministic). At the release each channel starts at
+    the snap's end pose with (part of) the snap's velocity and rings down to rest in
+    2-4 decaying swings; the blast kicks some of them again."""
+
+    NAMES = ("arm", "twist", "lean", "roll", "chair_x", "chair_yaw", "nod", "head_yaw")
+    W = np.array([20.0, 26.0, 30.0, 30.0, 38.0, 34.0, 32.0, 26.0])  # rad/s
+    Z = np.array([0.45, 0.30, 0.30, 0.35, 0.22, 0.25, 0.30, 0.35])
+
+    def __init__(self) -> None:
+        self.x = np.zeros(len(self.NAMES))
+        self.v = np.zeros(len(self.NAMES))
+
+    def reset(self) -> None:
+        self.x[:] = 0.0
+        self.v[:] = 0.0
+
+    def step(self, dt: float) -> None:
+        self.v += (-self.W ** 2 * self.x - 2.0 * self.Z * self.W * self.v) * dt
+        self.x += self.v * dt
+
+    def kick(self, **dv: float) -> None:
+        for k, v in dv.items():
+            self.v[self.NAMES.index(k)] += v
 
 
 # ---------------------------------------------------------------------------
@@ -332,9 +378,12 @@ class BroccoliTossJob(EternalJob):
         for k in range(3):
             M(name=f"{P}led{k}", rgba=(1, 0, 1, 1), emission=1.0)
         M(name=P + "blast_core", rgba=(1.0, 0.92, 0.55, 0.0), emission=1.0)
-        M(name=P + "blast_fire", rgba=(1.0, 0.28, 0.04, 0.0), emission=0.7)
+        # the blast puffs: a billowy noise cube map times the per-puff colour
+        A.add_cube_texture(spec, P + "tex_puff", A.puff_cube_texture(c.seed + 3, lo=0.5))
+        A.add_cube_texture(spec, P + "tex_smoke", A.puff_cube_texture(c.seed + 4, lo=0.6))
+        T(spec, P + "blast_fire", P + "tex_puff", rgba=(1.0, 0.28, 0.04, 0.0), emission=0.9, specular=0.0)
         M(name=P + "blast_fire2", rgba=(1.0, 0.62, 0.1, 0.0), emission=0.7)
-        M(name=P + "blast_smoke", rgba=(0.18, 0.16, 0.17, 0.0), emission=0.0, specular=0.0)
+        T(spec, P + "blast_smoke", P + "tex_smoke", rgba=(0.18, 0.16, 0.17, 0.0), emission=0.8, specular=0.0)
         M(name=P + "blast_ring", rgba=(0.55, 0.47, 0.42, 0.0), emission=0.2)
         M(name=P + "live_dot", rgba=(1.0, 0.1, 0.1, 1), emission=1.0)
 
@@ -503,9 +552,10 @@ class BroccoliTossJob(EternalJob):
         wb.add_geom(name=P + "mic", type=mj.mjtGeom.mjGEOM_CAPSULE, fromto=(*back, *mic), size=(0.14, 0, 0),
                     material=P + "metal", **vis)
 
-    # ---- gaming chair (visual: nothing walks into it)
+    # ---- gaming chair (visual: nothing walks into it; on a mocap body so the throw's
+    # recoil can nudge it)
     def _add_chair(self, spec) -> None:
-        wb = spec.worldbody
+        wb = spec.worldbody.add_body(name=P + "chair", mocap=True, pos=(0.0, 0.0, 0.0))
         vis = dict(contact_kwargs("visual"), mass=0.0)
         c = self.cfg
         z = c.seat_z
@@ -719,34 +769,49 @@ class BroccoliTossJob(EternalJob):
                        material=mats[i % len(mats)], **dk)
 
     # ---- the blast (mocap, visual; parked under the floor)
-    # fireball puffs: fixed pseudo-random offsets (unit ball, biased up) and sizes
-    _rb = np.random.default_rng(1234)
-    FIRE = [(tuple(float(v) for v in o), float(r)) for o, r in zip(
-        _rb.normal(0, 1, (12, 3)) * np.array([0.8, 0.8, 0.6]) + np.array([0, 0, 0.5]),
-        _rb.uniform(0.7, 1.35, 12))]
-    SMOKE = [(tuple(float(v) for v in o), float(r)) for o, r in zip(
-        _rb.normal(0, 1, (9, 3)) * np.array([1.0, 1.0, 0.4]), _rb.uniform(0.8, 1.2, 9))]
-    N_RING = 16
-    del _rb
+    # fixed pseudo-random puff tables (unit sizes; scaled by blast_scale at run time):
+    # irregular ellipsoids with their own direction, onset delay, growth, cooling,
+    # rise and wobble, so the fireball is a lumpy burst, not growing spheres
+    N_FIRE, N_SMOKE, N_SPARK, N_RING = 80, 24, 40, 16
+
+    @staticmethod
+    def _puff_table(n: int, seed: int, spread, bias, dist, size, delay) -> dict:
+        r = np.random.default_rng(seed)
+        u = r.normal(0, 1, (n, 3)) * np.asarray(spread) + np.asarray(bias)
+        u /= np.linalg.norm(u, axis=1, keepdims=True)
+        dd = r.uniform(*dist, n)
+        ax = np.stack([np.ones(n), r.uniform(0.6, 1.4, n), r.uniform(0.55, 1.25, n)], 1)
+        q = r.normal(0, 1, (n, 4))
+        q /= np.linalg.norm(q, axis=1, keepdims=True)
+        return dict(off=u * dd[:, None], size=r.uniform(*size, n)[:, None] * ax, quat=q,
+                    delay=r.uniform(*delay, n) * dd / dist[1], grow=r.uniform(0.012, 0.03, n),
+                    cool=r.uniform(0.012, 0.05, n), fade=r.uniform(0.7, 1.3, n),
+                    rise=r.uniform(0.5, 1.5, n), wob=r.uniform(8.0, 16.0, (n, 3)),
+                    ph=r.uniform(0, 6.3, (n, 3)), shade=r.uniform(0.0, 1.0, n))
 
     def _add_blast(self, spec) -> None:
         wb = spec.worldbody
         vis = dict(contact_kwargs("visual"), mass=0.0)
         b = wb.add_body(name=P + "blast", mocap=True, pos=(0.0, 0.0, -30.0))
-        S = mj.mjtGeom.mjGEOM_SPHERE
-        b.add_geom(name=P + "blast_core", type=S, size=(0.1, 0, 0), material=P + "blast_core", **vis)
-        for k, (off, _) in enumerate(self.FIRE):
-            b.add_geom(name=f"{P}blast_fire{k}", type=S, size=(0.1, 0, 0), pos=off,
-                       material=P + ("blast_fire" if k % 3 else "blast_fire2"), **vis)
-        for k in range(len(self.SMOKE)):
-            b.add_geom(name=f"{P}blast_smoke{k}", type=S, size=(0.1, 0, 0), material=P + "blast_smoke", **vis)
+        S, E = mj.mjtGeom.mjGEOM_SPHERE, mj.mjtGeom.mjGEOM_ELLIPSOID
+        hid = (1.0, 1.0, 1.0, 0.0)  # (a non-default rgba: the job writes geom_rgba)
+        b.add_geom(name=P + "blast_core", type=S, size=(0.1, 0, 0), rgba=hid, material=P + "blast_core", **vis)
+        for k in range(self.N_FIRE):
+            b.add_geom(name=f"{P}blast_fire{k}", type=E, size=(0.1, 0.1, 0.1), rgba=hid,
+                       material=P + "blast_fire", **vis)
+        for k in range(self.N_SMOKE):
+            b.add_geom(name=f"{P}blast_smoke{k}", type=E, size=(0.1, 0.1, 0.1), rgba=hid,
+                       material=P + "blast_smoke", **vis)
+        for k in range(self.N_SPARK):  # spark streaks (capsules along their velocity)
+            b.add_geom(name=f"{P}blast_spark{k}", type=mj.mjtGeom.mjGEOM_CAPSULE, size=(0.03, 0.1, 0),
+                       rgba=hid, material=P + "blast_core", **vis)
         for k in range(self.cfg.n_embers):  # floating sparks / embers
             b.add_geom(name=f"{P}blast_ember{k}", type=S, size=(0.05, 0, 0), material=P + "blast_core", **vis)
         for k in range(self.N_RING):
-            b.add_geom(name=f"{P}blast_ring{k}", type=mj.mjtGeom.mjGEOM_ELLIPSOID, size=(0.1, 0.1, 0.05),
+            b.add_geom(name=f"{P}blast_ring{k}", type=E, size=(0.1, 0.1, 0.05),
                        material=P + "blast_ring", **vis)
         b.add_light(name=P + "blast_light", type=mj.mjtLightType.mjLIGHT_POINT, pos=(0, 0, 1.0),
-                    diffuse=(0, 0, 0), specular=(0, 0, 0), castshadow=False, attenuation=(1.0, 0.0, 0.004))
+                    diffuse=(0, 0, 0), specular=(0, 0, 0), castshadow=False, attenuation=(1.0, 0.0, 0.015))
 
     def _add_lights(self, spec) -> None:
         c = self.cfg
@@ -765,6 +830,11 @@ class BroccoliTossJob(EternalJob):
         spot("monitor_glow", (4.8, 0.0, 5.2), (0.0, 0.0, 3.4), (0.30, 0.38, 0.55), 50.0, 1.0)
         spot("ring", (4.4, 5.6, 6.0), (0.0, 0.0, 3.4), (0.35, 0.33, 0.30), 35.0, 1.0)
         spot("backroom", (-2.0, -7.0, 14.0), (-8.5, -1.0, 1.5), (0.45, 0.20, 0.50), 45.0, 0.5)
+        # the blast's light on the viewer: from behind its right shoulder (the blast
+        # side) onto its back / side, the chair and the rug (off until a blast)
+        pos, tgt = np.array((-2.6, -2.2, 5.6)), np.array((0.0, 0.3, 3.2))
+        wb.add_light(name=P + "blast_rim", type=mj.mjtLightType.mjLIGHT_SPOT, pos=tuple(pos), dir=tuple(tgt - pos),
+                     diffuse=(0, 0, 0), specular=(0, 0, 0), cutoff=60.0, exponent=0.3, castshadow=False)
 
     # ------------------------------------------------------------ attach
     def on_attach(self) -> None:
@@ -801,8 +871,20 @@ class BroccoliTossJob(EternalJob):
         self.blast_mocap = int(m.body_mocapid[m.body(P + "blast").id])
         g = lambda n: m.geom(n).id  # noqa: E731
         self.g_core = g(P + "blast_core")
-        self.g_fire = [g(f"{P}blast_fire{k}") for k in range(len(self.FIRE))]
-        self.g_smoke = [g(f"{P}blast_smoke{k}") for k in range(len(self.SMOKE))]
+        self.g_fire = np.array([g(f"{P}blast_fire{k}") for k in range(self.N_FIRE)])
+        self.g_smoke = np.array([g(f"{P}blast_smoke{k}") for k in range(self.N_SMOKE)])
+        self.g_spark = np.array([g(f"{P}blast_spark{k}") for k in range(self.N_SPARK)])
+        # fire: a flattened burst (thin toward the camera), wide, biased up; smoke: bigger,
+        # later, higher; sparks: fast streaks out of the centre
+        self._fire = self._puff_table(self.N_FIRE, 1234, (0.35, 1.3, 1.0), (0.0, 0.05, 1.0),
+                                      (0.3, 2.5), (0.26, 0.6), (0.0, 0.035))
+        self._smoke = self._puff_table(self.N_SMOKE, 4321, (0.4, 1.0, 0.6), (-0.3, -0.35, 0.7),
+                                       (0.7, 2.0), (0.3, 0.6), (0.12, 0.35))
+        sr = np.random.default_rng(777)
+        u = sr.normal(0, 1, (self.N_SPARK, 3)) * np.array([0.5, 1.0, 0.8]) + np.array([0.0, 0.1, 0.5])
+        u /= np.linalg.norm(u, axis=1, keepdims=True)
+        self._spark = dict(v=u * sr.uniform(12.0, 30.0, (self.N_SPARK, 1)), r=sr.uniform(0.05, 0.1, self.N_SPARK),
+                           life=sr.uniform(0.25, 0.8, self.N_SPARK), delay=sr.uniform(0.0, 0.05, self.N_SPARK))
         self.g_ring = [g(f"{P}blast_ring{k}") for k in range(self.N_RING)]
         self.g_ember = [g(f"{P}blast_ember{k}") for k in range(self.cfg.n_embers)]
         er = np.random.default_rng(99)
@@ -810,11 +892,11 @@ class BroccoliTossJob(EternalJob):
         # and out), sizes and flicker phases
         self._ember = dict(p0=er.normal(0, 1, (self.cfg.n_embers, 3)) * np.array([1.6, 2.2, 1.2]) + np.array([0, 0, 1.5]),
                            v=er.normal(0, 1, (self.cfg.n_embers, 3)) * np.array([2.5, 3.5, 1.5]) + np.array([0, 0, 3.0]),
-                           r=er.uniform(0.05, 0.13, self.cfg.n_embers), ph=er.uniform(0, 6.3, self.cfg.n_embers))
+                           r=er.uniform(0.07, 0.2, self.cfg.n_embers), ph=er.uniform(0, 6.3, self.cfg.n_embers))
         # geoms whose pos / quat the job animates: MuJoCo skips the geom offset of
         # geoms compiled at their body's frame ("sameframe"), so turn that off
         if hasattr(m, "geom_sameframe"):
-            for gid in [*self.g_fire, *self.g_smoke, *self.g_ring]:
+            for gid in [self.g_core, *self.g_fire, *self.g_smoke, *self.g_spark, *self.g_ember, *self.g_ring]:
                 m.geom_sameframe[gid] = 0
         mat = lambda n: m.material(n).id  # noqa: E731
         self.m_led = [mat(f"{P}led{k}") for k in range(3)]
@@ -823,6 +905,22 @@ class BroccoliTossJob(EternalJob):
         self.base_rgba = {k: m.mat_rgba[k].copy() for k in (self.m_core, self.m_fire, self.m_fire2,
                                                               self.m_smoke, self.m_ring)}
         self.blast_light = m.light(P + "blast_light").id
+        self.rim_light = m.light(P + "blast_rim").id
+        self.key_light = m.light(P + "key").id
+        self.key_shadow0 = int(m.light_castshadow[self.key_light])
+        self.chair_mocap = int(m.body_mocapid[m.body(P + "chair").id])
+        self.mount_mocap = int(m.body_mocapid[m.body(P + "viewer_mount").id])
+        self.mount_pos0 = np.array(self._viewer_mount_pos())
+        # the viewer's own materials (the blast flash makes it glow for an instant)
+        self.m_viewer = np.array([i for i in range(m.nmat) if m.material(i).name.startswith(VIEWER + "/")])
+        self.viewer_emission0 = m.mat_emission[self.m_viewer].copy() if len(self.m_viewer) else np.zeros(0)
+        # the throw's follow-through / recoil: damped springs (see _Springs)
+        self._spr = _Springs()
+        self._edit = None  # the blast's edit effects (post-process + hit-stop), see time_scale
+        self._smear = None  # motion smear of the throw frames (post-process)
+        self._prev_raw = None
+        self._prev_out = None
+        self.post_ms = 0.0  # cost of the last post-processed frame
         self.g_chat = [[g(f"{P}chat{k}_{i}") for i in range(N_CHAT)] for k in range(2)]
         if hasattr(m, "geom_sameframe"):
             for row in self.g_chat:
@@ -851,7 +949,6 @@ class BroccoliTossJob(EternalJob):
         self.last_flight = None  # dict: launch / landing of the last plate
         self.message = ""
         self._msg_t = -1e9
-        self._shake_t = -1e9
         self._cam = None
         self._bitter_next = 0.0
         self._fast_chat_until = -1e9
@@ -971,10 +1068,10 @@ class BroccoliTossJob(EternalJob):
             qt, e = self._ik(qt, leg, [("tarsus5", self.take_point() + np.array([0.0, sy * (R - 0.05), 0.06]), 1.0)])
             self.ik_err[f"take_{leg}"] = e
         self.q_take = qt
-        # windup: the right front leg dips forward with the plate, the left lets go
+        # windup (the tiny anticipation): the right front leg pulls the plate a little
+        # down and in, both legs still on it
         qw = self.q_hold.copy()
-        qw[self._leg_cols("lf")] = self.q_rest[self._leg_cols("lf")]
-        qw, e = self._ik(qw, "rf", [("tarsus5", H + np.array([0.25, -0.45, -0.25]), 1.0)])
+        qw, e = self._ik(qw, "rf", [("tarsus5", H + np.array([-0.12, -(R - 0.05) - 0.1, -0.12]), 1.0)])
         self.ik_err["wind_rf"] = e
         self.q_wind = qw
         # flick: over the right shoulder (the picture's left on the webcam), up and back
@@ -984,7 +1081,7 @@ class BroccoliTossJob(EternalJob):
         self.ik_err["flick_rf"] = e
         self.q_flick = qf
 
-    FLICK_TIP = (-0.45, -0.75, 2.4)  # the flicking (right front) tarsus at the release (z above the seat)
+    FLICK_TIP = (-0.35, -1.05, 2.3)  # the flicking (right front) tarsus at the release (z above the seat)
 
     def take_point(self) -> np.ndarray:
         return np.array([1.3, -0.95, self.cfg.seat_z + 1.1])
@@ -1090,6 +1187,8 @@ class BroccoliTossJob(EternalJob):
             self._place(self.brk_q[k], self.brk_v[k], self.brk_home[k][:3], self.brk_home[k][3:])
         self._park_pool()
         self._blast_off()
+        self._edit = None
+        self._rest_body()
         self._set_viewer(self.q_rest)
         mj.mj_forward(self.sim.model, d)
         pos, q = self.carry_pose()
@@ -1165,13 +1264,11 @@ class BroccoliTossJob(EternalJob):
             self._flick(s, t)
         elif ph == "flight":
             self._keep_frozen()
-            self._set_viewer(self.q_flick if s < 0.25 else self._blend(self.q_flick, self.q_rest, (s - 0.25) / 0.5),
-                             self._monitor_head(t))
+            self._follow_through(t)
             self._check_landing(t, s)
         elif ph == "boom":
             self._keep_frozen()
-            self._set_viewer(self._blend(self.q_flick, self.q_rest, (t - self._flight["t_release"] - 0.25) / 0.5),
-                             self._monitor_head(t))
+            self._follow_through(t)
             self._run_blast(t)
             if s >= c.boom_s:
                 self._blast_off()
@@ -1179,13 +1276,14 @@ class BroccoliTossJob(EternalJob):
         elif ph == "aftermath":
             self._keep_frozen()
             # unbothered: a slow glance off to the side, then back to the stream
-            yaw, pitch, roll = self._monitor_head(t)
             g = _ease(s / 0.6) * (1.0 - _ease((s - 1.6) / 0.6))
-            self._set_viewer(self.q_rest, (yaw + 0.45 * g, pitch, roll))
+            self._follow_through(t, 0.45 * g)
             if s >= c.aftermath_s:
                 self._start_rebuild(t)
         elif ph in ("rebuild", "walk_off"):
             self._set_viewer(self.q_rest, self._idle_head(t))
+            if ph == "walk_off":
+                self._edit = None  # (the post-process has eased the zoom back by now)
             if self._rebuild is not None:
                 self._run_rebuild(t)
             if acts.busy and acts.action is not None and acts.action.name == "freeze":
@@ -1311,40 +1409,112 @@ class BroccoliTossJob(EternalJob):
         self._place_plate(self.hold_point(), (1.0, 0.0, 0.0, 0.0))
         self._bitter(t)
 
+    # ---- the throw: hold -> tiny anticipation -> violent snap -> release ->
+    # follow-through (springs). Sharp curves, no gentle easing in the snap.
+    def _throw_curves(self, s: float) -> tuple[np.ndarray, np.ndarray]:
+        """Body channels (see _Springs.NAMES; "arm" unused here) and their rates at
+        ``s`` into the flick: a small eased wind-up (the torso turns a little to its
+        left and leans in, the head dips), then the snap as u^2.2 (velocity ~0 ->
+        a spike at the release): the torso twists to its right, leans back into
+        the chair, the right shoulder rolls up, the head jerks up and counter-turns."""
+        c = self.cfg
+        W, T = c.windup_s, c.throw_s
+        #            arm  twist                 lean               roll               cx   cyaw nod    hyaw
+        a = np.array([0.0, math.radians(4), math.radians(3), 0.0, 0.0, 0.0, 0.06, 0.0])
+        b = np.array([1.0, -math.radians(c.twist_deg), -math.radians(8), -math.radians(7), 0.0, 0.0, -0.22,
+                      0.6 * math.radians(c.twist_deg)])
+        if s < W:
+            u = max(s / W, 0.0)
+            return a * _ease(u), a * 6 * u * (1 - u) / W
+        u = min((s - W) / T, 1.0)
+        return a + (b - a) * u ** 2.2, (b - a) * 2.2 * u ** 1.2 / T
+
+    def _apply_body(self, x: np.ndarray) -> None:
+        """Torso twist / lean / roll on the viewer's mocap mount, the chair's recoil
+        (kinematic nudge of the chair's mocap body; the viewer sits in it)."""
+        d = self.sim.data
+        cx, cyaw = float(x[4]), float(x[5])
+        qc = _quat_yaw(cyaw)
+        d.mocap_pos[self.chair_mocap] = (cx, 0.0, 0.0)
+        d.mocap_quat[self.chair_mocap] = qc
+        cz, sz = math.cos(cyaw), math.sin(cyaw)
+        p0 = self.mount_pos0
+        d.mocap_pos[self.mount_mocap] = (cz * p0[0] - sz * p0[1] + cx, sz * p0[0] + cz * p0[1], p0[2])
+        d.mocap_quat[self.mount_mocap] = quat_mul(_quat_yaw(cyaw + float(x[1])),
+                                                  quat_mul(quat_axis_angle((0, 1, 0), float(x[2])),
+                                                           quat_axis_angle((1, 0, 0), float(x[3]))))
+
+    def _rest_body(self) -> None:
+        self._spr.reset()
+        self._apply_body(self._spr.x)
+
+    def _pose_viewer(self, q: np.ndarray, x: np.ndarray, t: float, extra_yaw: float = 0.0) -> None:
+        yaw, pitch, roll = self._monitor_head(t)
+        self._set_viewer(q, (yaw + float(x[7]) + extra_yaw, pitch + float(x[6]), roll))
+        self._apply_body(x)
+
+    def _follow_through(self, t: float, extra_yaw: float = 0.0) -> None:
+        """After the release: the springs ring down (arm back to rest with an
+        overshoot, torso / chair wobble), plus a hind-leg kick from the recoil."""
+        spr = self._spr
+        spr.step(1e-3 * self.cfg.update_every_steps)
+        x = spr.x
+        q = self.q_rest + (self.q_flick - self.q_rest) * float(x[0])
+        for leg in ("lh", "rh"):
+            q[self._leg_cols(leg)[3]] += 1.8 * float(x[2])
+        self._pose_viewer(q, x, t, extra_yaw)
+
     def _flick(self, s: float, t: float) -> None:
         c = self.cfg
-        head = self._monitor_head(t)
-        if s < c.windup_s:
-            q = self._blend(self.q_hold, self.q_wind, s / c.windup_s)
+        W, T = c.windup_s, c.throw_s
+        x, dx = self._throw_curves(s)
+        lf = self._leg_cols("lf")
+        if s < W:
+            e = _ease(s / W)
+            q = self.q_hold + (self.q_wind - self.q_hold) * e
+            qp = quat_axis_angle((1, 0, 0), -0.12 * e)  # the plate cocks a little
         else:
-            q = self._blend(self.q_wind, self.q_flick, (s - c.windup_s) / c.throw_s)
-        self._set_viewer(q, head)
-        # the plate follows the right front "hand" (kinematic until the release)
+            u = min((s - W) / T, 1.0)
+            e = u ** 2.2
+            q = self.q_wind + (self.q_flick - self.q_wind) * e
+            q[lf] = self.q_wind[lf] + (self.q_rest[lf] - self.q_wind[lf]) * min(1.0, 2.0 * u)  # lets go
+            # it banks toward the throw (edge first, its face turns away from the
+            # camera): no face-on flip
+            qp = quat_mul(quat_axis_angle((1, 0, 0), -0.12 + 1.02 * e), quat_axis_angle((0, 1, 0), -0.35 * e))
+        self._pose_viewer(q, x, t)
+        # the plate hangs from the right front "hand" (kinematic until the release)
         mj.mj_kinematics(self.sim.model, self.sim.data)
         tip = self.viewer_tarsus("rf")
-        a = _ease(min(s / (c.windup_s + c.throw_s), 1.0))
-        tilt = quat_axis_angle((0, 1, 0), 1.6 * a)  # the plate tips over the shoulder
-        if s < c.windup_s:
-            base = self.hold_point() + (tip + np.array([0.0, 0.5, 0.0]) - self.hold_point()) * _ease(s / c.windup_s)
-        else:
-            base = tip + np.array([0.0, 0.5 * (1 - a), 0.0])
-        self._place_plate(base, tilt)
-        if s >= c.windup_s + c.throw_s:
-            self._launch(t, base, tilt)
+        Rm = np.empty(9)
+        mj.mju_quat2Mat(Rm, np.asarray(qp, float))
+        grip = np.array([0.0, c.plate_radius - 0.05, -0.06])  # (the plate centre from the hand)
+        if s >= W:
+            grip = grip + (np.array([0.0, -0.35, 0.15]) - grip) * min((s - W) / T, 1.0) ** 1.5
+        base = tip + Rm.reshape(3, 3) @ grip
+        self._place_plate(base, qp)
+        if s >= W + T:
+            # the follow-through springs start from the snap's end pose with a part
+            # of its velocity (the overshoot); the chair recoils
+            self._spr.x[:] = x
+            self._spr.v[:] = 0.2 * dx
+            self._spr.v[0] = 9.0
+            self._spr.kick(chair_x=-5.0, chair_yaw=2.2)
+            self._launch(t, base, qp)
 
     def _launch(self, t: float, p0: np.ndarray, quat) -> None:
         """Release: the plate becomes a free body with the job's aimed launch velocity
-        (engineered; see module doc). The florets ride on it (free bodies too)."""
+        (engineered; see module doc): it reaches the target in ``flight_s``. It spins
+        about its own axis (translation dominates). The florets ride on it."""
         c = self.cfg
         rng = self._rng
         tgt = np.array([*c.target_xy, 0.2]) + np.array([*rng.normal(0, c.target_jitter, 2), 0.0])
         g = 9810.0
-        vz = math.sqrt(2 * g * c.apex_mm)
-        dz = tgt[2] - p0[2]
-        tau = (vz + math.sqrt(vz * vz - 2 * g * dz)) / g  # z(tau) = target z
-        vxy = (tgt[:2] - p0[:2]) / tau
-        v = np.array([vxy[0], vxy[1], vz])
-        spin = np.array([0.0, -c.plate_spin, 0.0]) + rng.normal(0, 5.0, 3)
+        T = c.flight_s
+        v = (tgt - p0) / T
+        v[2] += 0.5 * g * T
+        Rm = np.empty(9)
+        mj.mju_quat2Mat(Rm, np.asarray(quat, float))
+        spin = Rm.reshape(3, 3) @ np.array([0.0, 0.0, c.plate_spin]) + rng.normal(0, 6.0, 3)
         self._place(self.plate_q, self.plate_v, p0, quat, v, spin)
         for grp in ("plate", "florets", "props"):  # real physics from here on
             self._set_live(grp, True)
@@ -1355,11 +1525,13 @@ class BroccoliTossJob(EternalJob):
             d.qvel[self.flor_v[i] + 3:self.flor_v[i] + 6] = rng.normal(0, 20.0, 3)
         self.n_yeeted += 1
         self.add_work(1.0)
-        self._flight = dict(t_release=t, p0=p0.copy(), v0=v.copy(), target=tgt, tau=tau, apex=None)
+        self._flight = dict(t_release=t, p0=p0.copy(), v0=v.copy(), target=tgt, tau=T, apex=None)
         self._set_phase("flight", t)
         self._say_msg("*flick*")
 
     def _check_landing(self, t: float, s: float) -> None:
+        """The blast goes off at the plate's first contact (not with its own florets)
+        or ``flight_s`` after the release (the aimed arrival), whichever is first."""
         d, m = self.sim.data, self.sim.model
         p = self.plate_pos()
         f = self._flight
@@ -1373,13 +1545,14 @@ class BroccoliTossJob(EternalJob):
             plate = (gb == self.plate_body).any(1)
             hit = bool(np.any(plate & ~own.all(1)))
         lost = not np.all(np.isfinite(p)) or p[2] < -1.0
-        if hit or lost or s > self.cfg.flight_timeout_s:
+        timer = s >= self.cfg.flight_s
+        if hit or lost or timer or s > self.cfg.flight_timeout_s:
             if lost:
                 self.n_plates_lost += 1
                 p = f["target"].copy()
             if s > self.cfg.flight_timeout_s and not hit:
                 self.n_flight_timeouts += 1
-            f.update(t_land=t, p_land=p.copy(), flight_s=s)
+            f.update(t_land=t, p_land=p.copy(), flight_s=s, by="contact" if hit else "timer")
             self.last_flight = dict(f)
             self._start_blast(t, p)
 
@@ -1392,6 +1565,9 @@ class BroccoliTossJob(EternalJob):
         self.n_explosions += 1
         self._blast = dict(t0=t, c=centre)
         d.mocap_pos[self.blast_mocap] = centre
+        # (MuJoCo's shadow map blacks out the emissive puffs where the key light is
+        # shadowed: the key light casts no shadow while the room burns)
+        self.sim.model.light_castshadow[self.key_light] = 0
         # the shockwave: one radial velocity kick to the props in range (an impulse)
         n = 0
         for k in range(len(BREAKABLES)):
@@ -1428,7 +1604,10 @@ class BroccoliTossJob(EternalJob):
         # the plate itself is shattered: park it (a fresh one comes from the kitchen)
         self._place(self.plate_q, self.plate_v, self._park_pos(0))
         self._set_live("plate", False)
-        self._shake_t = t
+        # the blast shoves the viewer and the chair forward (the recoil springs), and
+        # starts the edit (flash, hit-stop, slow-mo, shake, punch-in: not physics)
+        self._spr.kick(chair_x=9.0, lean=2.2, nod=4.0, twist=-1.5, roll=1.5)
+        self._edit = dict(t0=t, p=0.0, driven=False, k=0) if c.edit_fx else None
         self._fast_chat_until = t + c.boom_s + c.aftermath_s
         gain = int(80 + 0.12 * self.viewers * rng.uniform(0.6, 1.4))
         self.viewers += gain
@@ -1439,54 +1618,95 @@ class BroccoliTossJob(EternalJob):
         self.say(f"plate #{self.n_yeeted}: KA-BOOM at ({centre[0]:.1f}, {centre[1]:.1f}), "
                  f"{n} props launched, viewers {self.viewers:,}")
 
+    # blast colour ramp by "heat" (1 = just born, white-hot -> 0 = burnt out, dark red)
+    _HEAT = np.array([0.0, 0.15, 0.4, 0.7, 1.0])
+    _HEAT_RGB = np.array([(0.35, 0.04, 0.02), (0.85, 0.12, 0.02), (1.00, 0.36, 0.04),
+                          (1.00, 0.60, 0.12), (1.00, 0.92, 0.60)])
+
     def _run_blast(self, t: float) -> None:
+        """Cartoon blast (engineered, labelled), vectorised over the puff tables: a
+        white-hot core that is big at once and gone in 15 ms (the hit-stop frames);
+        80 lumpy fire ellipsoids that burst out in 10-40 ms (own onset, cooling
+        white -> yellow -> orange -> red, rise, wobble, burn-out); 24 dark smoke
+        ellipsoids that roll up behind; 40 spark streaks; embers; a dust ring; the
+        point light and the rim light on the viewer flicker with the fire."""
         m = self.sim.model
         b = self._blast
         if b is None:
             return
         s = t - b["t0"]
+        c = self.cfg
+        K = c.blast_scale
+        xmax = c.blast_front_x - b["c"][0]  # puff front edges stay behind the chair back
+        # core flash
+        rc = K * 1.1 * (1.0 - _ease(s / 0.015)) + 0.02  # (only in the hit-stop frames)
+        m.geom_size[self.g_core, 0] = m.geom_rbound[self.g_core] = min(rc, max(xmax, 0.3))
+        m.geom_rgba[self.g_core] = (1.0, 0.96 - 4.0 * min(s, 0.1), 0.8 - 8.0 * min(s, 0.09), 0.9 if s < 0.015 else 0.0)
+        # the core material also colours the embers / sparks: lit, fades with them
+        m.mat_rgba[self.m_core, 3] = 1.0 - _ease((s - 1.4) / 1.0)
 
-        def setg(gid, r, pos=None):
-            m.geom_size[gid, 0] = max(r, 1e-3)
-            m.geom_rbound[gid] = max(r, 1e-3)
-            if pos is not None:
-                m.geom_pos[gid] = pos
+        def puffs(tb, gids, grow_to, rise_k, fire: bool) -> None:
+            n = len(gids)
+            sl = np.maximum(s - tb["delay"], 0.0)
+            born = (s >= tb["delay"]).astype(float)
+            g = 1.0 - np.exp(-sl / tb["grow"])  # fast out, then slowing
+            wob = 1.0 + 0.13 * np.sin(tb["wob"] * s + tb["ph"])
+            size = K * tb["size"] * (0.25 + grow_to * g)[:, None] * wob * (1.0 + 0.22 * sl)[:, None]
+            pos = K * tb["off"] * (0.3 + 0.7 * g + 0.25 * sl)[:, None]
+            pos[:, 1] += 0.25 * K * g  # (the burst leans toward the chair: behind its head)
+            pos[:, 2] += rise_k * K * tb["rise"] * sl
+            rmax = size.max(1)
+            pos[:, 0] = np.minimum(pos[:, 0], xmax - rmax)
+            m.geom_size[gids] = size
+            m.geom_rbound[gids] = rmax
+            m.geom_pos[gids] = pos
+            m.geom_quat[gids] = tb["quat"]
+            rgba = np.empty((n, 4))
+            if fire:
+                # (each puff its own shade: a lumpy mix of yellow, orange, red, soot)
+                heat = 0.12 + 0.88 * np.exp(-sl / tb["cool"]) * (0.4 + 0.6 * tb["shade"]) + 0.25 * tb["shade"] ** 2
+                for ch in range(3):  # (x0.65: the blast light inside brightens them again)
+                    rgba[:, ch] = 0.65 * np.interp(heat, self._HEAT, self._HEAT_RGB[:, ch])
+                a = np.minimum(sl / 0.004, 1.0) * 0.95 * (1.0 - np.clip((sl - tb["fade"]) / 0.7, 0.0, 1.0))
+                size_fade = 1.0 - 0.3 * np.clip((sl - tb["fade"]) / 0.7, 0.0, 1.0)
+                m.geom_size[gids] *= size_fade[:, None]
+            else:
+                grey = 0.07 + 0.10 * tb["shade"]
+                rgba[:, 0], rgba[:, 1], rgba[:, 2] = grey * 1.1, grey, grey
+                a = np.clip(sl / 0.15, 0.0, 1.0) * 0.75 * (1.0 - np.clip((s - 1.5) / 1.0, 0.0, 1.0))
+            rgba[:, 3] = a * born
+            m.geom_rgba[gids] = rgba
 
-        def alpha(mid, a):
-            m.mat_rgba[mid, 3] = min(max(a, 0.0), 1.0)
-
-        # core flash (0-0.2 s), fireball (0-0.8 s), smoke (0.25-1.6 s), dust ring (0-0.5 s)
-        K = self.cfg.blast_scale
-        xmax = self.cfg.blast_front_x - b["c"][0]  # puff front edges stay behind the chair back
-        setg(self.g_core, min(K * 1.2, max(xmax, 0.3)) * _ease(s / 0.05) * (1.0 - _ease((s - 0.05) / 0.2)) + 0.02)
-        # the core stays lit (it also colours the embers) and fades with them
-        alpha(self.m_core, 1.0 - _ease((s - 1.4) / 1.0))
-        grow = _ease(s / 0.25)
-        spread = np.array([0.45, 1.25, 1.0])  # flat towards the camera, wide and tall
-        for k, gid in enumerate(self.g_fire):
-            off, r = self.FIRE[k]
-            pos = K * spread * np.array(off) * (0.4 + 1.5 * grow) + np.array([0.0, -0.6 * K * grow, K * 1.2 * s])
-            rr = K * r * (0.2 + 1.2 * grow) * (1.0 - 0.3 * _ease((s - 0.6) / 0.6))
-            pos[0] = min(pos[0], xmax - rr)
-            setg(gid, rr, pos)
-        fa = 1.0 - _ease((s - 0.7) / 0.8)
-        alpha(self.m_fire, 0.95 * fa)
-        alpha(self.m_fire2, 0.95 * fa)
-        sg = _ease((s - 0.2) / 1.8)
-        for k, gid in enumerate(self.g_smoke):
-            off, r = self.SMOKE[k]
-            pos = K * spread * np.array(off) * (1.0 + 1.3 * sg) + np.array([0.0, -0.4 * K * sg, K * (0.8 + 2.4 * sg)])
-            rr = K * r * (0.5 + 0.8 * sg)
-            pos[0] = min(pos[0], xmax - rr)
-            setg(gid, rr, pos)
-        alpha(self.m_smoke, 0.7 * _ease((s - 0.2) / 0.3) * (1.0 - _ease((s - 1.4) / 1.1)))
+        puffs(self._fire, self.g_fire, 1.0, 1.1, True)
+        puffs(self._smoke, self.g_smoke, 1.1, 1.3, False)
+        # sparks: streaks along their velocity, with a little gravity, shrinking
+        sp = self._spark
+        sl = np.maximum(s - sp["delay"], 0.0)
+        vel = sp["v"] * K / 2.6 + np.array([0.0, 0.0, -12.0]) * sl[:, None]
+        pos = sp["v"] * K / 2.6 * sl[:, None] + 0.5 * np.array([0.0, 0.0, -12.0]) * (sl ** 2)[:, None]
+        life = np.clip(1.0 - sl / sp["life"], 0.0, 1.0) * (s >= sp["delay"])
+        spd = np.linalg.norm(vel, axis=1) + 1e-9
+        u = vel / spd[:, None]
+        # quat taking z onto u
+        w = 1.0 + u[:, 2]
+        q = np.stack([w, -u[:, 1], u[:, 0], np.zeros(len(u))], 1)
+        q[w < 1e-6] = (0.0, 1.0, 0.0, 0.0)
+        q /= np.linalg.norm(q, axis=1, keepdims=True)
+        m.geom_pos[self.g_spark] = pos
+        m.geom_quat[self.g_spark] = q
+        m.geom_size[self.g_spark, 0] = sp["r"] * (0.4 + 0.6 * life)
+        m.geom_size[self.g_spark, 1] = 0.02 + 0.018 * spd * life
+        m.geom_rbound[self.g_spark] = m.geom_size[self.g_spark, 1] + m.geom_size[self.g_spark, 0]
+        m.geom_rgba[self.g_spark] = np.stack([np.ones_like(life), 0.55 + 0.4 * life, 0.15 + 0.6 * life ** 2,
+                                              (life > 0).astype(float)], 1)
         # embers: small glowing sparks drifting up and out, flickering, shrinking
         E = self._ember
         ea = _ease(s / 0.15)
         for k, gid in enumerate(self.g_ember):
-            pos = E["p0"][k] * (0.6 + 0.5 * ea) + E["v"][k] * s
+            m.geom_pos[gid] = K / 2.6 * (E["p0"][k] * (0.6 + 0.5 * ea) + E["v"][k] * s)
             flick = 0.6 + 0.4 * math.sin(E["ph"][k] + 23.0 * s)
-            setg(gid, E["r"][k] * flick * ea * (1.0 - 0.7 * _ease((s - 1.2) / 1.3)), pos)
+            r = E["r"][k] * flick * ea * (1.0 - 0.7 * _ease((s - 1.2) / 1.3))
+            m.geom_size[gid, 0] = m.geom_rbound[gid] = max(r, 1e-3)
         rr = 7.0 * _ease(s / 0.5)
         zr = 0.15 - b["c"][2]  # the dust ring runs along the floor
         for k, gid in enumerate(self.g_ring):
@@ -1495,16 +1715,32 @@ class BroccoliTossJob(EternalJob):
             m.geom_rbound[gid] = 1.0
             m.geom_pos[gid] = (rr * math.cos(a), rr * math.sin(a), zr)
             m.geom_quat[gid] = _quat_yaw(a)
-        alpha(self.m_ring, 0.35 * (1.0 - _ease((s - 0.1) / 0.4)))
-        li = 6.0 * math.exp(-s / 0.18)
-        m.light_diffuse[self.blast_light] = (li, 0.55 * li, 0.18 * li)
+        m.mat_rgba[self.m_ring, 3] = 0.35 * (1.0 - _ease((s - 0.1) / 0.4))
+        # light: a huge flash, then the flickering fire; the rim light throws it onto
+        # the viewer's back / side and the chair
+        fire = 1.0 - _ease((s - 0.8) / 1.4)
+        flick = 1.0 + 0.18 * math.sin(41.0 * s) + 0.12 * math.sin(67.0 * s + 1.0)
+        li = 6.0 * math.exp(-s / 0.1) + 2.0 * fire * flick
+        m.light_diffuse[self.blast_light] = (li, 0.55 * li, 0.2 * li)
+        lr = 2.2 * math.exp(-s / 0.15) + 0.9 * fire * flick
+        m.light_diffuse[self.rim_light] = (lr, 0.5 * lr, 0.16 * lr)
+        # the flash makes the viewer glow for an instant (emission)
+        if len(self.m_viewer):
+            m.mat_emission[self.m_viewer] = self.viewer_emission0 + 0.8 * math.exp(-s / 0.03)
 
     def _blast_off(self) -> None:
         m, d = self.sim.model, self.sim.data
         d.mocap_pos[self.blast_mocap] = (0.0, 0.0, -30.0)
         for mid in (self.m_core, self.m_fire, self.m_fire2, self.m_smoke, self.m_ring):
             m.mat_rgba[mid, 3] = 0.0
+        for gids in (self.g_fire, self.g_smoke, self.g_spark):
+            m.geom_rgba[gids, 3] = 0.0
+        m.geom_rgba[self.g_core, 3] = 0.0
         m.light_diffuse[self.blast_light] = (0.0, 0.0, 0.0)
+        m.light_diffuse[self.rim_light] = (0.0, 0.0, 0.0)
+        m.light_castshadow[self.key_light] = self.key_shadow0
+        if len(self.m_viewer):
+            m.mat_emission[self.m_viewer] = self.viewer_emission0
         self._blast = None
 
     # ---- the room rebuilds (kinematic, counted)
@@ -1515,6 +1751,7 @@ class BroccoliTossJob(EternalJob):
         start[bad] = self.brk_home[bad]
         self._rebuild = dict(t0=t, start=start)
         self._park_pool()
+        self._rest_body()  # (the springs have rung down by now)
         self._set_live("props", False)  # the rebuild is kinematic
         self._set_phase("rebuild", t)
         self._say_msg("rebuilding the room")
@@ -1586,52 +1823,219 @@ class BroccoliTossJob(EternalJob):
         self._msg_t = self.run_time()
 
     # ------------------------------------------------------------ view / HUD
-    # "webcam" shots: the camera sits on the monitors (+x) and looks back at the viewer,
-    # so the viewer faces it, the plate goes over its shoulder and the blast is behind it
-    # all three put the camera at x ~ 4.8 (just in front of the monitors at x = 5.4) and
-    # z ~ 5 (above the desk top at 3.3), looking down at the chair
-    # one steady shot (a fixed stream webcam) centred on the chair; the three names are
-    # kept for the phase logic
-    WEBCAM = ((180.0, -13.0, 5.0), 0.6)
-    SHOTS = {"close": WEBCAM, "walk": WEBCAM, "wide": WEBCAM}
+    # "webcam" shots: the camera sits in front of the monitors (+x) and looks back at
+    # the viewer, so the viewer faces it, the plate goes over its shoulder (the
+    # picture's left) and the blast is behind it. "walk": wider and higher (the host
+    # walking in / away); "close": the meme's framing, chest-high, the chair centred
+    # with its whole back in view, a little off-axis (from the picture's left) so the
+    # plate visibly flies back past the viewer. The shots glide into each other.
+    WALK = ((180.0, -13.0, 5.0), (0.1, 0.0, 3.0))
+    CLOSE = ((172.0, -10.0, 4.3), (0.0, 0.0, 3.45))
+    CLOSE_PHASES = ("handover", "ponder", "flick", "flight", "boom", "aftermath")
 
     def shot(self) -> str:
-        ph = self.phase
-        if ph in ("ponder", "handover", "flick"):
-            return "close"
-        if ph in ("deliver", "face", "present", "fetch"):
-            return "walk"
-        return "wide"
+        return "close" if self.phase in self.CLOSE_PHASES else "walk"
 
     def camera_target(self) -> np.ndarray:
-        t = self.sim.time
-        sh = self.shot()
-        # centred on the chair (y = 0) at chair mid-height; the camera ends up at
-        # x ~ 5 just in front of the monitors, above the desk top
-        out = np.array([0.1, 0.0, self.cfg.seat_z + 0.9])
-        dt = self.run_time() - self._shake_t
-        if 0 <= dt < 0.7:
-            a = self.cfg.shake_mm * (1 - dt / 0.7)
-            out = out + a * np.array([math.sin(t * 173), math.sin(t * 211 + 1), 0.6 * math.sin(t * 157 + 2)])
-        return out
+        return np.array((self.CLOSE if self.shot() == "close" else self.WALK)[1])
 
     def camera_preset(self) -> CameraPreset:
-        """Three shots; close -> wide (the flick) is a hard cut, the rest glide."""
-        sh = self.shot()
-        goal, tau = self.SHOTS[sh]
+        """One webcam; the shot changes glide (0.6 s). The impact's kick, shake and
+        punch-in are edit effects in ``post_process``."""
+        goal = np.array((self.CLOSE if self.shot() == "close" else self.WALK)[0])
         t = self.sim.time
-        cut = self._cam is not None and self._cam[2] == "close" and sh == "wide"
-        if self._cam is None or t < self._cam[0] or cut:
-            self._cam = (t, np.array(goal), sh)
-            self._cut_t = t
+        tau = 0.6
+        if self._cam is None or t < self._cam[0]:
+            self._cam = (t, goal)
         else:
-            t0, cur, _ = self._cam
+            t0, cur = self._cam
             a = 1.0 - math.exp(-(t - t0) / tau)
-            self._cam = (t, cur + a * (np.array(goal) - cur), sh)
-        if t - getattr(self, "_cut_t", -1e9) < 0.02:
-            tau = 1e-3  # the look-at point snaps too
+            self._cam = (t, cur + a * (goal - cur))
         az, el, dist = self._cam[1]
         return CameraPreset(azimuth=float(az), elevation=float(el), distance=float(dist), tau_s=tau)
+
+    # ------------------------------------------------------------ edit effects
+    # EDIT EFFECTS (labelled: a video edit, not physics): at the impact a hit-stop
+    # (near-freeze) and a slow-motion beat in presentation time (time_scale), and a
+    # screen-space post-process (post_process): impact flash / overexposure, bloom,
+    # zoom blur, chromatic fringe, a camera kick + damped shake + punch-in, ghosting;
+    # a motion smear on the throw frames.
+    def _edit_p(self) -> float:
+        """Presentation seconds since the blast (the runner's clock if it drives
+        time_scale, else run time)."""
+        e = self._edit
+        return e["p"] if e["driven"] else self.run_time() - e["t0"]
+
+    def _scale_at(self, p: float) -> float:
+        c = self.cfg
+        if p < c.hit_stop_s:
+            return c.hit_stop_scale
+        p -= c.hit_stop_s
+        if p < c.slowmo_s:
+            return c.slowmo_scale
+        p -= c.slowmo_s
+        if p < c.slowmo_ramp_s:
+            return c.slowmo_scale + (1.0 - c.slowmo_scale) * p / c.slowmo_ramp_s
+        return 1.0
+
+    def edit_beat(self) -> bool:
+        """True during the impact's edit beat (hit-stop, slow-mo, flash, shake; the
+        HUD labels it)."""
+        c = self.cfg
+        return self._edit is not None and self._edit_p() < c.hit_stop_s + c.slowmo_s + c.slowmo_ramp_s + 0.3
+
+    def time_scale(self, present_dt: float) -> float:
+        e = self._edit
+        if e is None:
+            return 1.0
+        e["driven"] = True
+        p = e["p"]
+        e["p"] = p + present_dt
+        return self._scale_at(p)
+
+    def edit_params(self) -> dict | None:
+        """The edit effects for the next frame (None = none): flash, bloom, radial
+        blur, exposure, warm grade, fringe, shake (dx, dy px as a fraction of the
+        width), roll (deg), zoom, ghost; ``k`` = frames since the impact."""
+        e = self._edit
+        if e is None:
+            return None
+        c = self.cfg
+        p, k = self._edit_p(), e["k"]
+        ex = math.exp
+        flash = (1.0, 0.8, 0.35, 0.12)[k] if k < 4 else 0.0
+        if self.phase in ("boom", "aftermath"):
+            zoom = c.zoom_hold + (1.0 + c.punch_in - c.zoom_hold) * ex(-p / 0.09)
+        else:  # the zoom eases back as the room rebuilds
+            zoom = 1.0 + (c.zoom_hold - 1.0) * (1.0 - _ease((self.run_time() - self._t_phase) / 0.5))
+        A = c.shake_px * ex(-p / 0.14)
+        burn = 1.0 - _ease((p - 1.6) / 1.2) if self.phase in ("boom", "aftermath") else 0.0
+        return dict(
+            k=k, p=p, flash=flash,
+            bloom=0.45 * burn + 0.7 * ex(-p / 0.15),
+            radial=0.08 * ex(-p / 0.10),
+            exposure=1.0 + 0.2 * ex(-p / 0.2),
+            warm=0.5 * ex(-p / 0.6) * burn + 0.2 * burn,
+            fringe=(0.0, 4.0, 2.5, 1.0)[k] if k < 4 else 0.0,
+            shake=(A * math.cos(2 * math.pi * 7.0 * p), 0.55 * A * math.cos(2 * math.pi * 5.5 * p + 0.6)),
+            roll=1.6 * ex(-p / 0.16) * math.sin(2 * math.pi * 6.0 * p + 0.4),
+            zoom=zoom,
+            ghost=(0.0, 0.45, 0.3, 0.15)[k] if k < 4 else 0.0)
+
+    def _smear_on(self) -> bool:
+        """The throw's fastest frames: the snap and the first frames of the flight."""
+        if self.phase == "flight":
+            return True
+        return self.phase == "flick" and self.run_time() - self._t_phase > self.cfg.windup_s - 0.01
+
+    def post_process(self, frame: np.ndarray, t: float) -> np.ndarray:
+        """Screen-space edit effects (numpy / OpenCV; see ``edit_params``). Identity
+        (the same array) when nothing is going on."""
+        if not self.cfg.edit_fx:
+            return frame
+        smear = self._smear_on()
+        fx = self.edit_params()
+        if fx is None and not smear:
+            self._prev_raw = frame if self.phase in ("ponder", "flick") else None
+            self._prev_out = None
+            return frame
+        import time as _time
+
+        import cv2
+
+        t0 = _time.perf_counter()
+        H, W = frame.shape[:2]
+        prev = self._prev_raw
+        self._prev_raw = frame
+        x = frame.astype(np.float32)
+        if smear and prev is not None and prev.shape == frame.shape:
+            x = self._fx_smear(cv2, x, prev.astype(np.float32))
+        if fx is not None:
+            e = self._edit  # (threaded app: the physics thread may end it meanwhile)
+            if e is not None:
+                e["k"] += 1
+            x = self._fx_blast(cv2, x, fx, W, H)
+        out = np.clip(x, 0, 255).astype(np.uint8)
+        if fx is not None:
+            dx, dy = fx["shake"]
+            M = cv2.getRotationMatrix2D((W * 0.5, H * 0.45), fx["roll"], fx["zoom"])
+            M[0, 2] += dx * W
+            M[1, 2] += dy * W
+            out = cv2.warpAffine(out, M, (W, H), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REFLECT)
+            g = fx["ghost"]
+            po = self._prev_out
+            if g > 0 and po is not None and po.shape == out.shape:
+                out = cv2.addWeighted(out, 1.0 - g, po, g, 0.0)
+        self._prev_out = out
+        self.post_ms = 1e3 * (_time.perf_counter() - t0)
+        return out
+
+    def _fx_smear(self, cv2, x: np.ndarray, prev: np.ndarray) -> np.ndarray:
+        """Motion smear of what moved since the last frame (the arm, the plate, a
+        bit of the body): a directional blur along the throw (up and to the
+        picture's left) blended with the previous frame, masked by the change."""
+        diff = np.abs(x - prev).max(axis=2)
+        mask = np.clip((diff - 12.0) / 40.0, 0.0, 1.0) * (0.6 if self.phase == "flight" else 1.0)
+        mask = cv2.GaussianBlur(cv2.dilate(mask, np.ones((9, 9), np.uint8)), (0, 0), 5)[..., None]
+        if getattr(self, "_smear_k", None) is None:
+            n = 23
+            k = np.zeros((n, n), np.float32)
+            c = n // 2
+            for i in range(n):  # a line from lower right to upper left
+                f = i / (n - 1) - 0.5
+                k[int(round(c + 0.6 * f * (n - 1))), int(round(c + f * (n - 1)))] = 1.0
+            self._smear_k = k / k.sum()
+        blur = cv2.filter2D(x, -1, self._smear_k)
+        sm = 0.6 * blur + 0.4 * (0.65 * x + 0.35 * prev)
+        return x + (sm - x) * mask
+
+    def _fx_blast(self, cv2, x: np.ndarray, fx: dict, W: int, H: int) -> np.ndarray:
+        cx, cy = self.cfg.blast_screen[0] * W, self.cfg.blast_screen[1] * H
+        # zoom blur out of the blast (the impact frames)
+        r = fx["radial"]
+        if r > 0.01:
+            acc = x.copy()
+            for i in (1, 2, 3, 4):
+                M = cv2.getRotationMatrix2D((cx, cy), 0.0, 1.0 + r * i / 4.0)
+                acc += cv2.warpAffine(x, M, (W, H), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REFLECT)
+            x = acc * 0.2
+        # bloom: bright pass, blurred at 1/4 and 1/8 size, added back (the glow that
+        # engulfs the silhouette at the blast)
+        b = fx["bloom"]
+        if b > 0.01:
+            bright = np.maximum(x - 165.0, 0.0)
+            s4 = cv2.resize(bright, (W // 4, H // 4), interpolation=cv2.INTER_AREA)
+            g4 = cv2.GaussianBlur(s4, (0, 0), 4)
+            g8 = cv2.GaussianBlur(cv2.resize(s4, (W // 8, H // 8), interpolation=cv2.INTER_AREA), (0, 0), 6)
+            glow = cv2.resize(g4, (W, H), interpolation=cv2.INTER_LINEAR) \
+                + 1.5 * cv2.resize(g8, (W, H), interpolation=cv2.INTER_LINEAR)
+            x = x + b * glow * np.array((1.0, 0.85, 0.65), np.float32)
+        # the first frame: an "impact frame" (a negative, high contrast, warm white
+        # burst out of the blast, streaked by the zoom blur above)
+        if fx["k"] == 0:
+            lum = x @ np.array((0.3, 0.55, 0.15), np.float32)
+            neg = np.clip((255.0 - lum - 70.0) * 1.8, 0.0, 255.0)
+            yy, xx = np.ogrid[:H, :W]
+            rad = np.exp(-(((xx - cx) / W) ** 2 + ((yy - cy) / H) ** 2) / 0.15).astype(np.float32)
+            v = np.maximum(neg, 255.0 * np.minimum(1.4 * rad, 1.0))
+            return v[..., None] * np.array((1.0, 0.97, 0.9), np.float32)
+        # exposure + the impact flash (white / yellow, the viewer overexposed too),
+        # strongest toward the blast
+        f = fx["flash"]
+        x = x * (fx["exposure"] * (1.0 + 2.4 * f))
+        if f > 0:
+            yy, xx = np.ogrid[:H, :W]
+            rad = np.exp(-(((xx - cx) / W) ** 2 + ((yy - cy) / H) ** 2) / 0.3).astype(np.float32)[..., None]
+            x = x + f * (110.0 + 170.0 * rad) * np.array((1.0, 0.94, 0.78), np.float32)
+        w = fx["warm"]
+        if w > 0:
+            x = x * np.array((1.0 + 0.12 * w, 1.0 - 0.02 * w, 1.0 - 0.2 * w), np.float32)
+        # chromatic fringe (R / B pulled apart around the blast) on the first frames
+        fr = int(round(fx["fringe"]))
+        if fr:
+            x[..., 0] = np.roll(x[..., 0], fr, axis=1)
+            x[..., 2] = np.roll(x[..., 2], -fr, axis=1)
+        return x
 
     def job_hud_lines(self) -> list[str]:
         msg = self.message if self.run_time() - self._msg_t < 4.0 else ""
@@ -1642,6 +2046,9 @@ class BroccoliTossJob(EternalJob):
         if getattr(self.session, "brain", None) is not None:
             lines.append(f"bitter pulses {self.n_bitter} (stand-in: LB1 bitter GRNs, the host's brain)")
         lines.append(">> " + msg if msg else "(viewer: posed kinematic fly; plate launch + blast: cartoon, see docs)")
+        if self.edit_beat():
+            lines.append("EDIT FX (not physics): hit-stop, slow-mo x%.1f, flash, bloom, shake, punch-in"
+                         % self.cfg.slowmo_scale)
         return lines
 
     def job_stats(self) -> dict:
@@ -1651,4 +2058,4 @@ class BroccoliTossJob(EternalJob):
                 "props_launched": self.n_props_launched, "resets_mid_cycle": self.n_resets_mid,
                 "plates_lost": self.n_plates_lost, "flight_timeouts": self.n_flight_timeouts,
                 "bitter_pulses": self.n_bitter, "unstuck": self.n_unstuck,
-                "last_flight_s": lf.get("flight_s")}
+                "last_flight_s": lf.get("flight_s"), "post_ms": round(self.post_ms, 2)}
