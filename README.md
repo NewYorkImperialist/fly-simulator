@@ -12,6 +12,45 @@
 on flapping wings; the paddle lands where it was. 3x slow motion, no scripted
 escape force.*
 
+## Play in 2 minutes
+
+The fun parts are the **jobs** (a fly doing an absurd job forever) and the **games**
+(the real fly brain plays them). Setup, once:
+
+```bash
+git clone https://github.com/NewYorkImperialist/fly-simulator.git && cd fly-simulator
+uv venv --python 3.12 .venv && uv pip install --python .venv/bin/python -e ".[dev,brain]"
+.venv/bin/python scripts/fetch_brain_data.py     # the fly brain, ~150 MB (needed for games)
+```
+
+**Jobs** — pick one and watch it work forever:
+
+```bash
+.venv/bin/python scripts/run_job.py --job kebab            # doner kebab chef
+.venv/bin/python scripts/run_job.py --job sisyphus         # boulder up a hill
+.venv/bin/python scripts/run_job.py --job mowing           # mowing the lawn
+.venv/bin/python scripts/run_job.py --job raking           # raking leaves
+.venv/bin/python scripts/run_job.py --job hamster_wheel    # hamster wheel
+.venv/bin/python scripts/run_job.py --rotate               # all of them, forever
+.venv/bin/python scripts/run_job.py --job kebab --brain --stress   # + live brain; S startles the chef
+```
+
+Keys: **C** camera · **P** pause · **TAB** hide text · **I** screenshot · **Q** quit.
+
+**Games** — the fly's real connectome steers:
+
+```bash
+.venv/bin/python scripts/play.py --game rings --brain --window       # flies through hoops
+.venv/bin/python scripts/play.py --game chase --brain --window       # chases a leader fly
+.venv/bin/python scripts/play.py --game asteroids --brain --window   # dodges rolling rocks
+```
+
+Keys: **SPACE** pause · **R** restart · **1/2/3** easy/normal/hard · **B** brain window ·
+**TAB** side panel · **Q** quit. Add `--control mirror` to swap its eyes and watch it fail.
+
+**Poke the fly yourself:** `.venv/bin/python scripts/run_sim.py --flight --brain-actions --swatter`
+(V swats, SPACE whips, L takes off, ? shows every key).
+
 ## What is this?
 
 Fly Simulator puts the [NeuroMechFly](https://github.com/NeLy-EPFL/flygym) body
