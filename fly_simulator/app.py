@@ -88,7 +88,7 @@ KEY_GROUPS: list[tuple[str, list[tuple[str, str]]]] = [
         ("I", "screenshot: fly frame (+ brain frame) as PNG into the run dir"),
         ("M", "start / stop MP4 recording of the fly view (run dir)"),
         ("?", "show / hide this help"),
-        ("TAB", "HUD text: full / compact / off"),
+        ("TAB", "stats / controls box: off (default) / full / compact"),
         ("Q / ESC", "quit (closing the window or Ctrl-C also quits)"),
     ]),
 ]
@@ -1231,7 +1231,7 @@ class _LoopState:
     quit_reason: str = "max-seconds"
     hud: list[str] | None = None
     show_help: bool = False  # ? toggles the on-screen key help
-    hud_mode: int = 0  # TAB cycles the HUD text: 0 full, 1 compact, 2 off
+    hud_mode: int = 2  # TAB cycles the HUD text: 2 off (default) -> 0 full -> 1 compact
     # I pressed: (run time, copy of the brain's recent states) taken under the lock;
     # the main loop saves the PNGs outside it
     shot: tuple | None = None
@@ -1373,6 +1373,7 @@ def run(
         print(f"logging to {session.logger.run_dir}/", flush=True)
     if not headless:
         print(key_help_text(session.available_actions), flush=True)
+        print("(the on-screen stats / controls box is off: press TAB to show it)", flush=True)
 
     def status_line() -> str:
         wall = time.perf_counter()
@@ -1471,7 +1472,7 @@ def run(
             lines = session.course.hud_lines() + lines
         if session.job is not None:
             lines = session.job.hud_lines() + lines
-        lines.append("? = key help   TAB = hide HUD   I = screenshot   M = record")
+        lines.append("? = key help   TAB = compact / hide   I = screenshot   M = record")
         return [ln for ln in lines if ln]
 
     def ensure_renderer():
@@ -1491,6 +1492,10 @@ def run(
             if frame is None:
                 frame = render_now()
             hud = st.hud if (st.threaded or viewer is not None) else hud_lines()
+            if not hud and st.hud_mode != 0:  # box hidden on screen: the _hud PNG still gets the full box
+                mode, st.hud_mode = st.hud_mode, 0
+                hud = hud_lines()
+                st.hud_mode = mode
             hud_img = None
             if hud:
                 from fly_simulator.interaction.viewer import compose_frame

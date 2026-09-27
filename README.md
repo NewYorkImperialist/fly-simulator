@@ -35,7 +35,7 @@ uv venv --python 3.12 .venv && uv pip install --python .venv/bin/python -e ".[de
 .venv/bin/python scripts/run_job.py --job kebab --brain --stress   # + live brain; S startles the chef
 ```
 
-Keys: **C** camera · **P** pause · **TAB** hide text · **I** screenshot · **Q** quit.
+Keys: **C** camera · **P** pause · **TAB** show stats · **I** screenshot · **Q** quit.
 
 **Games** — the fly's real connectome steers:
 
@@ -46,7 +46,7 @@ Keys: **C** camera · **P** pause · **TAB** hide text · **I** screenshot · **
 ```
 
 Keys: **SPACE** pause · **R** restart · **1/2/3** easy/normal/hard · **B** brain window ·
-**TAB** side panel · **Q** quit. Add `--control mirror` to swap its eyes and watch it fail.
+**TAB** brain panel · **Q** quit. Add `--control mirror` to swap its eyes and watch it fail.
 
 **Poke the fly yourself:** `.venv/bin/python scripts/run_sim.py --flight --brain-actions --swatter`
 (V swats, SPACE whips, L takes off, ? shows every key).
@@ -238,8 +238,8 @@ out.mp4` to render a video without a window. All flags, run options and outputs:
 
 ## Keys
 
-Press **?** in the window for the full key help, and **TAB** to cycle the on-screen
-text (full / compact / off). The complete table is in
+Press **?** in the window for the full key help, and **TAB** to show the stats / controls
+box (off by default; TAB again for compact, then off). The complete table is in
 [docs/USAGE.md](docs/USAGE.md#keys-window-focused).
 
 | key | action |

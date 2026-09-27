@@ -183,7 +183,7 @@ class JobRunner:
         self.n_instabilities = 0
         self.quit_reason = "max-seconds"
         self.paused = False
-        self.hud_on = True  # TAB toggles the HUD text in the window
+        self.hud_on = False  # TAB shows / hides the HUD text in the window (off by default)
         self.n_shots = 0
         self.shot_dir: Path | None = Path(record_dir) if record_dir is not None else None
 
@@ -276,6 +276,7 @@ class JobRunner:
             self.viewer = LiveViewer(f"Fly Simulator - {self.job.title}",
                                      display_scale=self.cfg.render.display_scale,
                                      frame_size=(self.cfg.render.width, self.cfg.render.height))
+            self.say("(the stats box is off: press TAB to show it)")
         period = 1.0 / max(self.cfg.render.target_fps, 1.0)
         last_shown = -1e9
         try:

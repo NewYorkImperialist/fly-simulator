@@ -115,6 +115,7 @@ def main(argv: list[str] | None = None) -> int:
 
         viewer = LiveViewer(f"Fly Simulator course: {course.spec.name}",
                             frame_size=(cfg.render.width, cfg.render.height))
+        print("(the stats box is off: press TAB to show it)", flush=True)
     chunk = cfg.render.render_every_steps
     if args.record:
         import imageio.v2 as iio
@@ -137,6 +138,7 @@ def main(argv: list[str] | None = None) -> int:
             f"terrain {session.terrain_here()}"]
 
     quit_reason = "course over"
+    hud_on = False  # TAB shows / hides the stats box in the window (off by default)
     next_print = 1.0
     wall0 = time.perf_counter()
     max_rt = course.timeout_s * max(args.laps, 1) + 30.0 * max(args.laps, 1)
@@ -159,7 +161,7 @@ def main(argv: list[str] | None = None) -> int:
                     cv2.imwrite(str(out), compose_frame(img, hud()))
                     print(f"[frame] {out}", flush=True)
                 if viewer is not None:
-                    viewer.show(img, hud())
+                    viewer.show(img, hud() if hud_on else None)
                     for k in viewer.poll_keys(1):
                         if k in ("q", "escape"):
                             quit_reason = "quit"
@@ -168,6 +170,8 @@ def main(argv: list[str] | None = None) -> int:
                             renderer.camera.reset()
                         elif k == "c":
                             renderer.camera.cycle_mode()
+                        elif k == "tab":
+                            hud_on = not hud_on
                     if not viewer.is_open():
                         quit_reason = "window closed"
                     if quit_reason != "course over":

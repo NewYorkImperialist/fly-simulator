@@ -101,7 +101,7 @@ With the venv activated (`source .venv/bin/activate.fish` in fish, or
 | L | flight (`--flight`): **take off** (jump → flapping wings → hover ~2 mm up; lands by itself after 4 s of hovering) / **land**. While flying, the arrows **steer** instead of cracking the whip: UP / DOWN forward speed ±50 mm/s, LEFT / RIGHT turn 30°. HUD `FLIGHT` line (state, wingbeat Hz, altitude, speed) |
 | Shift+V | swatter: swat from a random direction around the fly. In `--script-keys` write `shift+v`. Any other Shift / Caps-Lock letter acts as the plain key |
 | ? | show / hide the on-screen key help (grouped: hits, obstacles / terrain, brain, actions, flight, swatter, view / run; actions the body can't do are greyed out); it is also printed in the terminal |
-| TAB | HUD text: full / compact / off (jobs: on / off; games: side panel on / off) |
+| TAB | show the stats / controls box: off by default, then full, then compact (jobs and courses: on / off; games: brain side panel on / off, start with it via `--panel`) |
 | Q / ESC | quit (closing the window or Ctrl-C in the terminal also quits) |
 
 Actions (docs/ACTIONS.md) take over the leg targets for a moment and then blend back

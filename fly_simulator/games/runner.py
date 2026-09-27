@@ -258,6 +258,8 @@ class GameRunner:
         s = self.session
         title = "FLY BRAIN PLAYS"
         cv2.namedWindow(title, cv2.WINDOW_AUTOSIZE)
+        if not self.panel:
+            self.say("(the brain panel is off: press TAB to show it)")
         keys = list(script_keys or [])
         writer = None
         if record is not None:
@@ -394,7 +396,7 @@ def play(args) -> int:
         need_render = args.window or args.record is not None or args.frames is not None
         hs = HighScores(args.highscores) if not args.no_highscore else None
         runner = GameRunner(session, game_name=args.game, highscores=hs, render=need_render,
-                            panel=not args.no_panel, width=args.width, height=args.height)
+                            panel=bool(args.panel) and not args.no_panel, width=args.width, height=args.height)
         if args.brain_window:
             runner.toggle_brain_window()
         keys = parse_script_keys(args.script_keys)

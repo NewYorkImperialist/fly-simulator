@@ -62,7 +62,8 @@ def parse_args(argv=None):
     p.add_argument("--window", action="store_true", help="OpenCV game window")
     p.add_argument("--brain-window", action="store_true",
                    help="also open the brain activity window (separate process)")
-    p.add_argument("--no-panel", action="store_true", help="no brain panel beside the game")
+    p.add_argument("--panel", action="store_true", help="start with the brain panel beside the game (off by default; TAB toggles it)")
+    p.add_argument("--no-panel", action="store_true", help=argparse.SUPPRESS)
     p.add_argument("--width", type=int, default=960)
     p.add_argument("--height", type=int, default=640)
     p.add_argument("--scale", type=float, default=1.0, help="window display scale")

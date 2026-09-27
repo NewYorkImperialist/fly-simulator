@@ -11,7 +11,7 @@
     python scripts/run_job.py --job dead_hang --brain --habituation  # T = trap twitch
 
 Keys (window): Q / ESC quit, C camera (job / follow / side / top), P pause,
-X explicit reset (counted), I screenshot (PNG with HUD), TAB hide / show the HUD; job keys are forwarded to
+X explicit reset (counted), I screenshot (PNG with HUD), TAB show / hide the stats box (off by default); job keys are forwarded to
 the job (kebab: S = startle the chef, a poke; with --stress it speeds the carving up;
 dead_hang: T = make the flytrap twitch).
 
