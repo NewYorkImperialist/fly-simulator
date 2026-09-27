@@ -36,7 +36,7 @@ Sequence (a state machine in ``update``, every 1 ms):
    this scale "turning on the spot" is really arc walking), then freezes;
 2. ``handover``: the plate moves from the host's back to the viewer's front legs
    (kinematic, labelled) while the viewer reaches for it;
-3. ``ponder`` (3-4 s): the viewer holds the plate still in front of its head, tilts
+3. ``ponder`` (0.75-1 s): the viewer holds the plate still in front of its head, tilts
    its head at it, adjusts its legs a little (with ``--brain``: a bitter taste
    pulse, labelled stand-in, see below);
 4. ``flick``: one sudden casual flick of the left front leg over the shoulder;
@@ -123,9 +123,9 @@ class BroccoliConfig(JobConfig):
     # ---- the sequence (s) -----------------------------------------------------------
     present_s: float = 0.5  # host at the chair, facing the viewer -> handover starts
     handover_s: float = 1.1
-    ponder_min_s: float = 3.0
-    ponder_max_s: float = 4.0
-    look_back_s: float = 0.35  # the head swings back to the monitors before the flick
+    ponder_min_s: float = 0.75
+    ponder_max_s: float = 1.0
+    look_back_s: float = 0.15  # the head swings back to the monitors before the flick
     windup_s: float = 0.10
     throw_s: float = 0.10  # the flick (release at its end)
     flight_timeout_s: float = 1.0
@@ -1282,7 +1282,7 @@ class BroccoliTossJob(EternalJob):
         """Plate still; the head tilts down at it and rocks a little; a leg twitch."""
         c = self.cfg
         lp = self._level_pitch()
-        look = _ease(s / 0.5) * (1.0 - _ease((s - (self._ponder_s - c.look_back_s)) / c.look_back_s))
+        look = _ease(s / 0.15) * (1.0 - _ease((s - (self._ponder_s - c.look_back_s)) / c.look_back_s))
         pitch = lp + look * math.radians(18)
         roll = look * (math.radians(14) * math.sin(0.9 * s + 0.3) + math.radians(6))
         yaw = look * math.radians(6) * math.sin(0.6 * s)
@@ -1554,8 +1554,12 @@ class BroccoliTossJob(EternalJob):
         self._msg_t = self.run_time()
 
     # ------------------------------------------------------------ view / HUD
-    SHOTS = {"close": ((120.0, -15.0, 7.5), 0.6), "walk": ((112.0, -14.0, 14.0), 0.6),
-             "wide": ((100.0, -13.0, 16.5), 0.35)}
+    # "webcam" shots: the camera sits on the monitors (+x) and looks back at the viewer,
+    # so the viewer faces it, the plate goes over its shoulder and the blast is behind it
+    # all three put the camera at x ~ 4.8 (just in front of the monitors at x = 5.4) and
+    # z ~ 5 (above the desk top at 3.3), looking down at the chair
+    SHOTS = {"close": ((180.0, -22.5, 4.44), 0.6), "walk": ((180.0, -22.4, 4.98), 0.6),
+             "wide": ((180.0, -16.5, 5.63), 0.35)}
 
     def shot(self) -> str:
         ph = self.phase
@@ -1570,11 +1574,10 @@ class BroccoliTossJob(EternalJob):
         sh = self.shot()
         if sh == "close":
             out = np.array([0.7, -0.5, self.cfg.seat_z + 1.2])
-        elif sh == "walk":
-            f = self.sim.thorax_position()
-            out = 0.5 * f + 0.5 * np.array([0.0, 0.0, 3.0]) + np.array([-1.0, 0.0, 0.8])
-        else:
-            out = np.array([-4.6, -1.2, 3.9])
+        elif sh == "walk":  # keep the webcam on the chair; the host walks into frame
+            out = np.array([0.2, -0.6, self.cfg.seat_z + 1.0])
+        else:  # pulled back a little so the blast behind the chair is in frame
+            out = np.array([-0.6, -0.8, self.cfg.seat_z + 1.3])
         dt = self.run_time() - self._shake_t
         if 0 <= dt < 0.7:
             a = self.cfg.shake_mm * (1 - dt / 0.7)

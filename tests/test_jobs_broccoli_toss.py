@@ -1,5 +1,5 @@
 """The broccoli toss job: scene, the posed viewer fly, the sequence state machine
-(incl. the 3-4 s ponder), the backward launch, the blast and the room rebuild,
+(incl. the 0.75-1 s ponder), the backward launch, the blast and the room rebuild,
 counters, a reset mid-cycle and the (fake) brain's bitter pulses.
 
 One session is built for the module and runs one full cycle with shortened boom /
@@ -107,7 +107,7 @@ def test_sequence_order_and_ponder_timing(run):
     for p, tt in run["log"]:  # phase start times (first cycle)
         t.setdefault(p, tt)
     ponder = t["flick"] - t["ponder"]
-    assert 3.0 - 0.002 <= ponder <= 4.0 + 0.002, ponder
+    assert 0.75 - 0.002 <= ponder <= 1.0 + 0.002, ponder
     flick = t["flight"] - t["flick"]
     assert abs(flick - (run["job"].cfg.windup_s + run["job"].cfg.throw_s)) < 0.01
     assert t["flight"] < t["boom"] < t["flight"] + 0.3  # the plate lands within 0.3 s

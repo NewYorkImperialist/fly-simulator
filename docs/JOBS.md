@@ -15,7 +15,7 @@ constant.
 | `raking` | leaves fall from an autumn tree; the fly sweeps them into a pile with a rake; when the pile is done, the wind blows it away | leaves raked, piles completed, gusts survived |
 | `dead_hang` | dead-hangs by its front legs from a pull-up bar over a Venus flytrap; its grip tires, it re-grips and slips; when it falls, the trap snaps shut, and the fly respawns on the bar | time on the bar, hang streak (best), re-grips, slips, chomps, survival rate |
 | `bowling` | pushes a 3 mm ball over the ramp at the head of the lane; it rolls down and scatters 10 free-body pins; a kinematic pinsetter clears / resets them; standard ten-pin scoring | pins knocked down, games, best / average game, strikes, spares, gutters, fouls |
-| `broccoli_toss` | in a streamer's room the host fly brings a plate of broccoli to the viewer fly in the gaming chair; the viewer ponders it for 3–4 s, flicks the whole plate over its shoulder without looking, and everything behind it explodes (cartoon blast, props fly with real physics); the room rebuilds | plates yeeted, explosions, stream viewers, vegetables eaten: 0 |
+| `broccoli_toss` | in a streamer's room the host fly brings a plate of broccoli to the viewer fly in the gaming chair; the viewer ponders it for 0.75–1 s, flicks the whole plate over its shoulder without looking, and everything behind it explodes (cartoon blast, props fly with real physics); the room rebuilds | plates yeeted, explosions, stream viewers, vegetables eaten: 0 |
 
 ```bash
 python scripts/run_job.py --job sisyphus                   # window; Q quit, C camera, P pause, X reset, I screenshot, TAB HUD
@@ -709,7 +709,7 @@ kitchen.
 2. `present` (0.5 s) + `handover` (1.1 s): the plate lifts off the host's back and
    moves to the viewer's front "hands" (**kinematic handover**, labelled) while the
    viewer reaches for it;
-3. `ponder`, **3–4 s** (uniform, seeded): the plate stays still in front of its head,
+3. `ponder`, **0.75–1 s** (uniform, seeded): the plate stays still in front of its head,
    the head tilts down at it and rocks (pitch +18°, roll ±14°), a mid leg taps the
    armrest, a hind leg swings; `hmm...`. The head swings back to the monitors 0.35 s
    before the end;
@@ -752,9 +752,9 @@ touch the fly. While intact they are **parked kinematically**: contacts off, gra
 compensated, at rest on their spots, so the solver has no resting contacts to hold
 (this took the step time from 0.5 ms to 0.19 ms: 134 → 14 contacts). They, the plate
 and the florets go live (contacts + gravity) at the release; the debris goes live at
-the blast. The camera has three shots (close on the viewer for the handover and
-ponder, a hard cut to the wide shot of the back room for the flick, a walk shot
-following the host).
+the blast. The camera is a "webcam" on the monitors looking back at the viewer, so
+the viewer faces it and the blast goes off behind the chair; it moves in close for the
+handover and ponder and pulls back a little for the blast.
 
 **Brain (`--brain`, off by default).** During the ponder the job sends a bitter taste
 pulse every 0.5 s (0.4 s at 150 Hz: `StimulusEvent("taste", tastes=["bitter"])`, the
@@ -786,7 +786,7 @@ on its back, the handover, the ponder close-up, the plate on the left front leg 
 the shoulder, the plate in the air over the chair, the fireball and dust ring with
 props flying, the aftermath with the viewer still facing the monitors, the rebuilt
 room. Tests: `tests/test_jobs_broccoli_toss.py` (7 tests, ~36 s: scene / viewer
-without free joint, actuators or contacts; the full phase order and a 3–4 s ponder;
+without free joint, actuators or contacts; the full phase order and a 0.75–1 s ponder;
 the launch goes backward and up and lands behind the chair; the blast moves props and
 the rebuild puts them back; counters and HUD; bitter pulses with a fake brain; a
 reset mid-cycle).
