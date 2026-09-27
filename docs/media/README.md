@@ -26,7 +26,7 @@ ffmpeg -ss START -t DUR -i in.mp4 -vf "setpts=PTS/SPEED,fps=FPS,scale=W:-2:flags
 | `pizza_chef.gif` | 2.4 MB | The pizza chef job, one pizza: the dough ball kneaded flat, the toss (a spinning free body, labelled slow motion x0.1), sauce, cheese / pepperoni / basil raining from the bowls (slow motion x0.3), into the brick oven on the peel, baked, sliced by the cutter wheel, boxed and served; the chalkboard counts. No HUD |
 | `trampoline.gif` | 2.1 MB | The trampoline job: the fly stands on the spring mat, the first jump, the rebound jumps pumping the height up beside the ruler (red / gold markers, NEW BEST), a backflip (a real boosted asymmetric push) landed at the mat's edge, the next bounce sends it off onto the lawn, the counted respawn, and it pumps up again. Labelled slow motion x0.2, a one-line HUD |
 | `delivery_pilot.gif` | 2.1 MB | The delivery pilot job on the real flight fly: the parcel slides onto the fly on the depot roof, the jump → wings take-off, the flight to house No. 1 with the parcel hanging under it, the landing on the roof terrace, DELIVERED on the doormat, the take-off and the flight back to the depot's loading mark. Real time, no HUD (the captions are the job's overlay) |
-| `jobs.gif` | 2.5 MB | 2x2 grid of the eternal jobs: Sisyphus, hamster wheel, lawn mowing, leaf raking |
+| `jobs.gif` | 2.3 MB | 2x2 grid of the eternal jobs: Sisyphus (Greek hillside at sunset), hamster wheel (pet cage), lawn mowing (front yard), leaf raking (autumn backyard) |
 | `whip.gif` | 2.0 MB | A level-3 physical whip crack from the right knocks the fly sideways. 4x slow motion |
 | `brain_window.png` | 0.1 MB | The brain window with real FlyWire activity 0.1 s after a looming stimulus (giant fibre 115 Hz, JUMP), after two whip hits under `--stress`. Shows the decision meters, DN traces, pain/arousal and the playground panel |
 | `rings.gif` | 2.2 MB | Game "Fly Through Rings": real flapping flight, steered by LC10a → DNa01/02 |
@@ -131,17 +131,16 @@ ffmpeg -framerate 15 -i gif/f%04d.png -vf "scale=480:-2:flags=lanczos,split[a][b
 ```
 Run it live: `python scripts/run_job.py --job trampoline` (or `run_sim.py --job trampoline`).
 
-**jobs.gif**. For each job, the same command at 480×320 with `--max-seconds 6` (raking 10). For
-sisyphus, hamster_wheel and raking the job camera was moved closer, using a small wrapper
-that imports the job modules, overrides each `EternalJob` subclass's `camera_preset()`
-(and for raking also `camera_target()` = the thorax), then calls `fly_simulator.app.main()`.
-Presets (azimuth, elevation, distance): sisyphus 68/-30/17, hamster_wheel 102/-18/16,
-raking 100/-28/13 (on the thorax). Mowing uses the stock preset.
+**jobs.gif** (the jobs' own default job cameras, no preset overrides). For each job a
+small script builds `create_job_session(job, cfg)` at 480×320 (whip off) and steps a
+`JobRunner(chunk_steps=50)`; from 2.5 s of run time (raking 6.5 s) it renders a clean
+frame (`render(hud=False)`) every 0.1 s, 36 frames. Each frame is resized to 320×213
+(`INTER_AREA`), labelled with OpenCV (Hershey simplex 0.45 on a dark tab) and put into a
+642×428 grid (2 px gaps), then:
 ```bash
-.venv/bin/python scripts/run_sim.py --job mowing --headless --max-seconds 6 --record $S/mowing.mp4 --no-log --config $S/r480.json
+ffmpeg -framerate 10 -i grid/%04d.png -vf "trim=end=3.2,split[a][b];\
+[a]palettegen=max_colors=96:stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=5:diff_mode=rectangle" -loop 0 jobs.gif
 ```
-3.5 s from each clip (sisyphus / wheel / mowing from 2.5 s, raking from 6.5 s) went into
-a 642×430 grid, with labels drawn by OpenCV. GIF: 3.2 s, 10 fps, 112 colours, bayer dither.
 
 **whip.gif** (the log gave `HIT c_thorax, impulse 496 nN*s`; GIF: start 0.95, dur 0.9, speed 0.25, 540 px, 12 fps, 96 colours, dither none)
 ```bash

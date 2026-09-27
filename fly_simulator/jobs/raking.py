@@ -44,8 +44,9 @@ from dataclasses import dataclass
 import mujoco as mj
 import numpy as np
 
+from fly_simulator.jobs import raking_assets as A
 from fly_simulator.jobs.base import CameraPreset, EternalJob, JobConfig
-from fly_simulator.jobs.geometry import add_box, quat_axis_angle
+from fly_simulator.jobs.geometry import contact_kwargs, quat_axis_angle
 from fly_simulator.jobs.mowing import PushPilot
 from fly_simulator.jobs.registry import register_job
 
@@ -61,9 +62,6 @@ LEAF_COLOURS = (
 )
 CANOPY = ((0.90, 0.40, 0.08, 1.0), (0.85, 0.20, 0.08, 1.0), (0.96, 0.66, 0.12, 1.0),
           (0.80, 0.32, 0.06, 1.0))
-BARK = (0.35, 0.22, 0.13, 1.0)
-YARD = (0.42, 0.52, 0.24, 1.0)
-EARTH = (0.45, 0.33, 0.20, 1.0)
 WOOD = (0.72, 0.52, 0.30, 1.0)
 TINES = (0.20, 0.55, 0.25, 1.0)
 
@@ -113,6 +111,8 @@ class RakingConfig(JobConfig):
     walk_margin: float = 3.5
     orbit_radius: float = 3.0  # thorax keeps this far from the target leaf when going round
     celebrate_s: float = 1.5  # groom after a completed pile; 0 = off
+    # ---- looks --------------------------------------------------------------------
+    shadows: bool = True  # the sun's shadow map (~several ms per 960x640 frame)
 
 
 @register_job
@@ -131,76 +131,151 @@ class RakingJob(EternalJob):
         c = self.cfg
         root = world.mjcf_root
         wb = root.worldbody
-        mat = root.material("grid")
-        if mat is not None:
-            mat.rgba = (0.36, 0.46, 0.22, 1.0)
+        self._add_materials(root)
+        vis = dict(contact_kwargs("visual"), mass=0.0)
+
+        def mesh(parent, name, md, material, pos=(0.0, 0.0, 0.0), quat=(1.0, 0.0, 0.0, 0.0)):
+            A.add_mesh(root, P + name + "_mesh", md)
+            return parent.add_geom(name=P + name, type=mj.mjtGeom.mjGEOM_MESH,
+                                   meshname=P + name + "_mesh", pos=tuple(pos), quat=tuple(quat),
+                                   material=P + material, **vis)
+
         cx, hx = (c.yard_x0 + c.yard_x1) / 2, (c.yard_x1 - c.yard_x0) / 2
         # (top 60 um up: thinner separations from the ground plane z-fight at this
         # camera distance)
-        add_box(wb, P + "yard", (hx, c.yard_half_y, 0.03), (cx, 0.0, 0.03), rgba=YARD,
-                collide="visual")
+        mesh(wb, "yard", A.box_mesh((hx, c.yard_half_y, 0.03), 0.16), "lawn", (cx, 0.0, 0.03))
         px, py = c.pile_xy
-        wb.add_geom(name=P + "pile_spot", type=mj.mjtGeom.mjGEOM_CYLINDER,
-                    size=(c.pile_radius, 0.01, 0), pos=(px, py, 0.065), rgba=EARTH,
-                    contype=0, conaffinity=0, group=1)
-        # the tree (decoration beyond the far edge)
-        tx, ty = c.tree_xy
-        wb.add_geom(name=P + "trunk", type=mj.mjtGeom.mjGEOM_CYLINDER,
-                    size=(0.9, c.canopy_z / 2, 0), pos=(tx, ty, c.canopy_z / 2), rgba=BARK,
-                    contype=0, conaffinity=0, group=1)
-        for k, (a, b) in enumerate(((-0.5, 0.7), (0.6, 0.9))):
-            L = 3.5
-            wb.add_geom(name=f"{P}branch{k}", type=mj.mjtGeom.mjGEOM_CAPSULE,
-                        size=(0.35, L / 2, 0),
-                        pos=(tx + a * L * 0.6, ty - 0.8, c.canopy_z * b),
-                        quat=quat_axis_angle((1, 0.4 * a, 0), -0.9 if a < 0 else 0.9),
-                        rgba=BARK, contype=0, conaffinity=0, group=1)
-        rng = np.random.default_rng(7)
-        R = c.canopy_radius
-        for k in range(9):
-            off = rng.uniform(-1, 1, 3) * np.array([R * 0.6, R * 0.35, R * 0.18])
-            r = R * rng.uniform(0.42, 0.6)
-            wb.add_geom(name=f"{P}canopy{k}", type=mj.mjtGeom.mjGEOM_ELLIPSOID,
-                        size=(r, r * 0.85, r * 0.6),
-                        pos=(tx + off[0], ty - 2.0 + off[1], c.canopy_z + off[2]),
-                        rgba=CANOPY[k % len(CANOPY)], contype=0, conaffinity=0, group=1)
-        # the leaves: a fixed pool of mocap bodies (kinematic, visual only)
+        mesh(wb, "pile_spot", A.disc_mesh(c.pile_radius + 0.3, 0.02, 48), "earth", (px, py, 0.065))
+        self._add_tree(root, mesh)
+        # the leaves: a fixed pool of mocap bodies (kinematic, visual only); maple,
+        # oak and elm plates in six autumn colours
         lx, ly = c.leaf_size
+        for kind in ("maple", "oak", "elm"):
+            A.add_mesh(root, f"{P}leaf_{kind}_mesh", A.leaf_mesh(kind, lx, ly))
+        kinds = ("maple", "oak", "elm", "maple", "elm")
         for i in range(c.n_leaves):
             b = wb.add_body(name=f"{P}leaf{i}", mocap=True, pos=(0.0, 30.0 + i, 0.05))
-            b.add_geom(name=f"{P}leaf{i}_g", type=mj.mjtGeom.mjGEOM_ELLIPSOID,
-                       size=(lx, ly, 0.025), rgba=LEAF_COLOURS[i % len(LEAF_COLOURS)],
-                       contype=0, conaffinity=0, group=1)
+            b.add_geom(name=f"{P}leaf{i}_g", type=mj.mjtGeom.mjGEOM_MESH,
+                       meshname=f"{P}leaf_{kinds[i % len(kinds)]}_mesh",
+                       material=f"{P}leaf_c{i % len(LEAF_COLOURS)}", **vis)
             b.add_geom(name=f"{P}leaf{i}_stem", type=mj.mjtGeom.mjGEOM_CAPSULE,
-                       size=(0.02, 0.12, 0), pos=(-lx - 0.08, 0, 0),
-                       quat=quat_axis_angle((0, 1, 0), math.pi / 2),
-                       rgba=(0.45, 0.28, 0.12, 1.0), contype=0, conaffinity=0, group=1)
-        # the rake (mocap, kept in front of the thorax by the job)
+                       size=(0.02, 0.12, 0), pos=(-lx - 0.06, 0, 0),
+                       quat=quat_axis_angle((0, 1, 0), math.pi / 2), material=P + "stem", **vis)
+        # the rake (mocap, kept in front of the thorax by the job): a fan rake
         rake = wb.add_body(name=P + "rake", mocap=True, pos=(0.0, 0.0, 0.0))
-        f, W = c.rake_reach, c.rake_width
-        vis = dict(contype=0, conaffinity=0, group=1)
-        a = np.array([f - 0.35, 0.0, 0.3])  # handle foot at the comb head
-        bpt = np.array([0.45, 0.0, 1.75])  # handle top above the fly's head
-        mid, d = (a + bpt) / 2, bpt - a
-        L = float(np.linalg.norm(d))
-        pitch = math.atan2(d[2], -d[0])
-        rake.add_geom(name=P + "handle", type=mj.mjtGeom.mjGEOM_CAPSULE, size=(0.06, L / 2, 0),
-                      pos=tuple(mid), quat=quat_axis_angle((0, 1, 0), -(math.pi / 2 - pitch)),
-                      rgba=WOOD, **vis)
-        rake.add_geom(name=P + "head", type=mj.mjtGeom.mjGEOM_CAPSULE, size=(0.08, W / 2, 0),
-                      pos=(f - 0.35, 0, 0.3), quat=quat_axis_angle((1, 0, 0), math.pi / 2),
-                      rgba=TINES, **vis)
-        n_t = 11
-        for k in range(n_t):
-            y = -W / 2 + W * k / (n_t - 1)
-            # tines fan from the head bar forward and down to the front face
-            rake.add_geom(name=f"{P}tine{k}", type=mj.mjtGeom.mjGEOM_CAPSULE,
-                          size=(0.03, 0.2, 0), pos=(f - 0.17, y, 0.17),
-                          quat=quat_axis_angle((0, 1, 0), math.radians(135)), rgba=TINES, **vis)
+        parts = A.fan_rake_meshes(c.rake_reach, c.rake_width)
+        mesh(rake, "handle", parts["handle"], "wood")
+        mesh(rake, "head", parts["ferrule"], "steel")
+        mesh(rake, "tines", parts["tines"], "tines")
+        self._add_backyard(root, mesh)
+
+    def _add_materials(self, spec) -> None:
+        c = self.cfg
+        T = A.add_textured_material
+        mat = spec.material("grid")
+        if mat is not None:  # the ground round the yard: rougher, darker grass
+            A.add_texture(spec, P + "tex_ground", A.lawn_texture(c.seed + 5))
+            mat.textures[mj.mjtTextureRole.mjTEXROLE_RGB] = P + "tex_ground"
+            mat.rgba = (0.62, 0.64, 0.5, 1.0)
+            mat.reflectance = 0.0
+        A.add_texture(spec, P + "tex_lawn", A.autumn_lawn_texture(c.seed))
+        T(spec, P + "lawn", P + "tex_lawn", rgba=(1, 1, 1, 1), specular=0.05)
+        A.add_texture(spec, P + "tex_earth", A.earth_texture(c.seed))
+        T(spec, P + "earth", P + "tex_earth", rgba=(1, 1, 1, 1), specular=0.05)
+        A.add_texture(spec, P + "tex_vein", A.leaf_vein_texture())
+        for k, rgba in enumerate(LEAF_COLOURS):
+            T(spec, f"{P}leaf_c{k}", P + "tex_vein", rgba=rgba, specular=0.3, shininess=0.4)
+        spec.add_material(name=P + "stem", rgba=(0.45, 0.28, 0.12, 1.0), specular=0.1)
+        A.add_texture(spec, P + "tex_foliage", A.foliage_texture(c.seed))
+        for k, rgba in enumerate(CANOPY):
+            T(spec, f"{P}canopy_c{k}", P + "tex_foliage", rgba=rgba, specular=0.1,
+              texrepeat=(3.0, 2.0))
+        A.add_texture(spec, P + "tex_bark", A.bark_texture(c.seed))
+        T(spec, P + "bark", P + "tex_bark", rgba=(1, 1, 1, 1), specular=0.05)
+        T(spec, P + "branch", P + "tex_bark", rgba=(0.9, 0.9, 0.9, 1), specular=0.05, texrepeat=(1, 4))
+        spec.add_material(name=P + "wood", rgba=WOOD, specular=0.35, shininess=0.5)
+        spec.add_material(name=P + "steel", rgba=(0.72, 0.73, 0.76, 1.0), specular=0.9, shininess=0.9)
+        spec.add_material(name=P + "tines", rgba=TINES, specular=0.7, shininess=0.7)
+        A.add_texture(spec, P + "tex_shed", A.shed_texture())
+        T(spec, P + "shed", P + "tex_shed", rgba=(1, 1, 1, 1), specular=0.1)
+        A.add_texture(spec, P + "tex_shingle", A.shingle_texture(c.seed, colour=(0.45, 0.22, 0.18)))
+        T(spec, P + "shingle", P + "tex_shingle", rgba=(1, 1, 1, 1), specular=0.1)
+        A.add_texture(spec, P + "tex_fence", A.fence_wood_texture(c.seed))
+        T(spec, P + "fence", P + "tex_fence", rgba=(1, 1, 1, 1), specular=0.05)
+        A.add_texture(spec, P + "tex_sky", A.autumn_sky_texture(c.seed))
+        T(spec, P + "sky", P + "tex_sky", rgba=(1, 1, 1, 1), emission=0.8, specular=0.0)
+        spec.add_material(name=P + "pumpkin", rgba=(0.95, 0.48, 0.08, 1.0), specular=0.5, shininess=0.6)
+        spec.add_material(name=P + "pumpkin_stalk", rgba=(0.35, 0.40, 0.15, 1.0), specular=0.1)
+        T(spec, P + "shrub_red", P + "tex_foliage", rgba=(0.8, 0.18, 0.1, 1.0), specular=0.1,
+          texrepeat=(3.0, 2.0))
+        T(spec, P + "shrub_gold", P + "tex_foliage", rgba=(0.92, 0.66, 0.16, 1.0), specular=0.1,
+          texrepeat=(3.0, 2.0))
+
+    def _add_tree(self, spec, mesh) -> None:
+        """The big autumn tree beyond the far edge: a tapered trunk, branches and a
+        canopy of leaf clusters in four tones (decoration; the canopy is where the
+        pool's "tree" leaves wait and fall from)."""
+        c = self.cfg
+        wb = spec.worldbody
+        tx, ty = c.tree_xy
+        z_fork = c.canopy_z - 2.2
+        mesh(wb, "trunk", A.trunk_mesh(z_fork + 0.8, 0.8, c.seed), "bark", (tx, ty, 0.0))
+        br, tips = A.branches_mesh((tx, ty - 0.4, z_fork), (4.2, 3.6, 4.4, 3.8, 3.2), c.seed)
+        mesh(wb, "branches", br, "branch")
+        R = c.canopy_radius
+        centres = [np.array([tx, ty - 2.0, c.canopy_z])] + [np.asarray(t) for t in tips]
+        centres += [np.array([tx + dx, ty - 2.0 + dy, c.canopy_z + dz]) for dx, dy, dz in
+                    ((-2.6, 0.4, 0.3), (2.6, 0.2, 0.2), (0.0, -1.0, 1.2), (0.0, 1.5, 0.8))]
+        for k, md in enumerate(A.canopy_meshes(centres, 0.38 * R, len(CANOPY), c.seed)):
+            mesh(wb, f"canopy{k}", md, f"canopy_c{k}")
+
+    def _add_backyard(self, spec, mesh) -> None:
+        """Set dressing (visual): a garden shed, a board fence, pumpkins, autumn
+        shrubs, the sky behind, and the lights (a warm afternoon sun with shadows)."""
+        c = self.cfg
+        wb = spec.worldbody
+        fence_y = c.tree_xy[1] + 4.5
+        mesh(wb, "fence", A.board_fence_mesh(-24.0, 36.0, 4.2), "fence", (0.0, fence_y, 0.0))
+        sh = A.shed_meshes(6.0, 4.5, 5.0)
+        q = quat_axis_angle((0, 0, 1), 0.12)
+        mesh(wb, "shed", sh["walls"], "shed", (-10.0, fence_y - 3.4, 0.0), q)
+        mesh(wb, "shed_roof", sh["roof"], "shingle", (-10.0, fence_y - 3.4, 0.0), q)
+        for k, (x, y, r) in enumerate(((-6.0, 10.4, 0.9), (-5.0, 11.6, 0.65), (-7.1, 11.3, 0.55),
+                                       (20.5, 10.5, 0.8))):
+            mesh(wb, f"pumpkin{k}", A.pumpkin_mesh(r, k), "pumpkin", (x, y, 0.0))
+            mesh(wb, f"pumpkin{k}_stalk", A.stalk_mesh(r), "pumpkin_stalk", (x, y, 0.0))
+        mesh(wb, "shrubs_red", A.merge(A.shrub_mesh((24.0, fence_y - 1.5), 1.6, 1),
+                                       A.shrub_mesh((-19.0, fence_y - 1.4), 1.4, 2)), "shrub_red")
+        mesh(wb, "shrubs_gold", A.merge(A.shrub_mesh((16.0, fence_y - 1.3), 1.3, 3),
+                                        A.shrub_mesh((28.5, fence_y - 1.6), 1.2, 4)), "shrub_gold")
+        from fly_simulator.jobs.taste_tester_assets import front_panel_mesh
+
+        mesh(wb, "sky", front_panel_mesh(60.0, 15.0, 0.05), "sky", (6.0, fence_y + 18.0, 11.0),
+             quat_axis_angle((0, 0, 1), -math.pi / 2))
+        sky = spec.texture("skybox")
+        if sky is not None:
+            sky.rgb1 = (0.45, 0.65, 0.9)
+            sky.rgb2 = (0.85, 0.88, 0.86)
+        spec.visual.headlight.ambient = (0.30, 0.29, 0.28)
+        spec.visual.headlight.diffuse = (0.30, 0.29, 0.28)
+        spec.visual.headlight.specular = (0.06, 0.06, 0.06)
+        tgt = np.array([(c.yard_x0 + c.yard_x1) / 2, 2.0, 0.0])
+        sun = np.array([tgt[0] - 18.0, -16.0, 30.0])
+        wb.add_light(name=P + "sun", type=mj.mjtLightType.mjLIGHT_SPOT, pos=tuple(sun),
+                     dir=tuple(tgt - sun), diffuse=(0.72, 0.62, 0.48), specular=(0.35, 0.32, 0.28),
+                     cutoff=45.0, exponent=0.3, castshadow=bool(c.shadows))
+        fill = np.array([tgt[0] + 16.0, -14.0, 12.0])
+        wb.add_light(name=P + "fill", type=mj.mjtLightType.mjLIGHT_SPOT, pos=tuple(fill),
+                     dir=tuple(tgt - fill), diffuse=(0.18, 0.2, 0.26), specular=(0.05, 0.05, 0.08),
+                     cutoff=55.0, exponent=0.5, castshadow=False)
 
     # ------------------------------------------------------------ attach
     def on_attach(self) -> None:
         m = self.sim.model
+        # the fly's MuJoCo globals (merged in after the job's spec edits) set znear to
+        # 0.5 um: far too little depth precision for this scene tens of mm away
+        # (z-fighting); 10 um still allows close-ups of the fly
+        m.vis.map.znear = 0.01
         c = self.cfg
         self.rake_mocap = int(m.body_mocapid[m.body(P + "rake").id])
         self.leaf_mocap = np.array([int(m.body_mocapid[m.body(f"{P}leaf{i}").id])
@@ -541,12 +616,12 @@ class RakingJob(EternalJob):
     def camera_target(self) -> np.ndarray:
         c = self.cfg
         f = self.sim.thorax_position()
-        yard = np.array([(c.yard_x0 + c.yard_x1) / 2, 1.5, 3.0])
-        out = 0.5 * f + 0.5 * yard
+        yard = np.array([(c.yard_x0 + c.yard_x1) / 2, 1.5, 4.0])
+        out = 0.65 * f + 0.35 * yard
         return out if np.all(np.isfinite(out)) else f
 
     def camera_preset(self) -> CameraPreset:
-        return CameraPreset(azimuth=90.0, elevation=-24.0, distance=28.0, tau_s=1.2)
+        return CameraPreset(azimuth=90.0, elevation=-22.0, distance=18.0, tau_s=1.2)
 
     def job_hud_lines(self) -> list[str]:
         k = self.counts()

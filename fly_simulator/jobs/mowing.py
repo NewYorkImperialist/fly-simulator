@@ -39,6 +39,7 @@ from typing import Callable
 import mujoco as mj
 import numpy as np
 
+from fly_simulator.jobs import mowing_assets as A
 from fly_simulator.jobs.base import CameraPreset, EternalJob, JobConfig
 from fly_simulator.jobs.geometry import (
     add_box,
@@ -55,12 +56,9 @@ GRASS_LONG = np.array([0.24, 0.55, 0.16, 1.0])
 STRIPE_LIGHT = np.array([0.58, 0.86, 0.38, 1.0])
 STRIPE_DARK = np.array([0.12, 0.40, 0.10, 1.0])
 PATCH_LONG = np.array([0.20, 0.45, 0.13, 1.0])
-SOIL = (0.17, 0.33, 0.11, 1.0)
 BLADE_HX, BLADE_HY = 0.06, 0.022
-LAWN_EDGE = (0.62, 0.60, 0.56, 1.0)
 DECK = (0.85, 0.12, 0.10, 1.0)
 ENGINE = (0.20, 0.20, 0.22, 1.0)
-TYRE = (0.08, 0.08, 0.08, 1.0)
 STEEL = (0.78, 0.78, 0.80, 1.0)
 GRIP = (0.10, 0.10, 0.10, 1.0)
 
@@ -253,6 +251,11 @@ class MowingConfig(JobConfig):
     row_end_margin: float = 0.2  # row done when the mower centre is this close to its end
     row_tolerance: float = 1.0  # ... and within this of the row line (mm)
     celebrate_s: float = 2.0  # groom (wipe brow) after a lawn; 0 = off
+    # ---- looks ------------------------------------------------------------------
+    # the sun's shadow map: off by default here, it costs ~15 ms per 960x640 frame
+    # (the shadow pass redraws the ~2,500 grass geoms); a soft blob shadow sits
+    # under the mower instead
+    shadows: bool = False
 
 
 @register_job
@@ -318,35 +321,39 @@ class MowingJob(EternalJob):
         c = self.cfg
         root = world.mjcf_root
         wb = root.worldbody
-        mat = root.material("grid")
-        if mat is not None:
-            mat.rgba = (0.34, 0.52, 0.24, 1.0)  # the yard around the lawn
+        self._add_materials(root)
+        vis = dict(contact_kwargs("visual"), mass=0.0)
         lx, ly = (c.lawn_x0 + c.lawn_x1) / 2, (self.lawn_y0 + self.lawn_y1) / 2
         hx, hy = (c.lawn_x1 - c.lawn_x0) / 2, (self.lawn_y1 - self.lawn_y0) / 2
         # (top 50 um up: a box face (nearly) flush with the ground plane z-fights with
         # the checker at this camera distance)
-        add_box(wb, P + "soil", (hx, hy, 0.025), (lx, ly, 0.025), rgba=SOIL, collide="visual")
-        # a stone edging round the lawn (decoration)
+        A.add_mesh(root, P + "soil_mesh", A.box_mesh((hx, hy, 0.025), 0.4))
+        wb.add_geom(name=P + "soil", type=mj.mjtGeom.mjGEOM_MESH, meshname=P + "soil_mesh",
+                    pos=(lx, ly, 0.025), material=P + "thatch", **vis)
+        # red brick edging round the lawn (decoration)
         for k, (cx, cy, ex, ey) in enumerate((
                 (lx, self.lawn_y0 - 0.25, hx + 0.5, 0.25),
                 (lx, self.lawn_y1 + 0.25, hx + 0.5, 0.25),
                 (c.lawn_x0 - 0.25, ly, 0.25, hy), (c.lawn_x1 + 0.25, ly, 0.25, hy))):
-            add_box(wb, f"{P}edge{k}", (ex, ey, 0.04), (cx, cy, 0.04), rgba=LAWN_EDGE,
-                    collide="visual")
+            A.add_mesh(root, f"{P}edge{k}_mesh", A.box_mesh((ex, ey, 0.06), 1.6))
+            wb.add_geom(name=f"{P}edge{k}", type=mj.mjtGeom.mjGEOM_MESH,
+                        meshname=f"{P}edge{k}_mesh", pos=(cx, cy, 0.06), material=P + "brick",
+                        **vis)
         # stripe patches: a coarse grid of flat tiles on the soil that take the stripe
-        # colour when mown (the stripes read from afar even where the blades are short)
+        # colour when mown (the stripes read from afar even where the blades are short);
+        # a grey grass-detail texture under the run-time colour
         pxy = self.patch_layout()
         ps = c.patch_spacing / 2
         for i in range(len(pxy)):
             add_box(wb, f"{P}patch{i}", (ps, ps, 0.005), (pxy[i, 0], pxy[i, 1], 0.06),
-                    rgba=tuple(PATCH_LONG), collide="visual")
-        # the grass: a fixed pool of visual blades (thin vertical boxes)
+                    rgba=tuple(PATCH_LONG), material=P + "patch", collide="visual")
+        # the grass: a fixed pool of visual blades (thin vertical boxes, waxy material)
         xy, h, yaw = self.blade_layout()
         for i in range(len(xy)):
             add_box(wb, f"{P}blade{i}", (BLADE_HX, BLADE_HY, h[i] / 2),
                     (xy[i, 0], xy[i, 1], h[i] / 2),
                     quat=quat_axis_angle((0, 0, 1), float(yaw[i])),
-                    rgba=tuple(GRASS_LONG), collide="visual")
+                    rgba=tuple(GRASS_LONG), material=P + "blade", collide="visual")
         # the mower: planar joints (x, y, yaw) at a fixed height
         x0, y0 = self.mower_start
         body = wb.add_body(name=P + "mower", pos=(x0, y0, 0.0))
@@ -361,48 +368,186 @@ class MowingJob(EternalJob):
                        damping=1.0, armature=1e-3)
         R = c.deck_radius
         kw = contact_kwargs("dynamic", 1.0)
+        # (the colliding deck cylinder is drawn by the domed deck shell: hidden, group 3)
         body.add_geom(name=P + "deck", type=mj.mjtGeom.mjGEOM_CYLINDER,
                       size=(R, c.deck_half_height, 0), pos=(0, 0, c.deck_z),
-                      mass=c.mower_mass, rgba=DECK, **kw)
-        vis = dict(contype=0, conaffinity=0, group=1, mass=0.0)
-        top = c.deck_z + c.deck_half_height
-        body.add_geom(name=P + "skirt", type=mj.mjtGeom.mjGEOM_CYLINDER,
-                      size=(R * 1.04, 0.05, 0), pos=(0, 0, top - 0.05),
-                      rgba=(0.65, 0.08, 0.07, 1.0), **vis)
-        body.add_geom(name=P + "engine", type=mj.mjtGeom.mjGEOM_CYLINDER,
-                      size=(0.75, 0.35, 0), pos=(0.1, 0, top + 0.35), rgba=ENGINE, **vis)
-        body.add_geom(name=P + "engine_cap", type=mj.mjtGeom.mjGEOM_CYLINDER,
-                      size=(0.3, 0.12, 0), pos=(0.1, 0, top + 0.82), rgba=STEEL, **vis)
-        body.add_geom(name=P + "fuel_cap", type=mj.mjtGeom.mjGEOM_CYLINDER,
-                      size=(0.15, 0.08, 0), pos=(0.7, 0.55, top + 0.08),
-                      rgba=(0.95, 0.80, 0.10, 1.0), **vis)
-        wq = quat_axis_angle((1, 0, 0), math.pi / 2)
-        for k, (wx, wy) in enumerate(((1.0, 1.3), (1.0, -1.3), (-1.0, 1.3), (-1.0, -1.3))):
-            body.add_geom(name=f"{P}wheel{k}", type=mj.mjtGeom.mjGEOM_CYLINDER,
-                          size=(0.45, 0.14, 0), pos=(wx, wy, 0.45), quat=wq, rgba=TYRE, **vis)
-            body.add_geom(name=f"{P}hubcap{k}", type=mj.mjtGeom.mjGEOM_CYLINDER,
-                          size=(0.2, 0.15, 0), pos=(wx, wy, 0.45), quat=wq, rgba=STEEL, **vis)
-        # handle: two arms from the rear of the deck back and up over the fly, and a
-        # black grip bar just above its head
-        grip_x, grip_z = -(R + c.behind_gap + 0.1), 2.35
-        for side, sy in (("l", 0.8), ("r", -0.8)):
-            a = np.array([-0.9, sy, top])
-            b = np.array([grip_x, sy, grip_z])
-            mid, d = (a + b) / 2, b - a
-            L = float(np.linalg.norm(d))
-            pitch = math.atan2(d[2], -d[0])
-            body.add_geom(name=f"{P}handle_{side}", type=mj.mjtGeom.mjGEOM_CAPSULE,
-                          size=(0.06, L / 2, 0), pos=tuple(mid),
-                          quat=quat_axis_angle((0, 1, 0), -(math.pi / 2 - pitch)),
-                          rgba=STEEL, **vis)
-        body.add_geom(name=P + "grip", type=mj.mjtGeom.mjGEOM_CAPSULE,
-                      size=(0.09, 0.9, 0), pos=(grip_x, 0, grip_z), quat=wq, rgba=GRIP, **vis)
+                      mass=c.mower_mass, rgba=DECK[:3] + (0.0,), group=3, **kw)
+        self._add_mower_looks(root, body)
         slippery_body_contact(root, P + "mower", P + "deck", self.fly_name,
                               friction=c.head_friction)
+        self._add_yard(root)
+
+    def _add_materials(self, spec) -> None:
+        c = self.cfg
+        T = A.add_textured_material
+        mat = spec.material("grid")
+        if mat is not None:  # the yard round the lawn: rougher, darker grass
+            A.add_texture(spec, P + "tex_yard", A.lawn_texture(c.seed + 3))
+            mat.textures[mj.mjtTextureRole.mjTEXROLE_RGB] = P + "tex_yard"
+            mat.rgba = (0.66, 0.74, 0.6, 1.0)
+            mat.reflectance = 0.0
+        A.add_texture(spec, P + "tex_thatch", A.thatch_texture(c.seed))
+        T(spec, P + "thatch", P + "tex_thatch", rgba=(1, 1, 1, 1), specular=0.05)
+        A.add_texture(spec, P + "tex_brick", A.red_brick_texture(c.seed))
+        T(spec, P + "brick", P + "tex_brick", rgba=(1, 1, 1, 1), specular=0.1)
+        A.add_texture(spec, P + "tex_patch", A.grass_detail_texture(c.seed))
+        T(spec, P + "patch", P + "tex_patch", rgba=(1, 1, 1, 1), specular=0.05, texuniform=True,
+          texrepeat=(1.3, 1.3))
+        spec.add_material(name=P + "blade", rgba=(1, 1, 1, 1), specular=0.35, shininess=0.45)
+        M = spec.add_material
+        M(name=P + "deck", rgba=DECK, specular=0.9, shininess=0.85, reflectance=0.06)
+        M(name=P + "deck_dark", rgba=(0.55, 0.06, 0.05, 1.0), specular=0.6, shininess=0.7)
+        M(name=P + "engine", rgba=ENGINE, specular=0.5, shininess=0.5)
+        M(name=P + "shroud", rgba=(0.12, 0.12, 0.13, 1.0), specular=0.7, shininess=0.7)
+        M(name=P + "chrome", rgba=STEEL, specular=1.0, shininess=0.95, reflectance=0.15)
+        M(name=P + "grip", rgba=GRIP, specular=0.2, shininess=0.2)
+        M(name=P + "fuel", rgba=(0.95, 0.80, 0.10, 1.0), specular=0.6, shininess=0.6)
+        A.add_texture(spec, P + "tex_tread", A.tread_texture())
+        T(spec, P + "tyre", P + "tex_tread", rgba=(1, 1, 1, 1), specular=0.15, shininess=0.2)
+        # the yard
+        A.add_texture(spec, P + "tex_concrete", A.concrete_texture(c.seed))
+        T(spec, P + "concrete", P + "tex_concrete", rgba=(1, 1, 1, 1), specular=0.05)
+        A.add_texture(spec, P + "tex_mulch", A.mulch_texture(c.seed))
+        T(spec, P + "mulch", P + "tex_mulch", rgba=(1, 1, 1, 1), specular=0.05)
+        M(name=P + "white_paint", rgba=(0.95, 0.95, 0.93, 1.0), specular=0.3, shininess=0.4)
+        A.add_texture(spec, P + "tex_facade", A.facade_texture())
+        T(spec, P + "facade", P + "tex_facade", rgba=(1, 1, 1, 1), specular=0.1, emission=0.1)
+        M(name=P + "siding", rgba=(0.60, 0.72, 0.82, 1.0), specular=0.1)
+        A.add_texture(spec, P + "tex_shingle", A.shingle_texture(c.seed))
+        T(spec, P + "shingle", P + "tex_shingle", rgba=(1, 1, 1, 1), specular=0.15)
+        for nm, rgba in (("leaf", (0.16, 0.40, 0.14, 1)), ("flower_red", (0.9, 0.18, 0.25, 1)),
+                         ("flower_yellow", (0.98, 0.82, 0.18, 1)), ("flower_white", (0.96, 0.95, 0.92, 1)),
+                         ("flower_purple", (0.58, 0.32, 0.85, 1)), ("gnome_blue", (0.15, 0.3, 0.75, 1)),
+                         ("gnome_red", (0.85, 0.1, 0.1, 1)), ("gnome_skin", (0.96, 0.75, 0.62, 1)),
+                         ("mailbox", (0.2, 0.22, 0.25, 1)), ("post", (0.5, 0.36, 0.22, 1))):
+            M(name=P + nm, rgba=rgba, specular=0.3, shininess=0.4)
+
+    def _add_mower_looks(self, spec, body) -> None:
+        """The mower's visual parts (massless, no contacts), in the mower frame (+x
+        forward: the job yaws the mower toward the push direction)."""
+        c = self.cfg
+        vis = dict(contact_kwargs("visual"), mass=0.0)
+        R = c.deck_radius
+        z0, top = c.deck_z - c.deck_half_height, c.deck_z + c.deck_half_height
+
+        def mesh(name, md, material, pos=(0.0, 0.0, 0.0)):
+            A.add_mesh(spec, P + name + "_mesh", md)
+            body.add_geom(name=P + name, type=mj.mjtGeom.mjGEOM_MESH, meshname=P + name + "_mesh",
+                          pos=tuple(pos), material=P + material, **vis)
+
+        mesh("deck_shell", A.deck_shell_mesh(R, z0, top), "deck")
+        if not c.shadows:  # a soft contact shadow on the grass
+            body.add_geom(name=P + "blob_shadow", type=mj.mjtGeom.mjGEOM_ELLIPSOID,
+                          size=(R * 1.15, R * 1.1, 0.01), pos=(-0.15, 0.0, 0.075),
+                          rgba=(0.0, 0.03, 0.0, 0.3), **vis)
+        # a side discharge chute (+y) and a grass guard flap
+        chute = A.transform(A.box_mesh((0.45, 0.35, 0.12), 1.0), np.eye(3),
+                            np.array([0.1, R * 0.95, z0 + 0.25]))
+        mesh("chute", chute, "deck_dark")
+        eng = A.engine_meshes(0.62, top - 0.02, 0.95)
+        mesh("engine", eng["block"], "engine", (0.1, 0.0, 0.0))
+        mesh("engine_cap", eng["shroud"], "shroud", (0.1, 0.0, 0.0))
+        mesh("starter", eng["starter"], "grip", (0.1, 0.0, 0.0))
+        filt = A.transform(A.box_mesh((0.22, 0.3, 0.2), 1.0), np.eye(3),
+                           np.array([0.75, -0.25, top + 0.32]))
+        mesh("air_filter", filt, "shroud")
+        body.add_geom(name=P + "fuel_cap", type=mj.mjtGeom.mjGEOM_CYLINDER,
+                      size=(0.15, 0.08, 0), pos=(0.55, 0.5, top + 0.12), material=P + "fuel", **vis)
+        wq = quat_axis_angle((0, 0, 1), 0.0)
+        tyre = A.tyre_mesh(0.45, 0.3)
+        A.add_mesh(spec, P + "tyre_mesh", tyre)
+        for k, (wx, wy) in enumerate(((1.0, 1.3), (1.0, -1.3), (-1.0, 1.3), (-1.0, -1.3))):
+            body.add_geom(name=f"{P}wheel{k}", type=mj.mjtGeom.mjGEOM_MESH, meshname=P + "tyre_mesh",
+                          pos=(wx, wy, 0.45), quat=wq, material=P + "tyre", **vis)
+            body.add_geom(name=f"{P}hubcap{k}", type=mj.mjtGeom.mjGEOM_CYLINDER,
+                          size=(0.22, 0.16, 0), pos=(wx, wy, 0.45),
+                          quat=quat_axis_angle((1, 0, 0), math.pi / 2), material=P + "chrome", **vis)
+        # handle: two bent arms from the rear of the deck back and up over the fly, a
+        # cross brace, the bail bar, and a black grip just above its head
+        grip_x, grip_z = -(R + c.behind_gap + 0.1), 2.35
+        mesh("handle", A.handle_mesh(-0.9, top, grip_x, grip_z, 0.8), "chrome")
+        body.add_geom(name=P + "grip", type=mj.mjtGeom.mjGEOM_CAPSULE,
+                      size=(0.1, 0.92, 0), pos=(grip_x, 0, grip_z),
+                      quat=quat_axis_angle((1, 0, 0), math.pi / 2), material=P + "grip", **vis)
+
+    def _add_yard(self, spec) -> None:
+        """Set dressing (all visual): a sidewalk on the camera side, flower beds, a
+        white picket fence and the house across the lawn, shrubs, a mailbox, a
+        garden gnome, the sky and the lights (the sun with shadows)."""
+        c = self.cfg
+        wb = spec.worldbody
+        vis = dict(contact_kwargs("visual"), mass=0.0)
+
+        def mesh(name, md, pos, material, quat=(1.0, 0.0, 0.0, 0.0)):
+            A.add_mesh(spec, P + name + "_mesh", md)
+            wb.add_geom(name=P + name, type=mj.mjtGeom.mjGEOM_MESH, meshname=P + name + "_mesh",
+                        pos=tuple(pos), quat=tuple(quat), material=P + material, **vis)
+
+        x0, x1, y0, y1 = c.lawn_x0, c.lawn_x1, self.lawn_y0, self.lawn_y1
+        xm = (x0 + x1) / 2
+        mesh("sidewalk", A.box_mesh((26.0, 1.2, 0.04), 0.45), (xm, y0 - 3.6, 0.04), "concrete")
+        # flower beds along the far edge, then the fence
+        bed_y = y1 + 1.45
+        mesh("bed", A.box_mesh(((x1 - x0) / 2 + 0.5, 0.9, 0.05), 0.5), (xm, bed_y, 0.05), "mulch")
+        rng = np.random.default_rng(c.seed + 7)
+        cols = ("flower_red", "flower_yellow", "flower_white", "flower_purple")
+        leaves, flowers = [], {k: [] for k in cols}
+        for k in range(11):
+            cx = x0 + 0.8 + k * (x1 - x0 - 1.6) / 10 + rng.uniform(-0.3, 0.3)
+            cy = bed_y + rng.uniform(-0.3, 0.3)
+            leaves.append(A.shrub_mesh((cx, cy), 0.55, seed=k, n=4))
+            flowers[cols[k % 4]].append(A.flower_clump_mesh((cx, cy, 0), 9, 0.5, 0.13, seed=k))
+        mesh("bed_leaves", A.merge(*leaves), (0, 0, 0), "leaf")
+        for nm, parts in flowers.items():
+            mesh(f"bed_{nm}", A.merge(*parts), (0, 0, 0.35), nm)
+        fence_y = y1 + 2.8
+        mesh("fence", A.picket_fence_mesh(-12.0, 32.0, 2.4), (0, fence_y, 0), "white_paint")
+        # the house: walls, the facade (faces -y), a gabled roof, porch steps, shrubs
+        hy0, hw_, hd, hh = fence_y + 4.0, 16.0, 5.0, 9.0
+        mesh("house", A.box_mesh((hw_, hd, hh / 2), 0.2), (xm, hy0 + hd, hh / 2), "siding")
+        from fly_simulator.jobs.taste_tester_assets import front_panel_mesh
+
+        mesh("facade", front_panel_mesh(hw_, hh / 2, 0.02), (xm, hy0 - 0.02, hh / 2), "facade",
+             quat_axis_angle((0, 0, 1), -math.pi / 2))
+        mesh("roof", A.gable_roof_mesh(2 * hw_, 2 * hd, 4.5), (xm, hy0 + hd, hh - 0.3), "shingle")
+        for k in range(2):
+            mesh(f"step{k}", A.box_mesh((1.6 - 0.3 * k, 0.5, 0.15), 0.5),
+                 (xm, hy0 - 0.5 - 0.0 * k - 0.5 * (1 - k), 0.15 + 0.3 * k), "concrete")
+        shrubs = [A.shrub_mesh((xm + s * d, hy0 - 0.9), 1.1, seed=20 + i)
+                  for i, (s, d) in enumerate(((-1, 4.0), (-1, 9.0), (-1, 13.5), (1, 4.0), (1, 9.0), (1, 13.5)))]
+        mesh("house_shrubs", A.merge(*shrubs), (0, 0, 0), "leaf")
+        # a mailbox by the sidewalk and a gnome in the bed corner
+        mb = A.mailbox_meshes(2.2)
+        for nm, mat in (("post", "post"), ("box", "mailbox"), ("flag", "gnome_red")):
+            mesh(f"mailbox_{nm}", mb[nm], (x0 - 4.0, y0 - 2.2, 0.0), mat)
+        gn = A.gnome_meshes(1.8)
+        for nm, mat in (("body", "gnome_blue"), ("face", "gnome_skin"), ("beard", "white_paint"),
+                        ("hat", "gnome_red")):
+            mesh(f"gnome_{nm}", gn[nm], (x1 + 1.6, bed_y, 0.0), mat, quat_axis_angle((0, 0, 1), -2.2))
+        sky = spec.texture("skybox")
+        if sky is not None:
+            sky.rgb1 = (0.55, 0.75, 0.95)
+            sky.rgb2 = (0.85, 0.92, 0.98)
+        spec.visual.headlight.ambient = (0.32, 0.32, 0.32)
+        spec.visual.headlight.diffuse = (0.30, 0.30, 0.30)
+        spec.visual.headlight.specular = (0.08, 0.08, 0.08)
+        tgt = np.array([xm, (y0 + y1) / 2, 0.0])
+        sun = np.array([xm - 16.0, y0 - 18.0, 34.0])
+        wb.add_light(name=P + "sun", type=mj.mjtLightType.mjLIGHT_SPOT, pos=tuple(sun),
+                     dir=tuple(tgt - sun), diffuse=(0.66, 0.64, 0.58), specular=(0.4, 0.4, 0.38),
+                     cutoff=42.0, exponent=0.3, castshadow=bool(c.shadows))
+        fill = np.array([xm + 18.0, y0 - 10.0, 14.0])
+        wb.add_light(name=P + "fill", type=mj.mjtLightType.mjLIGHT_SPOT, pos=tuple(fill),
+                     dir=tuple(tgt - fill), diffuse=(0.2, 0.22, 0.28), specular=(0.1, 0.1, 0.12),
+                     cutoff=55.0, exponent=0.5, castshadow=False)
 
     # ------------------------------------------------------------ attach
     def on_attach(self) -> None:
         m = self.sim.model
+        # the fly's MuJoCo globals (merged in after the job's spec edits) set znear to
+        # 0.5 um: far too little depth precision for this scene tens of mm away
+        # (z-fighting); 10 um still allows close-ups of the fly
+        m.vis.map.znear = 0.01
         c = self.cfg
         self.mower_body = m.body(P + "mower").id
         jx, jy, jz = (m.joint(P + n).id for n in ("slide_x", "slide_y", "yaw"))
@@ -421,6 +566,8 @@ class MowingJob(EternalJob):
         self.patch_grown = np.ones(len(self.patch_xy))
         self.patch_stripe = np.zeros(len(self.patch_xy))
         self.blade_h = h.copy()  # current heights
+        # per-blade tone (looks only: a lawn is never one flat green)
+        self.blade_tint = np.random.default_rng(99).uniform(0.82, 1.14, self.n_blades)
         self.blade_stripe = np.zeros(self.n_blades)  # +1 light / -1 dark / 0 never cut
         self.cell_area_m2 = c.blade_spacing ** 2 * 1e-6
         self.area_m2 = 0.0
@@ -514,7 +661,9 @@ class MowingJob(EternalJob):
         base = np.where(st[:, None] > 0, STRIPE_LIGHT, STRIPE_DARK)
         base = np.where(st[:, None] == 0, GRASS_LONG, base)
         w = (grown ** 1.5)[:, None]
-        m.geom_rgba[g] = (1 - w) * base + w * GRASS_LONG
+        rgba = (1 - w) * base + w * GRASS_LONG
+        rgba[:, :3] *= self.blade_tint[sel, None]
+        m.geom_rgba[g] = np.clip(rgba, 0.0, 1.0)
 
     def update_grass(self, mower: np.ndarray, dt: float) -> None:
         c = self.cfg
@@ -615,12 +764,12 @@ class MowingJob(EternalJob):
         m = np.append(self.mower_xy(), 0.8)
         lawn = np.array([(self.cfg.lawn_x0 + self.cfg.lawn_x1) / 2,
                          (self.lawn_y0 + self.lawn_y1) / 2, 0.0])
-        out = 0.3 * f + 0.3 * m + 0.4 * lawn
+        out = 0.35 * f + 0.35 * m + 0.3 * lawn
         return out if np.all(np.isfinite(out)) else f
 
     def camera_preset(self) -> CameraPreset:
         # from the lawn's -y side, high enough to see the stripes
-        return CameraPreset(azimuth=70.0, elevation=-45.0, distance=26.0, tau_s=1.0)
+        return CameraPreset(azimuth=70.0, elevation=-40.0, distance=21.0, tau_s=1.0)
 
     def job_hud_lines(self) -> list[str]:
         return [f"rows mowed {self.rows_mowed}   lawns completed {self.lawns}   "

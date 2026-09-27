@@ -214,16 +214,43 @@ approach … If it loses the boulder halfway, the boulder rolls back down and th
 goes after it (Sisyphean by design). A boulder that leaves the arena (or goes NaN)
 is replaced by a new one dropped from the sky in front of the fly (`boulders_lost`).
 
+**Looks (`jobs/sisyphus_assets.py`, visual only).** A Greek hillside at sunset. The
+ramp and the valley floor band are a trodden earth path, the banks and the ground a
+dry Mediterranean hillside (bleached grass, ochre earth, rock, thyme). The trough walls
+are dry-stone and the summit curb is marble: those colliders are hidden (render group
+3, transparent; contacts unchanged) under textured box meshes of the same size and pose,
+because MuJoCo maps a 2D texture well only onto a box primitive's +z face. The boulder's
+colliding sphere is transparent under a slightly lumpy (±4.5 %) mossy-granite shell
+with cracks, so the roll shows. Behind the summit stands a ruined temple (a
+stylobate, fluted Doric columns, two still carrying a lintel, a fallen drum), with
+broken columns, drums and rocks along the trough, gnarled olive trees and cypresses,
+and a sunset backdrop (sky gradient, the low sun, far mountains, a wine-dark sea,
+cypress hills and a temple). Lights: a low warm sun with shadows from behind on the
+left (`shadows: false` turns the shadow map off), a cool fill from the camera side,
+and a dimmer headlight. Camera: azimuth 68°, elevation −26°, distance 19 mm, aimed at
+0.45 fly + 0.35 boulder + 0.2 hill.
+
 ### hamster_wheel
 
 The wheel has an inner radius of 7 mm and a 5 mm running width. It is 60 box slats
-in yellow / orange blocks, so the rotation is visible, with slippery blue lips (the
-near one translucent so the camera sees the fly), a back disc with spokes, and an
-axle and stand. It weighs 4 mg, has hinge damping 2 µN·mm·s/rad, and only the fly
+(glossy aqua rungs in two tones, a white marker every 10th slat, so the rotation is
+visible) with slippery candy-pink lips (the near one translucent so the camera sees the
+fly). It weighs 4 mg, has hinge damping 2 µN·mm·s/rad, and only the fly
 touches it. The fly spawns on the inside bottom (`spawn_height = 1.8`). Steering is a
 heading hold along +x (the tangent) with a correction of −0.35 rad per mm of lateral
 offset. The job counts revolutions, distance (surface travel) and top speed (max over
 1 s windows).
+
+**Looks (`jobs/hamster_wheel_assets.py`, visual only).** A pet cage. On the wheel's far
+side: a textured back disc (vent slots, ribs, a paw-print badge on the hub; it turns
+with the wheel), raised spokes with a ring, the outer rim and a chrome hub, on a chrome
+A-frame stand. The floor is wood-shaving bedding in a teal plastic tray with wire bars
+on three sides (the camera side is open). There is a water bottle hanging on the back
+bars (a clear shell, the water, a green cap and a steel spout), a ceramic food bowl
+of pellets, a wooden hideout with a pitched roof, sunflower seeds, and a soft-focus
+room behind the cage. Lights: a warm lamp with shadows (`shadows: false` turns it off)
+and a cool fill. Camera: azimuth 102°, elevation −18°, distance 16 mm, aimed below the
+axle (0.6 R), so the fly on the running surface fills more of the frame.
 
 ### kebab
 
@@ -404,9 +431,12 @@ distance of 25–30 mm (this showed up as big dark squares on the lawn).
 height. So it can't tip, climb or be lost, and the slide ranges keep it within 3 mm
 of the lawn. The slide damping (0.3 µN per mm/s) stands in for the wheels' rolling
 resistance: pushing at 5 mm/s takes ~0.15 body weight. The only colliding part is a
-round deck (R 1.6 mm, z 0.47–1.23 mm, 0.3 mg). The fly touches it with head, thorax
+round deck (R 1.6 mm, z 0.47–1.23 mm, 0.3 mg; hidden in render group 3 under a domed
+red deck shell mesh). The fly touches it with head, thorax
 and abdomen only, at friction 0.05 (`slippery_body_contact`, legs excluded). The
-engine, wheels and a handle whose grip sits just above the fly's head are visual.
+engine (finned block, shroud, pull-start, air filter, fuel cap), a side chute, tyres
+with tread and hubcaps and a bent tube handle (cross brace, bail bar) whose grip sits
+just above the fly's head are visual meshes.
 The job turns the yaw hinge (rate-limited to 2.5 rad/s) so the mower faces the way
 it is pushed and the handle trails toward the fly. The deck is round, so turning it
 pushes nothing.
@@ -436,16 +466,30 @@ matter for any job:
   commits to one turning direction. The error's sign otherwise flips between updates,
   and a fly turning on the spot freezes.
 
+**Looks (`jobs/mowing_assets.py`, visual only).** A suburban front yard: the soil box
+is a thatch-textured mesh, the lawn has red brick edging, the stripe tiles carry a grey
+grass-detail texture under their run-time stripe colour, and the blades a waxy
+material and a fixed per-blade tone (±15 %, applied in `_write_grass`), so the lawn is
+not one flat green. Around it: rougher yard grass, a concrete sidewalk and a mailbox on
+the camera side, and across the lawn a mulch flower bed, a white picket fence, a garden
+gnome, and the house (lap-siding facade with shuttered windows, flower boxes and a red
+door, a shingled gable roof, porch steps, shrubs). Lights: a sun spot and a cool fill.
+`shadows` is **off** by default here: the shadow pass redraws the ~2,500 grass geoms
+and cost ~15 ms per 960×640 frame, so a soft blob shadow sits under the mower instead.
+Camera: azimuth 70°, elevation −40°, distance 21 mm, aimed at 0.35 fly + 0.35 mower +
+0.3 lawn centre.
+
 ### raking
 
 `fly_simulator/jobs/raking.py`, tests in `tests/test_jobs_lawn.py`.
 
 **Yard.** 22 × 16 mm, with a bare-earth pile spot (R 2 mm) at (13, −3.5). A tree
-stands beyond the far edge: a trunk plus 9 orange / red / yellow canopy ellipsoids,
-overhanging the yard at z ≈ 8 mm. All of it is visual.
+stands beyond the far edge, its canopy of leaf clusters overhanging the yard at
+z ≈ 8 mm. All of it is visual.
 
-**Leaves are kinematic.** A fixed pool of 40 mocap bodies, each a flat ellipsoid
-(1.1 × 0.7 mm) plus a stem, in 6 autumn colours, all visual-only. The job moves them
+**Leaves are kinematic.** A fixed pool of 40 mocap bodies, each a thin leaf plate
+(maple, oak or elm outline, ~1.1 × 0.7 mm, with a vein texture) plus a stem, in 6 autumn
+colours, all visual-only. The job moves them
 through these states:
 
 * **tree**: inside the canopy.
@@ -460,7 +504,8 @@ grows: leaves blown out of the yard go back into the canopy and fall again.
 
 **Rake.** A mocap body (visual) that the job puts at the thorax pose every update,
 like a rake welded to the thorax front. A wooden handle runs from above the fly's
-head down to a green comb (3 mm wide, 11 tines) 2.1 mm in front of the thorax. The
+head down to a steel ferrule and a green fan of 15 tines with bent tips and a cross
+wire, whose front edge (3 mm wide) is 2.1 mm in front of the thorax. The
 rake moves leaves like this: every update, a ground leaf in the 1 mm strip behind the
 comb's front face (within the comb width) is moved onto the face and marked
 *raked*. Leaves in front of the comb go wherever the fly walks, and slide off the
@@ -480,6 +525,14 @@ the ground, it leans on its rake beside the pile.
 nearly done. It blows the whole pile plus 30 % of the ground leaves up and across the
 yard. 35 % of them fly out of the yard and return to the canopy. The HUD flashes
 `~~~ WIND GUST! ~~~`.
+
+**Looks (`jobs/raking_assets.py`, visual only).** An autumn backyard: a yellowing
+lawn texture with stray leaf bits, a raked-earth pile spot, the tree (a tapered,
+root-flared bark trunk, branches and twigs, and a canopy of foliage-textured leaf
+clusters in four tones), a green garden shed with a shingled roof, a cedar board fence,
+pumpkins, red and gold shrubs, and a sky with a hazy autumn treeline behind. Lights: a
+warm afternoon sun with shadows (`shadows: false` turns it off) and a cool fill.
+Camera: azimuth 90°, elevation −22°, distance 18 mm, aimed at 0.65 fly + 0.35 yard.
 
 ### dead_hang
 
@@ -1469,6 +1522,21 @@ applied forces), fatigue and a re-grip, a twitch moving the trap, GF → flinch 
 with a fake brain state, and grip 0 → the tarsi slide off → CHOMP → an explicit respawn with
 the trap reopening.
 Results of the long headless runs are below.
+
+**Visual overhaul of sisyphus / hamster_wheel / mowing / raking (2026-09-27, Apple M1, one
+process at a time).** 60 s headless runs before and after, default seeds: the counters are
+identical to the last digit (sisyphus 9 summits, 0.162 m; wheel 19.837 revolutions; mowing
+10 rows, 1 lawn, 446 mm², 1 unstick; raking 17 leaves raked), 0 falls, 0 auto-recoveries,
+0 instabilities in all eight runs. Physics RTF (rendering excluded) is unchanged: 0.466 / 0.43 /
+0.497 / 0.561 before, 0.46 / 0.432 / 0.492 / 0.559 after. A 960×640 job-camera frame costs
+more to render (median of 18 frames): sisyphus 5.6 → 11.5 ms, wheel 6.0 → 11.7 ms, mowing
+11.8 → 13.3 ms (shadows off), raking 6.9 → 12.8 ms. That is about the same as the newer
+jobs (trampoline ~16 ms), and the shadow pass is most of it (`shadows: false` saves ~6–11
+ms). So in the live window (up to 30 frames per wall second) RTF drops by an estimated 0.03–0.1 (e.g. raking ~0.45 → ~0.34).
+The jobs now also set `model.vis.map.znear` to 0.01 mm in `on_attach`. The fly's MuJoCo
+globals are merged in after `extension` and leave it at 0.5 µm, and at that value the stripe
+tiles z-fought with the soil. (The same override also undoes the `spec.visual.map.znear = 0.05`
+in the newer jobs' `extension`s.)
 
 Measured on 2026-09-26 on the development machine (Apple M1), with other simulations running at
 the same time:

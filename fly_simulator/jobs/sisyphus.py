@@ -30,12 +30,14 @@ from dataclasses import dataclass
 import mujoco as mj
 import numpy as np
 
+from fly_simulator.jobs import sisyphus_assets as A
 from fly_simulator.jobs.base import CameraPreset, EternalJob, JobConfig
 from fly_simulator.jobs.geometry import (
     add_box,
     add_plane_box,
     add_slope,
     contact_kwargs,
+    quat_axis_angle,
     slippery_body_contact,
     wrap_angle,
 )
@@ -45,12 +47,6 @@ from fly_simulator.terrain import TERRAIN_BIT
 P = "sisyphus/"
 
 STONE = (0.56, 0.55, 0.52, 1.0)
-HILL = (0.30, 0.58, 0.22, 1.0)
-MEADOW = (0.45, 0.70, 0.32, 1.0)
-WALL = (0.40, 0.33, 0.22, 1.0)
-CURB = (0.48, 0.46, 0.42, 1.0)
-MUD = (0.40, 0.62, 0.28, 1.0)
-BANK = (0.34, 0.62, 0.25, 1.0)
 
 
 @dataclass
@@ -104,6 +100,8 @@ class SisyphusConfig(JobConfig):
     settle_speed: float = 2.0  # boulder at rest below this (mm/s) ...
     settle_hold_s: float = 0.3  # ... for this long
     descend_timeout_s: float = 6.0
+    # ---- looks -------------------------------------------------------------------
+    shadows: bool = True  # the low sun's shadow map (~several ms per 960x640 frame)
 
 
 @register_job
@@ -159,10 +157,8 @@ class SisyphusJob(EternalJob):
         wall_hw = 0.4
         wy = hw + wall_hw
         span = hw + 2 * wall_hw
-        # tint the (checkered) ground plane like a meadow
-        mat = world.mjcf_root.material("grid")
-        if mat is not None:
-            mat.rgba = MEADOW
+        spec = world.mjcf_root
+        self._add_materials(spec)
         # valley floor centre band "mud": a thin box 4 um above the ground plane that
         # only the boulder touches (contype TERRAIN_BIT, conaffinity 0: not the fly),
         # with rolling friction, so the boulder comes to rest in the valley
@@ -171,13 +167,13 @@ class SisyphusJob(EternalJob):
         cp = ContactParams()
         wb.add_geom(name=P + "mud", type=mj.mjtGeom.mjGEOM_BOX,
                     size=((c.ramp_x0 - c.floor_x0) / 2, w0 + 0.3, 0.05),
-                    pos=((c.ramp_x0 + c.floor_x0) / 2, 0.0, 0.004 - 0.05), rgba=MUD,
+                    pos=((c.ramp_x0 + c.floor_x0) / 2, 0.0, 0.004 - 0.05), material=P + "path",
                     contype=TERRAIN_BIT, conaffinity=0, priority=2, condim=6,
                     friction=(1.0, 0.02, c.mud_rolling), solref=cp.get_solref_tuple(),
                     solimp=cp.get_solimp_tuple(), margin=cp.margin)
         # the hill: centre band of the ramp
         add_slope(wb, P + "ramp", c.ramp_x0, xt, 0.0, a, w0 + 0.05, thickness=1.5,
-                  rgba=HILL, collide="static")
+                  material=P + "path", collide="static")
         # side banks (valley floor and ramp): planes rising bank_deg outward, so the
         # boulder (and the fly) drift back to the centre line
         run_v = c.ramp_x0 - c.floor_x0
@@ -189,7 +185,7 @@ class SisyphusJob(EternalJob):
             add_plane_box(wb, f"{P}bank_floor_{side}",
                           (c.floor_x0 + run_v / 2, yc, bank_w * tb), (1, 0, 0), nrm_v,
                           run_v / 2, bank_w / math.cos(math.atan(tb)) + 0.02,
-                          thickness=1.0, rgba=BANK, collide="static")
+                          thickness=1.0, material=P + "hill", collide="static")
             nrm_r = (-math.tan(a), -sgn * tb, 1.0)
             xm = c.ramp_x0 + run_r / 2
             add_plane_box(wb, f"{P}bank_ramp_{side}",
@@ -197,18 +193,18 @@ class SisyphusJob(EternalJob):
                           (1, 0, math.tan(a)), nrm_r,
                           run_r / 2 / math.cos(a) + 0.02,
                           bank_w / math.cos(math.atan(tb)) + 0.02,
-                          thickness=1.0, rgba=BANK, collide="static")
+                          thickness=1.0, material=P + "hill", collide="static")
         # summit curb + the hill's back side (steep, never walked on)
         top = h + bank_top + c.curb_height
         add_box(wb, P + "curb", (0.5, span, top / 2), (xt + 0.5, 0.0, top / 2),
-                rgba=CURB, collide="static")
+                material=P + "marble", collide="static")
         add_slope(wb, P + "backside", xt + 1.0, xt + 1.0 + top / math.tan(1.0), top, -1.0,
-                  span, thickness=1.0, rgba=HILL, collide="static")
+                  span, thickness=1.0, material=P + "hill", collide="static")
         # counter-slope behind the valley
         add_slope(wb, P + "counter", x_back, c.floor_x0, h_back, -ab, span, thickness=1.5,
-                  rgba=HILL, collide="static")
+                  material=P + "hill", collide="static")
         add_box(wb, P + "counter_top", (1.0, span, h_back / 2),
-                (x_back - 1.0, 0.0, h_back / 2), rgba=HILL, collide="static")
+                (x_back - 1.0, 0.0, h_back / 2), material=P + "hill", collide="static")
         # side walls: valley floor, ramp, counter-slope
         wall_top = bank_top + c.wall_height
         for side, sgn in (("l", 1.0), ("r", -1.0)):
@@ -217,17 +213,24 @@ class SisyphusJob(EternalJob):
             wf = c.wall_friction
             add_box(wb, f"{P}wall_floor_{side}", (run_v / 2, wall_hw, wall_top / 2),
                     ((c.ramp_x0 + c.floor_x0) / 2, y, wall_top / 2),
-                    rgba=WALL, collide="static", friction=wf)
+                    material=P + "wall", collide="static", friction=wf)
             add_slope(wb, f"{P}wall_ramp_{side}", c.ramp_x0, xt, wall_top, a, wall_hw,
-                      y=y, thickness=wall_top + 1.0, rgba=WALL, collide="static", friction=wf)
+                      y=y, thickness=wall_top + 1.0, material=P + "wall", collide="static", friction=wf)
             add_slope(wb, f"{P}wall_counter_{side}", x_back, c.floor_x0,
                       h_back + wall_top, -ab, wall_hw, y=y,
-                      thickness=wall_top + 1.0, rgba=WALL, collide="static", friction=wf)
+                      thickness=wall_top + 1.0, material=P + "wall", collide="static", friction=wf)
+        # the walls and the curb: invisible colliders (group 3) under textured box
+        # meshes of the same size and pose (a box primitive only maps a 2D texture
+        # well onto its +z face)
+        for side in ("l", "r"):
+            for part in ("floor", "ramp", "counter"):
+                self._dress_box(spec, f"{P}wall_{part}_{side}", "wall_mesh", 0.34)
+        self._dress_box(spec, P + "curb", "marble_mesh", 0.3)
         # summit flag (decoration)
         add_box(wb, P + "flagpole", (0.05, 0.05, 1.6), (xt + 0.5, hw - 0.6, top + 1.6),
-                rgba=(0.9, 0.9, 0.9, 1.0), collide="visual")
+                material=P + "pole", collide="visual")
         add_box(wb, P + "flag", (0.02, 0.7, 0.4), (xt + 0.5, hw - 1.3, top + 2.8),
-                rgba=(0.9, 0.12, 0.1, 1.0), collide="visual")
+                material=P + "flag", collide="visual")
         # the boulder
         R = c.ball_radius
         body = wb.add_body(name=P + "boulder", pos=(c.ball_start_x, 0.0, R + 0.01))
@@ -236,24 +239,160 @@ class SisyphusJob(EternalJob):
         kw = contact_kwargs("dynamic", c.ball_friction)
         kw["condim"] = 6
         kw["friction"] = (c.ball_friction, 0.02, c.ball_rolling)
+        # (the colliding sphere is drawn by the lumpy granite shell below: invisible)
         body.add_geom(name=P + "boulder_geom", type=mj.mjtGeom.mjGEOM_SPHERE, size=(R, 0, 0),
-                      mass=c.ball_mass, rgba=STONE, **kw)
-        # a few darker "facets" so rolling is visible (visual only, massless)
-        dirs = ((0.7, 0.0, 0.7), (-0.55, 0.65, 0.5), (0.0, -0.8, -0.6), (-0.7, -0.3, -0.65),
-                (0.3, 0.9, -0.3), (-0.2, -0.5, 0.85))
-        for i, d in enumerate(dirs):
-            u = np.asarray(d) / np.linalg.norm(d)
-            body.add_geom(name=f"{P}boulder_spot{i}", type=mj.mjtGeom.mjGEOM_SPHERE,
-                          size=(0.3 * R, 0, 0), pos=tuple(u * 0.74 * R),
-                          rgba=(0.42, 0.41, 0.39, 1.0), mass=0.0, contype=0, conaffinity=0,
-                          group=1)
+                      mass=c.ball_mass, rgba=STONE[:3] + (0.0,), **kw)
+        A.add_mesh(spec, P + "boulder_mesh", A.boulder_mesh(R, c.seed))
+        body.add_geom(name=P + "boulder_vis", type=mj.mjtGeom.mjGEOM_MESH,
+                      meshname=P + "boulder_mesh", material=P + "boulder",
+                      **dict(contact_kwargs("visual"), mass=0.0))
+        self._add_scenery(spec)
 
         slippery_body_contact(world.mjcf_root, P + "boulder", P + "boulder_geom",
                               self.fly_name, friction=c.head_friction)
 
+    # ------------------------------------------------------------ looks
+    def _add_materials(self, spec) -> None:
+        c = self.cfg
+        mat = spec.material("grid")
+        if mat is not None:  # the ground plane: dry hillside (8 mm texture period)
+            A.add_texture(spec, P + "tex_hill", A.hillside_texture(c.seed))
+            mat.textures[mj.mjtTextureRole.mjTEXROLE_RGB] = P + "tex_hill"
+            mat.rgba = (1.0, 1.0, 1.0, 1.0)
+            mat.reflectance = 0.0
+            mat.texrepeat = [v * 0.5 for v in mat.texrepeat]
+        T = A.add_textured_material
+        # (texuniform: MuJoCo maps a 2D texture on a box by its local x, y, per mm)
+        T(spec, P + "hill", P + "tex_hill", rgba=(1, 1, 1, 1), specular=0.05, texuniform=True,
+          texrepeat=(0.125, 0.125))
+        A.add_texture(spec, P + "tex_path", A.path_texture(c.seed))
+        T(spec, P + "wall_mesh", P + "tex_wall", rgba=(1, 1, 1, 1), specular=0.08)
+        T(spec, P + "path", P + "tex_path", rgba=(1, 1, 1, 1), specular=0.05, texuniform=True,
+          texrepeat=(0.3, 0.3))
+        A.add_texture(spec, P + "tex_wall", A.drystone_texture(c.seed))
+        T(spec, P + "wall", P + "tex_wall", rgba=(1, 1, 1, 1), specular=0.08, texuniform=True,
+          texrepeat=(0.3, 0.3))
+        A.add_texture(spec, P + "tex_marble", A.marble_texture(c.seed))
+        T(spec, P + "marble", P + "tex_marble", rgba=(1.0, 0.96, 0.9, 1), specular=0.35,
+          shininess=0.5, texuniform=True, texrepeat=(0.35, 0.35))
+        # the columns (lathe uv: u around, v up)
+        T(spec, P + "marble_mesh", P + "tex_marble", rgba=(0.74, 0.70, 0.64, 1), specular=0.3,
+          shininess=0.5)
+        T(spec, P + "column", P + "tex_marble", rgba=(1.0, 0.95, 0.88, 1), specular=0.3,
+          shininess=0.5, texrepeat=(2.0, 1.0))
+        A.add_texture(spec, P + "tex_boulder", A.boulder_texture(c.seed))
+        T(spec, P + "boulder", P + "tex_boulder", rgba=(1, 1, 1, 1), specular=0.18, shininess=0.25)
+        A.add_texture(spec, P + "tex_bark", A.bark_texture(c.seed))
+        T(spec, P + "bark", P + "tex_bark", rgba=(1, 1, 1, 1), specular=0.05, texrepeat=(2.0, 3.0))
+        A.add_texture(spec, P + "tex_olive", A.olive_leaf_texture(c.seed))
+        T(spec, P + "olive", P + "tex_olive", rgba=(1, 1, 1, 1), specular=0.15, shininess=0.3,
+          texrepeat=(3.0, 2.0))
+        T(spec, P + "rock", P + "tex_boulder", rgba=(0.95, 0.9, 0.82, 1), specular=0.1,
+          texrepeat=(2.0, 1.0))
+        spec.add_material(name=P + "cypress", rgba=(0.12, 0.2, 0.1, 1), specular=0.05)
+        A.add_texture(spec, P + "tex_sunset", A.sunset_texture(c.seed))
+        T(spec, P + "sunset", P + "tex_sunset", rgba=(1, 1, 1, 1), emission=0.8, specular=0.0)
+        spec.add_material(name=P + "pole", rgba=(0.62, 0.45, 0.25, 1), specular=0.2)
+        spec.add_material(name=P + "flag", rgba=(0.85, 0.10, 0.08, 1), specular=0.1, emission=0.15)
+
+    @staticmethod
+    def _dress_box(spec, name: str, material: str, scale: float) -> None:
+        """Hide the box collider ``name`` (render group 3, transparent; its contacts
+        are unchanged) and draw a textured visual box mesh in its place."""
+        g = spec.geom(name)
+        g.group = 3
+        g.material = ""
+        g.rgba = (0.0, 0.0, 0.0, 0.0)
+        A.add_mesh(spec, name + "_vis_mesh", A.box_mesh(g.size, scale))
+        spec.worldbody.add_geom(name=name + "_vis", type=mj.mjtGeom.mjGEOM_MESH,
+                                meshname=name + "_vis_mesh", pos=tuple(g.pos),
+                                quat=tuple(g.quat), material=P + material,
+                                **dict(contact_kwargs("visual"), mass=0.0))
+
+    def _add_scenery(self, spec) -> None:
+        """Set dressing (all visual): a ruined temple behind the summit, broken
+        columns and drums along the trough, olive trees, cypresses and rocks, the
+        sunset backdrop, and the light rig (a low warm sun with shadows)."""
+        c = self.cfg
+        wb = spec.worldbody
+        vis = dict(contact_kwargs("visual"), mass=0.0)
+
+        def mesh(name, md, pos, material, quat=(1.0, 0.0, 0.0, 0.0)):
+            A.add_mesh(spec, P + name + "_mesh", md)
+            wb.add_geom(name=P + name, type=mj.mjtGeom.mjGEOM_MESH, meshname=P + name + "_mesh",
+                        pos=tuple(pos), quat=tuple(quat), material=P + material, **vis)
+
+        xt = self.x_top
+        # the temple ruin beyond the summit: a stylobate, a colonnade (two columns
+        # still carry a lintel, the others are broken off) and a fallen drum
+        xc = xt + 7.0
+        mesh("stylobate", A.box_mesh((2.2, 7.5, 0.3), 0.3), (xc, 0.5, 0.3), "marble_mesh")
+        mesh("stylobate2", A.box_mesh((2.6, 8.0, 0.15), 0.3), (xc, 0.5, 0.15), "marble_mesh")
+        col_r, col_h = 0.55, 8.5
+        heights = {-5.5: 0.0, -2.0: 0.0, 1.5: 0.55, 5.0: 0.3}
+        for k, (y, broken) in enumerate(heights.items()):
+            h = col_h if broken == 0.0 else col_h * broken
+            md = A.column_mesh(col_r, h, capital=broken == 0.0, broken=0.6 if broken else 0.0,
+                               seed=k)
+            mesh(f"column{k}", md, (xc, y, 0.6), "column")
+        mesh("lintel", A.box_mesh((0.75, 2.45, 0.45), 0.3), (xc, -3.75, 0.6 + col_h + 0.45),
+             "marble_mesh")
+        mesh("drum0", A.drum_mesh(col_r * 0.95, 1.4), (xc - 3.2, 5.6, col_r * 0.95), "column",
+             quat_axis_angle((0, 0, 1), 0.6))
+        # broken columns and fallen drums along the far side of the trough
+        for k, (x, y, h, br) in enumerate(((-6.5, 9.4, 3.2, 0.7), (9.5, 10.2, 4.6, 0.5))):
+            mesh(f"ruin{k}", A.column_mesh(0.5, h, capital=False, broken=br, seed=10 + k),
+                 (x, y, 0.0), "column")
+        for k, (x, y, yaw) in enumerate(((-2.0, 10.0, 0.3), (15.5, 9.6, -0.8), (-12.0, -9.6, 1.2))):
+            mesh(f"drum{k + 1}", A.drum_mesh(0.48, 1.2), (x, y, 0.48), "column",
+                 quat_axis_angle((0, 0, 1), yaw))
+        # olive trees behind the far wall
+        for k, (x, y, H) in enumerate(((-10.0, 12.5, 7.0), (2.5, 14.5, 8.5), (13.5, 12.0, 6.5),
+                                       (-20.0, 10.5, 6.0), (22.0, 13.5, 7.5))):
+            parts = A.olive_tree_meshes(H, seed=k)
+            mesh(f"olive{k}_trunk", parts["trunk"], (x, y, 0.0), "bark")
+            mesh(f"olive{k}_canopy", parts["canopy"], (x, y, 0.0), "olive")
+        for k, (x, y, H) in enumerate(((-15.0, 17.0, 9.0), (-13.5, 18.5, 11.0), (30.0, 16.0, 10.0))):
+            mesh(f"cypress{k}", A.cypress_mesh(H, 0.9), (x, y, 0.0), "cypress")
+        # rocks on both sides
+        rng = np.random.default_rng(c.seed + 5)
+        for k in range(12):
+            side = 1.0 if k % 2 else -1.0
+            x = rng.uniform(c.floor_x0 - 2, xt + 4)
+            y = side * rng.uniform(c.half_width + 1.3, c.half_width + 5.0)
+            r = rng.uniform(0.35, 1.0)
+            mesh(f"rock{k}", A.rock_mesh(r, seed=k), (x, y, 0.0), "rock",
+                 quat_axis_angle((0, 0, 1), rng.uniform(0, 6.3)))
+        # the sunset backdrop far behind the hill (faces -y, toward the camera)
+        from fly_simulator.jobs.taste_tester_assets import front_panel_mesh
+
+        mesh("backdrop", front_panel_mesh(62.0, 12.0, 0.05), (20.0, 27.0, 9.5), "sunset",
+             quat_axis_angle((0, 0, 1), -math.pi / 2))
+        sky = spec.texture("skybox")
+        if sky is not None:
+            sky.rgb1 = (0.95, 0.62, 0.42)
+            sky.rgb2 = (0.35, 0.25, 0.45)
+        # lights: a low warm sun from the left (behind), a cool fill from the camera side
+        spec.visual.headlight.ambient = (0.30, 0.27, 0.28)
+        spec.visual.headlight.diffuse = (0.30, 0.28, 0.28)
+        spec.visual.headlight.specular = (0.05, 0.05, 0.05)
+        tgt = np.array([6.0, 0.0, 1.0])
+        sun = np.array([-22.0, 14.0, 20.0])
+        wb.add_light(name=P + "sun", type=mj.mjtLightType.mjLIGHT_SPOT, pos=tuple(sun),
+                     dir=tuple(tgt - sun), diffuse=(0.78, 0.55, 0.36), specular=(0.35, 0.28, 0.2),
+                     cutoff=42.0, exponent=0.3, castshadow=bool(c.shadows))
+        fill = np.array([8.0, -22.0, 14.0])
+        wb.add_light(name=P + "fill", type=mj.mjtLightType.mjLIGHT_SPOT, pos=tuple(fill),
+                     dir=tuple(tgt - fill), diffuse=(0.2, 0.2, 0.3), specular=(0.05, 0.05, 0.08),
+                     cutoff=55.0, exponent=0.5, castshadow=False)
+
     # ------------------------------------------------------------ attach
     def on_attach(self) -> None:
         m = self.sim.model
+        # the fly's MuJoCo globals (merged in after the job's spec edits) set znear to
+        # 0.5 um: far too little depth precision for this scene tens of mm away
+        # (z-fighting); 10 um still allows close-ups of the fly
+        m.vis.map.znear = 0.01
         self.ball_body = m.body(P + "boulder").id
         j = m.joint(P + "boulder_free").id
         self.ball_qadr = int(m.jnt_qposadr[j])
@@ -467,12 +606,12 @@ class SisyphusJob(EternalJob):
         b = self.ball_pos()
         c = self.cfg
         hill = np.array([c.ramp_x0 + 0.4 * c.ramp_run, 0.0, 0.5 * self.hill_height])
-        out = 0.35 * (f + b) + 0.3 * hill  # the fly, its boulder and the hill in frame
+        out = 0.45 * f + 0.35 * b + 0.2 * hill  # the fly, its boulder and the hill in frame
         return out if np.all(np.isfinite(out)) else f
 
     def camera_preset(self) -> CameraPreset:
         # from the fly's right side, slightly downhill, looking across the trough
-        return CameraPreset(azimuth=68.0, elevation=-30.0, distance=25.0, tau_s=0.8)
+        return CameraPreset(azimuth=68.0, elevation=-26.0, distance=19.0, tau_s=0.8)
 
     def job_hud_lines(self) -> list[str]:
         b = self.ball_pos()
