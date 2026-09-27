@@ -713,8 +713,8 @@ kitchen.
    the head tilts down at it and rocks (pitch +18°, roll ±14°), a mid leg taps the
    armrest, a hind leg swings; `hmm...`. The head swings back to the monitors 0.35 s
    before the end;
-4. `flick` (0.2 s): the left front leg dips (windup 0.1 s) and flicks up and back
-   over the left shoulder (0.1 s) with the plate on its tip, head still on the
+4. `flick` (0.2 s): the right front leg dips (windup 0.1 s) and flicks up and back
+   over the right shoulder, the picture's left on the webcam as in the meme (0.1 s) with the plate on its tip, head still on the
    monitors. At the release the plate and its 4 florets become free bodies with a
    **launch velocity set by the job (engineered, labelled)**: an aimed ballistic arc
    that peaks `apex_mm` = 3.2 mm above the release and lands around `target_xy`
@@ -752,9 +752,12 @@ touch the fly. While intact they are **parked kinematically**: contacts off, gra
 compensated, at rest on their spots, so the solver has no resting contacts to hold
 (this took the step time from 0.5 ms to 0.19 ms: 134 → 14 contacts). They, the plate
 and the florets go live (contacts + gravity) at the release; the debris goes live at
-the blast. The camera is a "webcam" on the monitors looking back at the viewer, so
-the viewer faces it and the blast goes off behind the chair; it moves in close for the
-handover and ponder and pulls back a little for the blast.
+the blast. The camera is a fixed "webcam" on the (shallow) desk under the monitors,
+centred on the gaming chair with a wide 64° view, so the whole chair and the viewer are
+in frame and the viewer faces it. The blast (scaled ×2.6, spread sideways and up, with
+28 floating embers) fills the background on the picture's left and above, but every
+puff is clamped to stay behind the chair back, so the viewer stays in front of it,
+unbothered, and glances off to the side afterwards, like the meme edits.
 
 **Brain (`--brain`, off by default).** During the ponder the job sends a bitter taste
 pulse every 0.5 s (0.4 s at 150 Hz: `StimulusEvent("taste", tastes=["bitter"])`, the
@@ -782,7 +785,7 @@ flight timeouts, 0 plates lost, 4 back-away unsticks, **0 falls, 0 auto-recoveri
 point and needed one `stuck` recovery in 150 s; the path follower now lets the carrot
 run on past the end.) `run_sim.py --job broccoli_toss --headless --max-seconds 4`
 runs too. Frames checked by eye (job renderer): the host walking in with the plate
-on its back, the handover, the ponder close-up, the plate on the left front leg over
+on its back, the handover, the ponder close-up, the plate on the right front leg over
 the shoulder, the plate in the air over the chair, the fireball and dust ring with
 props flying, the aftermath with the viewer still facing the monitors, the rebuilt
 room. Tests: `tests/test_jobs_broccoli_toss.py` (7 tests, ~36 s: scene / viewer

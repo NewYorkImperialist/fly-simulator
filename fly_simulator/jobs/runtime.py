@@ -184,6 +184,8 @@ class JobRunner:
         self.quit_reason = "max-seconds"
         self.paused = False
         self.hud_on = False  # TAB shows / hides the HUD text in the window (off by default)
+        self.media = None  # M: start / stop an MP4 of the window view (made on first use)
+        self._last_m = -1e9
         self.n_shots = 0
         self.shot_dir: Path | None = Path(record_dir) if record_dir is not None else None
 
@@ -252,6 +254,11 @@ class JobRunner:
             self.say(f"[camera] {self.renderer.camera.cycle_mode()}")
         elif k == "p":
             self.paused = not self.paused
+        elif k == "m":
+            now = time.monotonic()
+            if now - self._last_m >= 0.5:  # debounce: a held / mashed M makes one toggle
+                self._last_m = now
+                self.toggle_recording()
         elif k == "tab":
             self.hud_on = not self.hud_on
             self.say(f"[HUD] {'on' if self.hud_on else 'off'}")
@@ -262,6 +269,18 @@ class JobRunner:
             d = self.shot_dir or Path(self.cfg.logging.runs_dir) / "screenshots"
             p = self.screenshot(d / f"{self.job.name}_shot{self.n_shots:03d}.png")
             self.say(f"[screenshot] {p}")
+
+    def toggle_recording(self) -> None:
+        """M: start / stop an MP4 of what the window shows (sim-time paced)."""
+        if self.media is None:
+            from fly_simulator.media import MediaCapture
+
+            d = self.shot_dir or Path(self.cfg.logging.runs_dir) / "recordings"
+            self.media = MediaCapture(d, fps=30.0)
+        if self.media.recording:
+            self.say(self.media.stop_recording())
+        else:
+            self.say(f"[recording] -> {self.media.start_recording(self.session.run_time())}  (M stops)")
 
     def run(self, max_seconds: float | None = None,
             stop: Callable[[], bool] | None = None) -> dict:
@@ -287,8 +306,11 @@ class JobRunner:
                 need_rec = self.recorder is not None and self.recorder.due(rt)
                 need_tl = self.timelapse is not None and self.timelapse.due(rt)
                 show = self.viewer is not None and time.perf_counter() - last_shown >= period
-                if need_rec or need_tl or show:
+                need_m = self.media is not None and self.media.recording and self.media.due(rt)
+                if need_rec or need_tl or show or need_m:
                     clean, hud = self.render()
+                    if need_m:
+                        self.media.add(hud if self.hud_on else clean, rt)
                     if need_rec:
                         self.recorder.add(hud, rt)
                     if need_tl:
@@ -332,6 +354,12 @@ class JobRunner:
                 except Exception as e:  # never mask the real error
                     self.say(f"warning: closing the recording failed: {e}")
         self.recorder = self.timelapse = None
+        if self.media is not None:
+            try:
+                self.media.close(self.say)
+            except Exception as e:
+                self.say(f"warning: closing the M recording failed: {e}")
+            self.media = None
         if self.viewer is not None:
             self.viewer.close()
             self.viewer = None

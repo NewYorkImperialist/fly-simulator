@@ -124,6 +124,8 @@ def test_launch_goes_backward_over_the_shoulder(run):
     assert v[2] > 100.0  # up and over
     assert launch["v"][0] < 0 and launch["p"][0] < p0[0]  # the free plate really flies back
     assert lf["p_land"][0] < -3.0  # landed behind the chair, among the props
+    # over the right shoulder: toward -y, the picture's left on the webcam (like the meme)
+    assert v[1] < 0 and lf["p_land"][1] < p0[1]
     assert lf["apex"] > p0[2] + 2.0
     assert lf["flight_s"] < 0.3
 

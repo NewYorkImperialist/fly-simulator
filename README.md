@@ -38,7 +38,7 @@ uv venv --python 3.12 .venv && uv pip install --python .venv/bin/python -e ".[de
 .venv/bin/python scripts/run_job.py --job kebab --brain --stress   # + live brain; S startles the chef
 ```
 
-Keys: **C** camera · **P** pause · **TAB** show stats · **I** screenshot · **Q** quit.
+Keys: **C** camera · **P** pause · **TAB** show stats · **I** screenshot · **M** record · **Q** quit.
 
 **Games** — the fly's real connectome steers:
 
@@ -49,7 +49,7 @@ Keys: **C** camera · **P** pause · **TAB** show stats · **I** screenshot · *
 ```
 
 Keys: **SPACE** pause · **R** restart · **1/2/3** easy/normal/hard · **B** brain window ·
-**TAB** brain panel · **Q** quit. Add `--control mirror` to swap its eyes and watch it fail.
+**TAB** brain panel · **M** record · **Q** quit. Add `--control mirror` to swap its eyes and watch it fail.
 
 **Poke the fly yourself:** `.venv/bin/python scripts/run_sim.py --flight --brain-actions --swatter`
 (V swats, SPACE whips, L takes off, ? shows every key).

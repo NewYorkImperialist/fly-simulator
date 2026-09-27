@@ -17,7 +17,7 @@ import numpy as np
 HIGHSCORE_FILE = Path("runs") / "games_highscores.json"
 KEEP_SCORES = 5
 FPS = 30.0
-KEYS_HELP = "SPACE pause  R restart  1/2/3 easy/normal/hard  B brain window  TAB panel  Q quit"
+KEYS_HELP = "SPACE pause  R restart  1/2/3 easy/normal/hard  B brain window  TAB panel  M record  Q quit"
 
 
 class HighScores:
@@ -152,6 +152,11 @@ class GameRunner:
             self.paused = False
         elif key == "b":
             self.toggle_brain_window()
+        elif key == "m":
+            now = time.monotonic()
+            if now - getattr(self, "_last_m", -1e9) >= 0.5:  # debounce mashed / held M
+                self._last_m = now
+                self._rec_toggle = True
         elif key == "tab":
             self.panel = not self.panel
             self.say(f"[panel] {'on' if self.panel else 'off'}")
@@ -271,6 +276,7 @@ class GameRunner:
         wall0 = time.time()
         steps_per_frame = max(1, int(round((1.0 / FPS) / (s.sim.timestep * s.chunk_steps))))
         keymap = {9: "tab", 27: "esc", 32: "space"}
+        m_writer = m_path = None
         try:
             while True:
                 wall = time.time() - wall0
@@ -290,8 +296,23 @@ class GameRunner:
                     if s.game.state == "gameover":
                         self.record_score()
                 img = self.frame()
+                if getattr(self, "_rec_toggle", False):  # M: start / stop a recording
+                    self._rec_toggle = False
+                    if m_writer is None:
+                        import imageio.v2 as iio
+
+                        m_path = Path("runs") / "recordings" / f"{self.game_name}_{time.strftime('%Y-%m-%d_%H-%M-%S')}.mp4"
+                        m_path.parent.mkdir(parents=True, exist_ok=True)
+                        m_writer = iio.get_writer(m_path, fps=FPS, codec="libx264", quality=6, macro_block_size=8)
+                        self.say(f"[recording] -> {m_path}  (M stops)")
+                    else:
+                        m_writer.close()
+                        m_writer = None
+                        self.say(f"[recording] saved {m_path}")
                 if writer is not None and not self.paused:
                     writer.append_data(img[..., ::-1])
+                if m_writer is not None and not self.paused:
+                    m_writer.append_data(img[..., ::-1])
                 if scale != 1.0:
                     img = cv2.resize(img, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
                 cv2.imshow(title, img)
@@ -306,6 +327,9 @@ class GameRunner:
         finally:
             if writer is not None:
                 writer.close()
+            if m_writer is not None:
+                m_writer.close()
+                self.say(f"[recording] saved {m_path}")
             cv2.destroyWindow(title)
             for _ in range(3):
                 cv2.waitKey(1)

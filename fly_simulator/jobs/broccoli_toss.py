@@ -39,7 +39,7 @@ Sequence (a state machine in ``update``, every 1 ms):
 3. ``ponder`` (0.75-1 s): the viewer holds the plate still in front of its head, tilts
    its head at it, adjusts its legs a little (with ``--brain``: a bitter taste
    pulse, labelled stand-in, see below);
-4. ``flick``: one sudden casual flick of the left front leg over the shoulder;
+4. ``flick``: one sudden casual flick of the right front leg over the right shoulder (the picture's left);
    the head is already back on the monitors (it never looks). At release the plate
    becomes a free body with a **launch velocity set by the job** (engineered,
    labelled: aimed so the ballistic arc peaks ``apex_mm`` above the release point
@@ -129,12 +129,16 @@ class BroccoliConfig(JobConfig):
     windup_s: float = 0.10
     throw_s: float = 0.10  # the flick (release at its end)
     flight_timeout_s: float = 1.0
-    boom_s: float = 1.8
+    boom_s: float = 2.6
+    webcam_fovy: float = 64.0
+    blast_scale: float = 2.6
+    blast_front_x: float = -1.6  # nothing of the blast comes nearer the camera than this (chair back ~ -0.6)  # fireball / smoke size (the meme edit: it fills the background)
+    n_embers: int = 28
     aftermath_s: float = 2.4
     rebuild_s: float = 1.4
     fetch_s: float = 0.6  # at the kitchenette: the next plate
     # ---- the launch (engineered: aimed ballistic arc) -------------------------------
-    target_xy: tuple = (-7.4, -2.6)  # where the plate is aimed (among the props)
+    target_xy: tuple = (-7.2, -3.8)  # where the plate is aimed (among the props, the picture's left)
     target_jitter: float = 0.9
     apex_mm: float = 3.2  # the arc peaks this far above the release point
     plate_spin: float = 45.0  # rad/s tumble
@@ -244,6 +248,7 @@ class BroccoliTossJob(EternalJob):
         sx, sy = self.stand_xy
         dx, dy = sx - self.cfg.kitchen_xy[0], sy - self.cfg.kitchen_xy[1]
         app_cfg.controller.target_heading_deg = math.degrees(math.atan2(dy, dx))
+        app_cfg.camera.fovy = self.cfg.webcam_fovy  # a wide stream webcam: the whole chair in frame
 
     def extension(self, world) -> None:
         spec = world.mjcf_root
@@ -379,7 +384,7 @@ class BroccoliTossJob(EternalJob):
                 ((0.05, 10.5, 0.05), (-12.95, 0.0, 0.25), 1),
                 ((12.5, 0.05, 0.05), (0.0, 8.95, 12.0), 2),
                 ((12.5, 0.05, 0.05), (0.0, 8.95, 0.25), 0),
-                ((0.05, 4.1, 0.04), (2.75, 0.0, 3.32), 1))
+                ((0.05, 4.1, 0.04), (5.18, 0.0, 3.12), 1))  # under the (shallow) desk front edge
         for k, (hs, pos, mk) in enumerate(leds):
             add_box(wb, f"{P}led_strip{k}", hs, pos, material=f"{P}led{mk}", collide="visual")
         # shelf on the back wall (static: the shelf props rest on it)
@@ -428,21 +433,21 @@ class BroccoliTossJob(EternalJob):
         wb = spec.worldbody
         vis = dict(contact_kwargs("visual"), mass=0.0)
         top = 3.3
-        add_box(wb, P + "desk_top", (2.0, 4.2, 0.1), (4.7, 0.0, top - 0.1), material=P + "desk",
+        add_box(wb, P + "desk_top", (0.8, 4.2, 0.1), (6.0, 0.0, top - 0.1), material=P + "desk",
                 collide="visual")
         for sx in (-1, 1):
             for sy in (-1, 1):
                 add_box(wb, f"{P}desk_leg{sx}{sy}", (0.12, 0.12, (top - 0.2) / 2),
-                        (4.7 + sx * 1.8, sy * 4.0, (top - 0.2) / 2), material=P + "metal", collide="visual")
+                        (6.0 + sx * 0.65, sy * 4.0, (top - 0.2) / 2), material=P + "metal", collide="visual")
         # keyboard, mouse, mouse pad (glowing edge), snacks
-        add_box(wb, P + "keyboard", (0.45, 1.3, 0.05), (3.3, -0.3, top + 0.05), material=P + "black",
+        add_box(wb, P + "keyboard", (0.3, 1.3, 0.05), (5.45, -0.3, top + 0.05), material=P + "black",
                 collide="visual")
-        add_box(wb, P + "keyboard_glow", (0.43, 1.28, 0.01), (3.3, -0.3, top + 0.105), material=P + "led2",
+        add_box(wb, P + "keyboard_glow", (0.28, 1.28, 0.01), (5.45, -0.3, top + 0.105), material=P + "led2",
                 collide="visual")
-        add_box(wb, P + "mousepad", (0.7, 0.9, 0.01), (3.4, -2.6, top + 0.01), material=P + "black",
+        add_box(wb, P + "mousepad", (0.4, 0.9, 0.01), (5.5, -2.6, top + 0.01), material=P + "black",
                 collide="visual")
         wb.add_geom(name=P + "mouse", type=mj.mjtGeom.mjGEOM_ELLIPSOID, size=(0.25, 0.16, 0.1),
-                    pos=(3.4, -2.6, top + 0.1), material=P + "black", **vis)
+                    pos=(5.5, -2.6, top + 0.1), material=P + "black", **vis)
         # monitors: on mocap bodies (the scrolling chat blocks move within them)
         self._monitors = []
         for k, (y, yaw, mat) in enumerate(((-1.6, math.radians(8), "screen_main"),
@@ -488,8 +493,8 @@ class BroccoliTossJob(EternalJob):
         wb.add_geom(name=P + "ring_pole", type=mj.mjtGeom.mjGEOM_CYLINDER, size=(0.05, rl[2] / 2 - 0.5, 0),
                     pos=(rl[0] + 0.1, rl[1] + 0.1, rl[2] / 2 - 0.55), material=P + "metal", **vis)
         # mic on an arm clamped to the desk edge, pointing at the viewer
-        clamp = np.array([3.0, 3.0, top + 0.1])
-        elbow = np.array([2.7, 2.4, top + 1.7])
+        clamp = np.array([5.3, 3.0, top + 0.1])
+        elbow = np.array([4.0, 2.6, top + 1.9])
         mic = np.array([1.9, 0.85, top + 1.1])
         back = mic + np.array([0.25, 0.3, 0.2])
         for k, (a, b) in enumerate(((clamp, elbow), (elbow, back))):
@@ -735,6 +740,8 @@ class BroccoliTossJob(EternalJob):
                        material=P + ("blast_fire" if k % 3 else "blast_fire2"), **vis)
         for k in range(len(self.SMOKE)):
             b.add_geom(name=f"{P}blast_smoke{k}", type=S, size=(0.1, 0, 0), material=P + "blast_smoke", **vis)
+        for k in range(self.cfg.n_embers):  # floating sparks / embers
+            b.add_geom(name=f"{P}blast_ember{k}", type=S, size=(0.05, 0, 0), material=P + "blast_core", **vis)
         for k in range(self.N_RING):
             b.add_geom(name=f"{P}blast_ring{k}", type=mj.mjtGeom.mjGEOM_ELLIPSOID, size=(0.1, 0.1, 0.05),
                        material=P + "blast_ring", **vis)
@@ -797,6 +804,13 @@ class BroccoliTossJob(EternalJob):
         self.g_fire = [g(f"{P}blast_fire{k}") for k in range(len(self.FIRE))]
         self.g_smoke = [g(f"{P}blast_smoke{k}") for k in range(len(self.SMOKE))]
         self.g_ring = [g(f"{P}blast_ring{k}") for k in range(self.N_RING)]
+        self.g_ember = [g(f"{P}blast_ember{k}") for k in range(self.cfg.n_embers)]
+        er = np.random.default_rng(99)
+        # ember start offsets (around the fireball), drift velocities (mm/s, mostly up
+        # and out), sizes and flicker phases
+        self._ember = dict(p0=er.normal(0, 1, (self.cfg.n_embers, 3)) * np.array([1.6, 2.2, 1.2]) + np.array([0, 0, 1.5]),
+                           v=er.normal(0, 1, (self.cfg.n_embers, 3)) * np.array([2.5, 3.5, 1.5]) + np.array([0, 0, 3.0]),
+                           r=er.uniform(0.05, 0.13, self.cfg.n_embers), ph=er.uniform(0, 6.3, self.cfg.n_embers))
         # geoms whose pos / quat the job animates: MuJoCo skips the geom offset of
         # geoms compiled at their body's frame ("sameframe"), so turn that off
         if hasattr(m, "geom_sameframe"):
@@ -957,20 +971,20 @@ class BroccoliTossJob(EternalJob):
             qt, e = self._ik(qt, leg, [("tarsus5", self.take_point() + np.array([0.0, sy * (R - 0.05), 0.06]), 1.0)])
             self.ik_err[f"take_{leg}"] = e
         self.q_take = qt
-        # windup: the left front leg dips forward with the plate, the right lets go
+        # windup: the right front leg dips forward with the plate, the left lets go
         qw = self.q_hold.copy()
-        qw[self._leg_cols("rf")] = self.q_rest[self._leg_cols("rf")]
-        qw, e = self._ik(qw, "lf", [("tarsus5", H + np.array([0.25, 0.45, -0.25]), 1.0)])
-        self.ik_err["wind_lf"] = e
+        qw[self._leg_cols("lf")] = self.q_rest[self._leg_cols("lf")]
+        qw, e = self._ik(qw, "rf", [("tarsus5", H + np.array([0.25, -0.45, -0.25]), 1.0)])
+        self.ik_err["wind_rf"] = e
         self.q_wind = qw
-        # flick: over the left shoulder (away from the camera), up and back
+        # flick: over the right shoulder (the picture's left on the webcam), up and back
         qf = qw.copy()
-        qf, e = self._ik(qf, "lf", [("tarsus5", np.array(self.FLICK_TIP) + np.array([0.0, 0.0, z]), 1.0)],
+        qf, e = self._ik(qf, "rf", [("tarsus5", np.array(self.FLICK_TIP) + np.array([0.0, 0.0, z]), 1.0)],
                          iters=300)
-        self.ik_err["flick_lf"] = e
+        self.ik_err["flick_rf"] = e
         self.q_flick = qf
 
-    FLICK_TIP = (-0.45, 0.75, 2.4)  # the flicking tarsus at the release (z above the seat)
+    FLICK_TIP = (-0.45, -0.75, 2.4)  # the flicking (right front) tarsus at the release (z above the seat)
 
     def take_point(self) -> np.ndarray:
         return np.array([1.3, -0.95, self.cfg.seat_z + 1.1])
@@ -1164,7 +1178,10 @@ class BroccoliTossJob(EternalJob):
                 self._set_phase("aftermath", t)
         elif ph == "aftermath":
             self._keep_frozen()
-            self._set_viewer(self.q_rest, self._monitor_head(t))
+            # unbothered: a slow glance off to the side, then back to the stream
+            yaw, pitch, roll = self._monitor_head(t)
+            g = _ease(s / 0.6) * (1.0 - _ease((s - 1.6) / 0.6))
+            self._set_viewer(self.q_rest, (yaw + 0.45 * g, pitch, roll))
             if s >= c.aftermath_s:
                 self._start_rebuild(t)
         elif ph in ("rebuild", "walk_off"):
@@ -1302,15 +1319,15 @@ class BroccoliTossJob(EternalJob):
         else:
             q = self._blend(self.q_wind, self.q_flick, (s - c.windup_s) / c.throw_s)
         self._set_viewer(q, head)
-        # the plate follows the left front "hand" (kinematic until the release)
+        # the plate follows the right front "hand" (kinematic until the release)
         mj.mj_kinematics(self.sim.model, self.sim.data)
-        tip = self.viewer_tarsus("lf")
+        tip = self.viewer_tarsus("rf")
         a = _ease(min(s / (c.windup_s + c.throw_s), 1.0))
         tilt = quat_axis_angle((0, 1, 0), 1.6 * a)  # the plate tips over the shoulder
         if s < c.windup_s:
-            base = self.hold_point() + (tip + np.array([0.0, -0.5, 0.0]) - self.hold_point()) * _ease(s / c.windup_s)
+            base = self.hold_point() + (tip + np.array([0.0, 0.5, 0.0]) - self.hold_point()) * _ease(s / c.windup_s)
         else:
-            base = tip + np.array([0.0, -0.5 * (1 - a), 0.0])
+            base = tip + np.array([0.0, 0.5 * (1 - a), 0.0])
         self._place_plate(base, tilt)
         if s >= c.windup_s + c.throw_s:
             self._launch(t, base, tilt)
@@ -1439,22 +1456,37 @@ class BroccoliTossJob(EternalJob):
             m.mat_rgba[mid, 3] = min(max(a, 0.0), 1.0)
 
         # core flash (0-0.2 s), fireball (0-0.8 s), smoke (0.25-1.6 s), dust ring (0-0.5 s)
-        setg(self.g_core, 1.2 * _ease(s / 0.05) * (1.0 - _ease((s - 0.05) / 0.2)) + 0.02)
-        alpha(self.m_core, 1.0 - _ease((s - 0.08) / 0.15))
-        grow = _ease(s / 0.22)
+        K = self.cfg.blast_scale
+        xmax = self.cfg.blast_front_x - b["c"][0]  # puff front edges stay behind the chair back
+        setg(self.g_core, min(K * 1.2, max(xmax, 0.3)) * _ease(s / 0.05) * (1.0 - _ease((s - 0.05) / 0.2)) + 0.02)
+        # the core stays lit (it also colours the embers) and fades with them
+        alpha(self.m_core, 1.0 - _ease((s - 1.4) / 1.0))
+        grow = _ease(s / 0.25)
+        spread = np.array([0.45, 1.25, 1.0])  # flat towards the camera, wide and tall
         for k, gid in enumerate(self.g_fire):
             off, r = self.FIRE[k]
-            pos = np.array(off) * (0.4 + 1.5 * grow) + np.array([0.0, 0.0, 1.5 * s])
-            setg(gid, r * (0.2 + 1.2 * grow) * (1.0 - 0.3 * _ease((s - 0.4) / 0.4)), pos)
-        fa = 1.0 - _ease((s - 0.35) / 0.45)
+            pos = K * spread * np.array(off) * (0.4 + 1.5 * grow) + np.array([0.0, -0.6 * K * grow, K * 1.2 * s])
+            rr = K * r * (0.2 + 1.2 * grow) * (1.0 - 0.3 * _ease((s - 0.6) / 0.6))
+            pos[0] = min(pos[0], xmax - rr)
+            setg(gid, rr, pos)
+        fa = 1.0 - _ease((s - 0.7) / 0.8)
         alpha(self.m_fire, 0.95 * fa)
         alpha(self.m_fire2, 0.95 * fa)
-        sg = _ease((s - 0.25) / 1.3)
+        sg = _ease((s - 0.2) / 1.8)
         for k, gid in enumerate(self.g_smoke):
             off, r = self.SMOKE[k]
-            pos = np.array(off) * (1.2 + 1.5 * sg) + np.array([0.0, 0.0, 1.0 + 3.5 * sg])
-            setg(gid, r * (0.5 + 0.8 * sg), pos)
-        alpha(self.m_smoke, 0.55 * _ease((s - 0.25) / 0.25) * (1.0 - _ease((s - 0.8) / 0.8)))
+            pos = K * spread * np.array(off) * (1.0 + 1.3 * sg) + np.array([0.0, -0.4 * K * sg, K * (0.8 + 2.4 * sg)])
+            rr = K * r * (0.5 + 0.8 * sg)
+            pos[0] = min(pos[0], xmax - rr)
+            setg(gid, rr, pos)
+        alpha(self.m_smoke, 0.7 * _ease((s - 0.2) / 0.3) * (1.0 - _ease((s - 1.4) / 1.1)))
+        # embers: small glowing sparks drifting up and out, flickering, shrinking
+        E = self._ember
+        ea = _ease(s / 0.15)
+        for k, gid in enumerate(self.g_ember):
+            pos = E["p0"][k] * (0.6 + 0.5 * ea) + E["v"][k] * s
+            flick = 0.6 + 0.4 * math.sin(E["ph"][k] + 23.0 * s)
+            setg(gid, E["r"][k] * flick * ea * (1.0 - 0.7 * _ease((s - 1.2) / 1.3)), pos)
         rr = 7.0 * _ease(s / 0.5)
         zr = 0.15 - b["c"][2]  # the dust ring runs along the floor
         for k, gid in enumerate(self.g_ring):
@@ -1558,8 +1590,10 @@ class BroccoliTossJob(EternalJob):
     # so the viewer faces it, the plate goes over its shoulder and the blast is behind it
     # all three put the camera at x ~ 4.8 (just in front of the monitors at x = 5.4) and
     # z ~ 5 (above the desk top at 3.3), looking down at the chair
-    SHOTS = {"close": ((180.0, -22.5, 4.44), 0.6), "walk": ((180.0, -22.4, 4.98), 0.6),
-             "wide": ((180.0, -16.5, 5.63), 0.35)}
+    # one steady shot (a fixed stream webcam) centred on the chair; the three names are
+    # kept for the phase logic
+    WEBCAM = ((180.0, -13.0, 5.0), 0.6)
+    SHOTS = {"close": WEBCAM, "walk": WEBCAM, "wide": WEBCAM}
 
     def shot(self) -> str:
         ph = self.phase
@@ -1572,12 +1606,9 @@ class BroccoliTossJob(EternalJob):
     def camera_target(self) -> np.ndarray:
         t = self.sim.time
         sh = self.shot()
-        if sh == "close":
-            out = np.array([0.7, -0.5, self.cfg.seat_z + 1.2])
-        elif sh == "walk":  # keep the webcam on the chair; the host walks into frame
-            out = np.array([0.2, -0.6, self.cfg.seat_z + 1.0])
-        else:  # pulled back a little so the blast behind the chair is in frame
-            out = np.array([-0.6, -0.8, self.cfg.seat_z + 1.3])
+        # centred on the chair (y = 0) at chair mid-height; the camera ends up at
+        # x ~ 5 just in front of the monitors, above the desk top
+        out = np.array([0.1, 0.0, self.cfg.seat_z + 0.9])
         dt = self.run_time() - self._shake_t
         if 0 <= dt < 0.7:
             a = self.cfg.shake_mm * (1 - dt / 0.7)
