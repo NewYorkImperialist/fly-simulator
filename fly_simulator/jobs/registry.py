@@ -32,6 +32,7 @@ def _load_builtin() -> None:
     from fly_simulator.jobs import mowing  # noqa: F401
     from fly_simulator.jobs import raking  # noqa: F401
     from fly_simulator.jobs import kebab  # noqa: F401
+    from fly_simulator.jobs import dead_hang  # noqa: F401
 
 
 def available_jobs() -> list[str]:

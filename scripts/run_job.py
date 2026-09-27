@@ -8,10 +8,12 @@
     python scripts/run_job.py --rotate --rotate-minutes 10   # cycle through all jobs forever
 
     python scripts/run_job.py --job kebab --brain --stress   # S startles the chef
+    python scripts/run_job.py --job dead_hang --brain --habituation  # T = trap twitch
 
 Keys (window): Q / ESC quit, C camera (job / follow / side / top), P pause,
 X explicit reset (counted), I screenshot (PNG with HUD), TAB hide / show the HUD; job keys are forwarded to
-the job (kebab: S = startle the chef, a poke; with --stress it speeds the carving up).
+the job (kebab: S = startle the chef, a poke; with --stress it speeds the carving up;
+dead_hang: T = make the flytrap twitch).
 
 Mirrors fly_simulator.app.Session construction (the job's props are compiled in via
 world_extensions); the physical whip and the connectome brain are off unless
@@ -62,6 +64,9 @@ def build_parser() -> argparse.ArgumentParser:
                         "opens the brain window unless --headless / --no-brain-window")
     p.add_argument("--stress", action="store_true",
                    help="octopamine stress / arousal layer (docs/STRESS.md); implies --brain")
+    p.add_argument("--habituation", action="store_true",
+                   help="looming habituation of the giant fibre's LC4 / LPLC2 inputs "
+                        "(docs/HABITUATION.md); implies --brain")
     p.add_argument("--no-brain-window", action="store_true",
                    help="with --brain: no brain window")
     p.add_argument("--seed", type=int, default=None, help="controller (CPG) seed")
@@ -98,10 +103,12 @@ def run_one(name: str, args, max_seconds: float | None, stop_flag: dict) -> dict
     job = make_job(name, job_cfg)
     cfg = app_config(args)
     brain = None
-    if args.brain or args.stress:
+    if args.brain or args.stress or getattr(args, "habituation", False):
         from fly_simulator.brain_link import BrainLink, missing_requirements
 
         cfg.brain.enabled = True
+        if getattr(args, "habituation", False):
+            cfg.brain.habituation = True
         problem = missing_requirements(cfg.brain)
         if problem:
             raise SystemExit(f"ERROR: {problem}")

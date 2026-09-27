@@ -19,6 +19,7 @@ ffmpeg -ss START -t DUR -i in.mp4 -vf "setpts=PTS/SPEED,fps=FPS,scale=W:-2:flags
 |---|---|---|
 | `hero.gif` | 2.3 MB | Swatter slam: a lazy swat comes from behind. The real FlyWire brain's giant fibre fires, and the fly escapes on flapping wings (no external force) while the paddle lands behind it. 3x slow motion |
 | `kebab.gif` | 1.5 MB | The doner kebab chef job: it carves the spit with the recorded grooming stroke |
+| `dead_hang.gif` | 0.5 MB | The dead-hang job: the fly hangs from the pull-up bar, the flytrap twitches, the fly re-grips, then its grip is drained and it slides off into the trap: CHOMP, then the respawn |
 | `jobs.gif` | 2.5 MB | 2x2 grid of the eternal jobs: Sisyphus, hamster wheel, lawn mowing, leaf raking |
 | `whip.gif` | 2.0 MB | A level-3 physical whip crack from the right knocks the fly sideways. 4x slow motion |
 | `brain_window.png` | 0.1 MB | The brain window with real FlyWire activity 0.1 s after a looming stimulus (giant fibre 115 Hz, JUMP), after two whip hits under `--stress`. Shows the decision meters, DN traces, pain/arousal and the playground panel |
@@ -56,6 +57,19 @@ echo '{"render":{"width":1280,"height":640}}' > $S/r1280.json
 ```bash
 .venv/bin/python scripts/run_sim.py --job kebab --headless --max-seconds 5 --record $S/kebab.mp4 --no-log --config $S/r720.json
 ```
+
+**dead_hang.gif** (real time, 9 s, 480 px, 12 fps, 128 colours, bayer dither scale 4). The
+frames came from a small script that builds `create_job_session("dead_hang", cfg,
+{"twitch_every_s": 0, "slip_rate_per_s": 0})` at 600×400 and steps a `JobRunner`. It calls
+`job.twitch()` at 1.0 s and `job._start_reach("rf", t, "regrip")` at 2.2 s. At 3.6 s it
+sets both strengths and the capacity to 0.1 (a demo shortcut for "tired": the adhesion
+command becomes 4 µN per leg, and the fly was off the bar within 0.1 s). It renders a clean frame
+every 1/12 s and draws a short HUD (title, streak, grip, banner) with `compose_frame`.
+```bash
+ffmpeg -framerate 12 -i $S/gif/f%04d.png -vf "scale=480:-2:flags=lanczos,split[a][b];\
+[a]palettegen=max_colors=128:stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=4:diff_mode=rectangle" -loop 0 dead_hang.gif
+```
+Run it live: `python scripts/run_job.py --job dead_hang` (or `run_sim.py --job dead_hang`).
 
 **jobs.gif**. For each job, the same command at 480×320 with `--max-seconds 6` (raking 10). For
 sisyphus, hamster_wheel and raking the job camera was moved closer, using a small wrapper
