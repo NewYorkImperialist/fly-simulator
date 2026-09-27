@@ -24,6 +24,7 @@ ffmpeg -ss START -t DUR -i in.mp4 -vf "setpts=PTS/SPEED,fps=FPS,scale=W:-2:flags
 | `broccoli_toss.gif` | 2.3 MB | The broccoli toss job: the host fly brings a plate of broccoli, the posed viewer fly in the gaming chair ponders it, snaps it over its shoulder without looking, and the room behind it explodes, with the meme's edit effects (impact frame, flash, hit-stop and slow motion, shake, punch-in, bloom); the props fly, the room rebuilds. Compact HUD, `EDIT FX (not physics)` tag during the edit beat |
 | `taste_tester.gif` | 1.2 MB | The taste tester job with the real FlyWire brain: a sugar drop on the leg -> MN9 at ~72 Hz on the meter, the proboscis extends, APPROVED (green lamp, tally); a mixed (sugar + bitter) drop -> MN9 19 Hz, REJECTED, the leg pushes the dish away; the stamper stamps the cards and the diverter sweeps samples into the green / red bins. No HUD |
 | `pizza_chef.gif` | 2.4 MB | The pizza chef job, one pizza: the dough ball kneaded flat, the toss (a spinning free body, labelled slow motion x0.1), sauce, cheese / pepperoni / basil raining from the bowls (slow motion x0.3), into the brick oven on the peel, baked, sliced by the cutter wheel, boxed and served; the chalkboard counts. No HUD |
+| `trampoline.gif` | 2.1 MB | The trampoline job: the fly stands on the spring mat, the first jump, the rebound jumps pumping the height up beside the ruler (red / gold markers, NEW BEST), a backflip (a real boosted asymmetric push) landed at the mat's edge, the next bounce sends it off onto the lawn, the counted respawn, and it pumps up again. Labelled slow motion x0.2, a one-line HUD |
 | `jobs.gif` | 2.5 MB | 2x2 grid of the eternal jobs: Sisyphus, hamster wheel, lawn mowing, leaf raking |
 | `whip.gif` | 2.0 MB | A level-3 physical whip crack from the right knocks the fly sideways. 4x slow motion |
 | `brain_window.png` | 0.1 MB | The brain window with real FlyWire activity 0.1 s after a looming stimulus (giant fibre 115 Hz, JUMP), after two whip hits under `--stress`. Shows the decision meters, DN traces, pain/arousal and the playground panel |
@@ -113,6 +114,19 @@ ffmpeg -framerate 8 -i sel/s%04d.png -vf "scale=380:-2:flags=lanczos,split[a][b]
 (Every frame differs: the camera glides and the fire flickers, so the size scales with the frame
 count; 400 px / 96 colours was 3.2 MB.) Run it live: `python scripts/run_job.py --job pizza_chef`
 (or `run_sim.py --job pizza_chef`).
+
+**trampoline.gif** (default config, 211 frames = 14 s of presentation time, 4.1 s of sim).
+A small script builds `create_job_session("trampoline", cfg)` at 600×400 and steps a
+`JobRunner(chunk_steps=50)`; at 0.95 s of run time it opens the trick window (`trick_p` 1, no
+height / streak limits) until one backflip has been tried (a demo shortcut to get a flip into the
+clip; this one landed, 335°). It renders a clean frame (`render(hud=False)`, so the slow-motion
+label is in it) every 1/15 s of `session.present_time()` and draws a one-line HUD (bounces, best,
+streak, the banner) with `compose_frame`, then:
+```bash
+ffmpeg -framerate 15 -i gif/f%04d.png -vf "scale=480:-2:flags=lanczos,split[a][b];\
+[a]palettegen=max_colors=96:stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=4:diff_mode=rectangle" -loop 0 trampoline.gif
+```
+Run it live: `python scripts/run_job.py --job trampoline` (or `run_sim.py --job trampoline`).
 
 **jobs.gif**. For each job, the same command at 480×320 with `--max-seconds 6` (raking 10). For
 sisyphus, hamster_wheel and raking the job camera was moved closer, using a small wrapper

@@ -18,6 +18,7 @@ constant.
 | `broccoli_toss` | in a streamer's room the host fly brings a plate of broccoli to the viewer fly in the gaming chair; the viewer ponders it for 0.75–1 s, flicks the whole plate over its shoulder without looking, and everything behind it explodes (cartoon blast, props fly with real physics); the room rebuilds | plates yeeted, explosions, stream viewers, vegetables eaten: 0 |
 | `taste_tester` | a quality-control fly at a conveyor belt taps each sample (sugar / bitter / mixed / water drops) with a front leg; the taste goes to the brain and, with `--brain`, the real connectome's MN9 decides: APPROVED (proboscis extends, green stamp, green bin) or REJECTED (the leg pushes the dish away, red stamp, red bin) | samples tasted, approved, rejected, accuracy vs the label, MN9 per sample type |
 | `pizza_chef` | in a fly-scale pizzeria the fly kneads a dough ball flat with IK leg presses, tosses it (a spinning free body, real flight), sauces and tastes it (with `--brain` the connectome's MN9), toppings rain from the bowls (pooled free bodies), the peel slides it into the brick oven, it bakes, a cutter wheel makes 8 slices, it is boxed and served | pizzas served, dough tosses, perfect tosses, slices, tips |
+| `trampoline` | bounces on a backyard trampoline forever: the real Jump action, timed to the rebound of a mat held up by 48 tendon springs, pumps the height up to ~5 mm; now and then a backflip (real, boosted asymmetric push), crash landings and falls off are counted and reset | bounces, best height (mm, body lengths), streak, backflips, crash landings, falls off |
 
 ```bash
 python scripts/run_job.py --job sisyphus                   # window; Q quit, C camera, P pause, X reset, I screenshot, TAB HUD
@@ -1220,6 +1221,132 @@ kinematic (above); the toppings ride on the pizza kinematically once landed; the
 colour / texture schedule. The fling makes the fly lunge (thorax 1.0 → 0.7 mm, ~12° pitch for
 ~0.3 s; `run_sim.py` reports it as DESTABILIZED), never a fall in the runs above. The cutter
 is not held by the fly. The slow motion is a presentation edit. The window mode
+(`LiveViewer`) was not opened in this session.
+
+### trampoline
+
+`fly_simulator/jobs/trampoline.py` (scene, `BounceJump`, bounce logic),
+`fly_simulator/jobs/trampoline_assets.py` (procedural meshes / textures), tests in
+`tests/test_jobs_trampoline.py`. HUD (TAB): `TRAMPOLINE FLY - the fly bounces on a trampoline
+forever`.
+
+![trampoline](media/trampoline.gif)
+
+**Scene** (all visual except the mat collider). A backyard: a lawn texture on the floor, a wooden
+board fence with a sky and shrubs behind it, a round trampoline (mat radius 6 mm, a steel frame
+ring at 6.9 mm on six bent W legs, the mat top 2 mm above the lawn: a 4 m backyard trampoline at
+the fly's 2.5 mm = 1.75 m scale is ~6 mm across), a woven black mat with a blue stitched ring and a
+yellow centre mark, 48 silver springs from the frame to the mat's edge, a height ruler on a pole
+beside the trampoline in the fly's plane (0 = the mat at rest, 1 mm ticks, labels every 2 mm,
+yellow / blue bands every body length, a red marker at the last bounce and a gold one at the best),
+and a scoreboard "FLY TRAMPOLINE CLUB" with 7-segment BOUNCES / BEST (mm, xx.x) / STREAK. No safety
+net (it would hide the fly from the side camera). The camera is a fixed side view (azimuth 90°,
+elevation -1°, 18 mm) with the ruler on the left and the scoreboard on the right.
+
+**The mat (physics).** A body on a vertical slide joint (damping 0.02 µN per mm/s, 0.15 mg, its own
+weight trimmed out with `gravcomp`) held up by **48 MuJoCo tendon springs** (spatial tendons,
+stiffness 10 µN/mm each, pre-stretched 0.04 mm over the 0.9 mm gap). They are also the springs you
+see: their vertical force is tension × sin(angle), so the mat stiffens as it sinks, like a real
+trampoline. Measured (static, fly standing): the fly's weight sinks it 0.25 mm; +1 / 2 / 5 / 10 /
+20 body weights on top: 0.37 / 0.44 / 0.61 / 0.80 / 1.10 mm. While bouncing it is pressed down up
+to 1.0 mm. The fly touches a hidden square box collider (half 5.3 mm) on the mat body through
+**explicit contact pairs with FlyGym's own ground parameters** (`add_ground_pairs`: the 55 fly
+geoms, solref 0.2 ms, friction 1, margin 1 µm), and the visible disc rides on the same body.
+Lessons (measured): (1) with the generic prop contact (`contact_kwargs`) or the plane's soft
+geom parameters, the tarsal adhesion (40 µN per leg) pulled the legs into the contact and drove
+the light spring-mounted mat into a sustained jitter that skated the standing fly around; with the
+ground's pairs it stands as still as on the floor; (2) walking on the springy mat excites it and
+bounces the fly about, so the fly never walks: it stands in `MatStance` (standing pose, all tarsi
+adhering, registered stationary) before its first jump; (3) the collider must be wider than the
+fly's reach: a fly whose hind legs stepped off the edge of a smaller (4.3 mm) collider was thrown
+off sideways.
+
+**The bounce: the real Jump action.** `BounceJump` is the `Jump` action (crouch → mid-leg TTM
+stroke → ballistic flight → landing, docs/ACTIONS.md). After a 0.3 s stance the first jump is the
+default long mode (2.8 mm). Then, after every touchdown on the mat, the next jump is a short-mode
+jump (6 ms leg set-up, 15 ms stroke) fired `fire_delay_ms` after the first foot touches: 4, 3, 2, 1
+ms for the first four rebounds, then 0.5 ms. At 0-1 ms the stroke starts as the mat reaches the
+bottom of its compression (~5-7 ms after touchdown), so the springs' stored energy and the leg push
+add up; fired later (3-5 ms) the stroke comes during the rebound and the bounce is lower and less
+stable (measured steady heights: 0-1 ms 4.1 mm, 3 ms 2.9 mm with crashes, 5 ms 2.5 mm, on an older,
+stiffer mat). So the height is pumped up over ~6-8 bounces, e.g. 2.8 → 3.3 → 3.8 → 3.8 → 4.6 → 4.4 → 4.7
+→ 4.9 → 5.0 mm, and saturates at ~5 mm (2 body lengths). **The same schedule on a rigid mat**
+(`rigid_mat: true`, a fixed body: "the frame"): 3.1 mm average (best 3.4) against 5.2 mm (best 6.5)
+on the springy mat, 10 s each, no timing noise. Height = the thorax's rise above its standing
+height on the resting mat (about the feet's clearance; the ruler markers show it).
+
+**Engineered, labelled** (the wings have no aerodynamics in the walking model; HUD line
+`airborne attitude + steering aid: engineered wing emulation`), both only between take-off and
+touchdown, both inside `BounceJump`:
+
+* an **attitude stabiliser** (wings / halteres emulation): a torque on the thorax toward a target
+  up vector and damping the body rates, critically damped at 15 Hz, capped at 2 µN·mm (a pure
+  torque, no force). Without it the rebound jumps tumble within 1-3 bounces (take-off pitch rates
+  of 30-50 rad/s from a moving surface). The target up vector leans by 0.05 rad per mm of offset
+  from the centre, away from it (at most 0.25 rad): "foot placement", found by measurement (with
+  the lean toward the centre, or none, the fly drifted backward ~0.5 mm per bounce and fell off
+  every ~20-40 bounces; with this sign one 30 s run had 0 falls off in 364 bounces);
+* a **horizontal "wing steering" force**, ≤ 0.15 body weights, servoing the horizontal velocity
+  to 8/s × (centre − position). Horizontal only: it never adds lift or height.
+
+**Timing noise and tricks (our behaviour model, labelled).** Every rebound delay gets N(0, 0.6 ms)
+of jitter, and 3 % are **missteps** (+4 ms: the mat has already rebounded). With probability 0.12
+per bounce in a window (streak ≥ 5, last height 3.6-4.7 mm) the fly tries a **backflip** with real
+dynamics: the Jump's documented boost ×1.8 (stroke kp and force range), the mid coxae trimmed to
+−30° (the default is +12°: an asymmetric push that pitches it nose-up), the attitude stabiliser
+off, fired 3 ms after touchdown. It counts as landed if the fly passed through upside down (tilt ≥
+140°) and touched down on its feet (tilt ≤ 50°); the bounce after a landed flip is a gentle one
+(6 ms). From the highest bounces most flips crashed, hence the window. A touchdown tilted more than
+50° (or a body part on the mat) is a **crash landing**, touching the lawn is a **fall off the
+trampoline**; both end the streak, and after 1.2 / 1.0 s the job calls `recover` (explicit, counted
+reset onto the mat).
+
+**Slow motion (edit, labelled `SLOW MOTION x0.20 (edit, not physics)`).** A bounce lasts ~0.1 s, 1-3
+frames at real time, so the job's `time_scale` runs ×0.2 while bouncing (the physics step sequence
+is unchanged) and ×1 while it stands, lies or waits for a reset. `slowmo: 1` turns it off.
+
+**Brain tie-in: not done** (checked why): the brain link publishes 0.1 s states and a
+brain-triggered jump fires ~0.12 s after a looming stimulus (docs/ACTIONS.md), longer than a whole
+bounce (~70 ms in the air + ~20 ms on the mat), and a mat filling the lower visual field has no
+looming edge for `LoomingVision` (its angular size is already ~180°). So the brain cannot time the
+bounce; the job times it. `--brain` runs, but the brain does not drive anything here.
+
+**Counters / HUD** (TAB, off by default): bounces (the work counter), BEST height in mm and body
+lengths (2.5 mm), last and average height, STREAK (best), crash landings, wobbly landings (touchdown
+tilt > 10°), falls off the trampoline, BACKFLIPS landed / tried, missteps, the mat's deflection
+(max), the next rebound delay, the label line, and a banner (NEW BEST, BACKFLIP ATTEMPT!, BACKFLIP
+LANDED!, CRASH LANDING!, OFF THE TRAMPOLINE!). Constant memory: counters and two mocap markers.
+
+**Verified** (headless, 2026-09-27, Apple M1, default config):
+
+* `run_job.py --job trampoline --headless --max-seconds 150`: **1496 bounces**, best **6.46 mm (2.58
+  body lengths)**, average 4.88 mm, best streak **237**, 35 wobbly landings, **9 crash landings, 15
+  falls off**, **8 / 18 backflips landed**, 40 missteps, 24 auto-recoveries (15 `fell_off`, 9
+  `crash_landing`), 0 instabilities, **RTF 0.56**; the mat was pressed down up to 1.01 mm; the
+  steering force (0.15 BW) and the torque (2 µN·mm) both reach their caps.
+* `run_sim.py --job trampoline --headless --max-seconds 4` runs (47 bounces, full body with wings).
+* Frames checked by eye (job renderer, 720×480 and the GIF's 600×400 frames): the standing fly on
+  the mat, the mat pressed below the frame ring with the springs sloping (compression), the fly at
+  the apex beside the ruler with the red / gold markers, a landing, a backflip (upside down above
+  the mat, then on its feet), a fall off onto the lawn and the respawn, the scoreboard close-up
+  (1234 / 5.7 / 89).
+
+Tests: `tests/test_jobs_trampoline.py` (10 tests, ~30 s): registry / config; the slide joint, the
+48 tendon springs, the collider's 55 ground-parameter pairs, every other job geom visual; the mat is
+springy (a standing fly sinks it 0.1-0.4 mm, 5 body weights press it > 0.2 mm further, it springs
+back up at > 20 mm/s and settles back); bouncing pumps the height with the real Jump (steady
+bounces > first jump + 0.6 mm, best > 4 mm, the aids within their caps); the same bounces on the
+rigid mat are > 0.6 mm lower; counters, scoreboard digits, ruler markers and HUD; the slow-motion
+edit and its label; a forced backflip attempt spins the fly past 90° with the stabiliser off and
+the boost on; a crash landing and a fall off the trampoline are counted and explicitly reset, no
+applied force is left over, and the bouncing resumes.
+
+**Limitations.** The mat is a rigid disc on a slide joint (it sinks as a whole and cannot tilt; no
+fabric dip under the feet), the collider is a square (its corners reach 7.5 mm, over the springs),
+and the springs are straight tendons, not coils. The attitude stabiliser, the lean and the
+horizontal steering are engineered stand-ins for wings; without them the bouncing does not last.
+The rebound schedule, the timing noise, the missteps and the trick choice are ours; the trick itself
+uses the Jump's documented boost. The brain does not time the bounce (above). The window mode
 (`LiveViewer`) was not opened in this session.
 
 ## Verification

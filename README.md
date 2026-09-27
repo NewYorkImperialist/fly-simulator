@@ -36,6 +36,7 @@ uv venv --python 3.12 .venv && uv pip install --python .venv/bin/python -e ".[de
 .venv/bin/python scripts/run_job.py --job broccoli_toss    # absolutely not (the plate goes over the shoulder)
 .venv/bin/python scripts/run_job.py --job taste_tester --brain  # QC taste tester: the real brain's MN9 approves / rejects
 .venv/bin/python scripts/run_job.py --job pizza_chef      # the fly makes pizza forever (knead, toss, toppings, oven, slice)
+.venv/bin/python scripts/run_job.py --job trampoline      # bounces on a backyard trampoline forever (real jump + spring mat)
 .venv/bin/python scripts/run_job.py --rotate               # all of them, forever
 .venv/bin/python scripts/run_job.py --job kebab --brain --stress   # + live brain; S startles the chef
 ```
