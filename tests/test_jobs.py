@@ -145,6 +145,22 @@ def test_sisyphus_props_and_contacts(sisyphus):
     assert job.ground_height(job.x_top - 0.01, 0.0) == pytest.approx(job.hill_height, abs=0.01)
     assert job.ground_height(0.0, 5.0) > 0.5  # side bank
     assert session.detector.ground_height_fn == job.ground_height
+    # the job's znear survives the fly's MuJoCo globals (merged in after extension)
+    assert m.vis.map.znear == pytest.approx(job.znear)
+
+
+def test_job_znear_zfar_applied_after_compile():
+    import mujoco as mj
+
+    class Deep(EternalJob):
+        znear, zfar = 0.02, 123.0
+
+    m = mj.MjModel.from_xml_string("<mujoco><worldbody/></mujoco>")
+    z0, f0 = float(m.vis.map.znear), float(m.vis.map.zfar)
+    EternalJob().apply_visual_globals(m)  # None: left as compiled
+    assert m.vis.map.znear == pytest.approx(z0) and m.vis.map.zfar == pytest.approx(f0)
+    Deep().apply_visual_globals(m)
+    assert m.vis.map.znear == pytest.approx(0.02) and m.vis.map.zfar == pytest.approx(123.0)
 
 
 def test_sisyphus_pushes_boulder_uphill(sisyphus):

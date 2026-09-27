@@ -262,6 +262,8 @@ class _Puffs:
 @register_job
 class PizzaChefJob(EternalJob):
     name = "pizza_chef"
+    #: depth precision (shadow maps span znear..zfar; EternalJob applies it after compile)
+    znear = 0.05
     title = "PIZZA CHEF FLY"
     tagline = "the fly makes pizza forever"
     work_label = "pizzas served"
@@ -770,7 +772,6 @@ class PizzaChefJob(EternalJob):
             wb.add_geom(name=f"{P}tomato{j}_stem", type=mj.mjtGeom.mjGEOM_CYLINDER, size=(0.05, 0.012, 0),
                         pos=(p[0], p[1], 0.285), material=P + "leafgreen", **vis)
         # lights: a key spot (shadows), a cool fill, dim headlight (+ the oven's glow)
-        spec.visual.map.znear = 0.05
         spec.visual.headlight.ambient = (0.28, 0.27, 0.26)
         spec.visual.headlight.diffuse = (0.3, 0.3, 0.3)
         spec.visual.headlight.specular = (0.1, 0.1, 0.1)

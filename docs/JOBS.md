@@ -52,7 +52,11 @@ from fly_simulator.jobs.geometry import (add_box, add_slope, add_plane_box, cont
    change e.g. `app_cfg.fly.spawn_height` (the hamster wheel spawns the fly on the
    inside bottom of the wheel), and call `super()`.
 3. `job.extension(world)`: a world extension that adds props to `world.mjcf_root`
-   before `add_fly`.
+   before `add_fly`. Don't set MuJoCo globals such as `spec.visual.map.znear` here:
+   the fly's globals are merged into the spec *after* the extension and overwrite them
+   (znear ends up at FlyGym's 5e-4). Use the class attributes `znear` / `zfar`
+   instead (default None = leave the compiled value); `attach` writes them into the
+   compiled model (`apply_visual_globals`) before `on_attach`.
 4. `Session(cfg, world_extensions=[job.extension, ...])`, then `install_job(session, job)`.
    `install_job` checks that `job.required_names` exist in the model and calls
    `job.attach(session)`. It also chains `job.after_physics` onto
@@ -278,8 +282,9 @@ layout uses the same random draws as before, so carving is unchanged (15 s headl
 90 shavings before and after). Shavings are curled slice meshes; their physics is
 still the hidden 3 µg ellipsoid. Lights: a key spot with shadows (`shadows=False`
 turns the shadow map off; it costs ~6 ms per 960×640 frame), a cool rim light, the
-warm burner light and a dimmer headlight. `visual.map.znear` is raised to 0.05 (×
-extent 1 mm) so the spot-light shadow map has enough depth precision.
+warm burner light and a dimmer headlight. `znear` is raised to 0.05 (× extent 1 mm;
+the `EternalJob.znear` class attribute) so the spot-light shadow map has enough depth
+precision.
 
 **Knife.** A chef's knife sits on the right front `rf_tarsus1`: a tapered 0.8 mm
 blade mesh (spine, primary grind, bevelled edge, belly curving up to the point) in
@@ -542,6 +547,12 @@ pull-up bar over a Venus flytrap."
 
 ![dead_hang](media/dead_hang.gif)
 
+The GIF is the end of a natural hang (default config, seed 0, nothing forced, real
+time, 10 fps, 480×320, HUD cut to three lines): 68–77.6 s of sim. The fly has been on
+the bar for 68 s (5 re-grips, 2 slips) and clings at 35–40 % grip, the right hand
+slips, the fly hangs one-armed with the mid legs braced, re-grabs at 31 %, and drops
+straight into the trap: CHOMP, then the explicit respawn with the trap reopening.
+
 **Scene.** A fly-scale gym: a chrome pull-up bar (static capsule along x, R 0.15 mm,
 8 mm long, at z = 11 mm) on black powder-coated posts, with chalk marks where the
 hands go. Below it is a potted Venus flytrap (terracotta pot, peat with moss, a
@@ -561,8 +572,12 @@ respawn does). `sim.warmup_s` is 0, so the standing warm-up never runs. The
 posture is an `ActionManager` action (`HangGrip`, name `dead_hang`) that writes all
 42 leg targets and the 6 adhesion commands every step. Grip = FlyGym's own tarsal
 adhesion actuators (MuJoCo `adhesion` on tarsus5, gain 40: 40 µN per leg at ctrl 1 =
-4 body weights; the fly weighs 10.05 µN) plus friction 1. Measured with this
-posture (both legs, 10 s trials):
+4 body weights; the fly weighs 10.05 µN) plus friction 1. The bar's contacts use
+condim 4 (sliding + torsional friction 0.02 mm: a tarsal pad is a small patch, not a
+point, so it resists spinning about the contact normal; FlyGym's condim-3 point
+contacts let a one-armed fly pivot freely). Measured with this posture (both legs,
+10 s trials, condim 3; with condim 4, 4 s trials, 0.15 falls after 0.18 s and 0.2
+holds):
 
 | adhesion ctrl per front leg | force per leg | result |
 |---|---|---|
@@ -570,28 +585,64 @@ posture (both legs, 10 s trials):
 | 0.05 / 0.10 | 2 / 4 µN | falls after 0.3 / 0.4 s |
 | 0.15 / 0.3 / 1.0 | 6 / 12 / 40 µN | hangs the full 10 s |
 
-So the hang needs roughly 1 body weight of total adhesion. With full adhesion it
-hangs indefinitely (thorax 1.42 mm below the bar axis, sway < 0.02 mm). One arm is
-precarious: the body swings and twists, and a leg coming back to the bar often
-misses. The walking fall detector is paused for this job (it would read a vertical
-fly as fallen). The job's own rule: no leg on the bar for 0.12 s and the thorax
-2.4 mm below it (or 3.6 mm regardless) = a fall.
+So the hang needs roughly 1–2 body weights of total adhesion. With full adhesion it
+hangs indefinitely (thorax 1.42 mm below the bar axis, sway < 0.02 mm). The walking
+fall detector is paused for this job (it would read a vertical fly as fallen). The
+job's own rule: no leg on the bar for 0.12 s and the thorax 2.4 mm below it (or
+3.6 mm regardless) = a fall.
+
+**One-armed moments (2026-09-27 rework).** The first version fell mostly by twisting
+off while one arm was off the bar, at 70–90 % grip: with one point contact the body
+swung (a ~0.08 s pendulum under the holding hand) and spun about it, and a re-gripped
+or re-grabbed leg came back to a bar that had moved relative to the body (joint-space
+replay from a displaced body puts the tarsus below the bar top, and closed-loop IK
+chased the swinging bar into contortions). What the fly does now:
+
+* **Mid-leg brace.** While a front leg is (about to be) off the bar, the mid legs swing
+  up and press their tarsi against the front of the bar (IK pose from the settled
+  hang, re-aimed from the current body pose when a brace starts; tarsus5 target 0.62 mm
+  either side of the hands, 0.02 mm into the bar face, 0.05 mm below the axis; blend-in
+  ~0.12 s, out ~0.4 s) with a little adhesion (ctrl 0.25 = 10 µN, about one body weight,
+  ramped with the blend) and stop kicking. That damps the swing and the spin.
+* **Weight shift.** A re-grip first ramps the leg's adhesion off over 0.2 s with the
+  tarsus still on the bar (the body settles under the other hand without a pendulum
+  kick), then lifts 0.15 mm (0.12 s) and puts it back (0.18 s). A slip is no longer
+  instantaneous either: the slipping tarsus loses its adhesion over 0.15 s, then drops.
+* **Aiming.** Reaches aim at where the tarsi really rested after the spawn settle,
+  relative to the bar (not the nominal IK targets), at the other hand's measured x ±
+  the spawn hand spacing (re-grabs also try 75 / 50 / 25 % of it if the bar is out of
+  reach). The leg follows the spawn lift / grip poses in joint space, each corrected by
+  a small IK step for where the body hangs now (at most 0.5 rad per joint, pulled
+  toward the spawn pose in the null space). With both hands on the bar the arms ease
+  back to the spawn grip pose (tau 0.3 s), so the body re-centres.
+
+Measured (strength set, the other front leg slipped, 3 s on one arm with the flail
+and kicks, fatigue off, 2 trials each): at 0.9 / 0.6 / 0.35 it holds, at 0.3 once in
+two, at 0.2 it falls within 0.2 s. Without the brace it still holds at 0.6 and falls
+at 0.35. So one arm is safe while the fly is fresh and fatal once it is tired. Six
+alternating re-grips at 90 %: 6 / 6 back on the bar, body yaw < 8°, thorax moved
+< 0.15 mm (before: the second one spun the fly 180° and it fell). Six alternating
+slips at 90 %: 6 / 6 re-grabbed on the first try, yaw < 9°; at 60 %: 3 of 4 on the
+first try, the fourth kept missing for 6 s.
 
 **Grip fatigue (phenomenological, ours).** Each front leg has a strength s (0–1).
 The adhesion command *is* s, so the force is 40 µN × s. s drains by 0.011/s while
 the leg carries load (× 2.5 when it holds alone; × (1 + stress level) with
-`--stress`), capped by a capacity that decays by 0.002/s. Below ~0.86 (± jitter) the
-fly **re-grips** the tired leg: it lifts it 0.15 mm off the bar and puts it back
-(joint-space replay of the settled grip, 0.3 s; the other leg holds alone
-meanwhile). That restores 60 % of (capacity − s) and costs 0.045 capacity. Random
-**slips** (hazard 0.045/s × ((1 − s)/0.5)², × (1 + 2 × stress)) drop the weaker leg.
-A gripping leg whose distal tarsi leave the bar for 0.25 s has physically slid off,
-which also counts as a slip. The slipped leg hangs below the bar and flails, the
-holding leg pulls up (femur–tibia +0.3 rad), the hind legs kick. After 0.8–1.8 s it
-**re-grabs**: closed-loop IK, targets moving from above the bar in front down onto
-the top, centred on where the body hangs now. A miss means it kicks and tries again.
-Whether the fly falls is decided by the contacts: it drops when the adhesion is too
-weak or a one-arm phase twists it off.
+`--stress`), capped by a capacity that decays by 0.002/s. When s drops 0.12 (± 0.04)
+below the capacity (and below 0.9) the fly **re-grips** the tired leg (weight shift,
+lift, put back, 0.5 s; the other leg holds alone meanwhile, the mid legs brace) — but
+only while the other leg has > 0.6: a tired fly no longer dares to let go and just
+clings. A re-grip restores 60 % of (capacity − s) and costs 0.045 capacity (1.2 s
+cooldown). Random **slips** (hazard 0.045/s × ((1 − s)/0.5)², × (1 + 2 × stress))
+drop the weaker leg. A gripping leg whose distal tarsi leave the bar for 0.4 s has
+physically slid off, which also counts as a slip. The slipped leg hangs below the bar
+and flails, the holding leg pulls up (femur–tibia +0.3 rad), the hind legs kick, the
+mid legs brace. After 0.8–1.8 s it **re-grabs** (see above). A miss means it kicks
+and tries again. So a hang goes: a few re-grips while the capacity drops, then the fly
+clings while s drains, slips get likelier, and a slip at low s (one arm below ~0.35)
+or both arms below ~0.15 ends it. Whether it falls is decided by the contacts.
+`stats()` counts falls by situation (`fall_causes`: one-arm / two-arm) and the mean
+grip of the hand(s) still on the bar when it fell (`mean_fall_grip`).
 
 **The trap.** A trap head on a slide joint (the "lunge") carries two lobes on hinge
 joints about the midrib, all driven by position servos (lobes: 12 Hz, critically
@@ -616,12 +667,35 @@ twitch drives LC4 / LPLC2 through the looming machinery. Measured without a brai
 is suicide, so the giant fibre (DNp01 > 60 Hz, the jump rule's threshold) makes the
 fly **FLINCH** instead: 0.35 s of full adhesion (clench), femur–tibia flexion (a
 little pull-up) and hind-leg kicks, costing 0.02 strength, with a 1 s refractory
-period. With `--brain-actions` the job replaces the trigger's giant-fibre check
-(`_check_gf`), so no jump is ever started. `--habituation` (the brain's LC4 / LPLC2 →
-DNp01 depression, docs/HABITUATION.md) should make the fly stop flinching at
-repeated harmless twitches. `run_job.py` now has `--habituation`. The real-brain
-path (whether a twitch's LC4 drive makes the GF cross 60 Hz) was **not run** in this
-session. The flinch logic is tested with a fake brain state.
+period. With `--brain-actions` (now also a `run_job.py` flag) the job replaces the
+trigger's giant-fibre check (`_check_gf`, also used by the fast path), so no jump is
+ever started.
+
+**Efference copy (phenomenological, ours).** While hanging, the looming source sees
+the trap as if the body were at its resting hang (the lobe spheres are moved with the
+body's displacement from the settled pose), so only the trap's own motion looms. Without
+it, the fly's own swings, re-grips and flinches swept the big, close trap across the
+eyes' field of view (LC4 up to 200 Hz, dθ/dt up to 5500 °/s with the trap at rest),
+the GF fired without a twitch (75–110 Hz), and the flinches fed back into more
+self-motion: in one 40 s run a flinch cascade knocked the fly off at 86 % grip. Real
+flies cancel self-generated visual motion with efference copies (Kim, Fitzgerald &
+Maimon 2015, *Nat. Neurosci.*); this is a perfect one, not a model of it.
+
+**Real FlyWire brain (2026-09-27, headless, `--brain-actions`, 138,639 neurons,
+twitches every ~5 s instead of ~14 s, 40 s sim, 85 s wall, one brain process).**
+9 / 9 twitches drove LC4 119 Hz and LPLC2 119 Hz on both eyes (θ 40°), the giant
+fibre peaked at 90–165 Hz and every one gave a FLINCH; 0 jumps. Between twitches:
+0 loom events and 0 GF readouts above 20 Hz (brain lag median 0.02 s). 21 GF bursts > 60 Hz in total (the rest fell in the 1.35 s refractory
+period). The fly did 5 re-grips and 3 slips (the grip slid off at 57–73 % shortly
+after flinches), all re-grabbed, 0 falls. **Habituation** (`--habituation`, twitches every ~2.5 s, 40 s):
+15 / 15 twitches still flinched, GF peaks 80–145 Hz with no downward trend. The
+twitch is a short drive (LC4 / LPLC2 ~119 Hz for ~0.2 s) compared with the loom the
+depression was calibrated on (LC4 200 Hz for 1 s every 2 s, which stops jumping after
+~3 trials, docs/HABITUATION.md); with U = 0.006 and tau_rec 20 s it does not depress
+the LC4 / LPLC2 → GF synapses enough to keep the GF below 60 Hz. So with the
+current parameters the fly does not learn to ignore the twitches (not tuned: making
+the twitch loom longer or stronger would also make every flinch bigger). That run
+ended in one fall at 50 % grip on one arm after 15 flinches (each costs 0.02).
 
 **HUD.** `DEAD HANG FLY - hanging on for dear life`, the hang streak and best,
 CHOMPS, a grip bar (`GRIP [######----] 62 %`, L / R, capacity), re-grips / slips /
@@ -1515,12 +1589,15 @@ explicit recovery, NaN recovery, a lost boulder and the wheel spinning. `tests/t
 (9 tests, ~13 s) covers mowing and raking: contact bits, the grass pool (cut, stripe
 colour, regrowth), row completion and the serpentine, the mower being pushed, the
 mower surviving an explicit reset, rake carrying, pile counting, gusts, the constant
-leaf pool, and the rake following the thorax. `tests/test_jobs_dead_hang.py` (7 tests, ~30 s)
-covers dead_hang: registry, no weld constraints, the bar colliding with the fly and the trap
-lobes being visual, a 6 s hang at full grip (the adhesion actuators give 40 µN × strength, no
-applied forces), fatigue and a re-grip, a twitch moving the trap, GF → flinch (never a jump)
-with a fake brain state, and grip 0 → the tarsi slide off → CHOMP → an explicit respawn with
-the trap reopening.
+leaf pool, and the rake following the thorax. `tests/test_jobs_dead_hang.py` (9 tests, ~75 s)
+covers dead_hang: registry, no weld constraints, the bar colliding with the fly (condim 4) and
+the trap lobes being visual, the mid-leg brace pose reaching the bar, the compiled znear, a 6 s
+hang at full grip (the adhesion actuators give 40 µN × strength, no applied forces), fatigue
+and a re-grip, a twitch moving the trap, GF → flinch (never a jump) with a fake brain state, a
+slip of each front leg at 90 % grip (the other hand holds, the mid legs touch the bar, the
+slipped leg re-grabs on the first try) and a re-grip at 72 %, grip 0 → the tarsi slide off →
+CHOMP → an explicit respawn with the trap reopening, and fast fatigue (0.12/s, no re-grips)
+draining the grip until the fly falls (after > 4 s, with < 45 % grip left).
 Results of the long headless runs are below.
 
 **Visual overhaul of sisyphus / hamster_wheel / mowing / raking (2026-09-27, Apple M1, one
@@ -1533,10 +1610,24 @@ more to render (median of 18 frames): sisyphus 5.6 → 11.5 ms, wheel 6.0 → 11
 11.8 → 13.3 ms (shadows off), raking 6.9 → 12.8 ms. That is about the same as the newer
 jobs (trampoline ~16 ms), and the shadow pass is most of it (`shadows: false` saves ~6–11
 ms). So in the live window (up to 30 frames per wall second) RTF drops by an estimated 0.03–0.1 (e.g. raking ~0.45 → ~0.34).
-The jobs now also set `model.vis.map.znear` to 0.01 mm in `on_attach`. The fly's MuJoCo
-globals are merged in after `extension` and leave it at 0.5 µm, and at that value the stripe
-tiles z-fought with the soil. (The same override also undoes the `spec.visual.map.znear = 0.05`
-in the newer jobs' `extension`s.)
+The jobs now also set znear to 0.01 mm. The fly's MuJoCo globals are merged in after
+`extension` and leave it at 0.5 µm, and at that value the stripe tiles z-fought with the soil.
+
+**znear fix in the framework (2026-09-27).** That merge order also silently undid the
+`spec.visual.map.znear = 0.05` in the newer jobs' `extension`s (kebab, trampoline,
+broccoli_toss, dead_hang, pizza_chef, taste_tester all rendered at 5e-4). znear / zfar are now
+`EternalJob` class attributes, applied to the compiled model in `attach` before `on_attach`;
+every job that set it (in `extension` or `on_attach`) was migrated: 0.05 for those six, 0.01
+for sisyphus / hamster_wheel / mowing / raking (unchanged), 0.3 / 400 for delivery_pilot
+(unchanged), and bowling (which set nothing) now uses 0.05. Checked with one 640×426
+job-camera frame per job at 0.6 s sim, before / after, default seeds: sisyphus and
+delivery_pilot are pixel-identical; kebab, trampoline, dead_hang, pizza_chef, taste_tester,
+broccoli_toss and bowling lose their shadow acne / z-fighting speckle (kebab's skewer and the
+trampoline frame were covered in dark blotches, the trampoline scoreboard digits were
+unreadable, bowling had black speckles on the fly, ball and lane); nothing got worse
+(no near-plane clipping at the job cameras' distances). Tests:
+`test_job_znear_zfar_applied_after_compile`, and the sisyphus / dead_hang tests check the
+compiled value.
 
 Measured on 2026-09-26 on the development machine (Apple M1), with other simulations running at
 the same time:
@@ -1552,6 +1643,8 @@ the same time:
 | `kebab --brain --stress`, 3 startle pokes at 20–24 s | 60 s | arousal 0.12 → 0.74, carve ×1.06 → ×1.37 → ×1.21 at 60 s | 0 / 0 | 0.10 |
 | `mowing` headless + 640×432 timelapse every 3 s (job renderer) | 185 s | **30 rows, 5 lawns**, 1251 mm² (0.00125 m²) mowed, 6627 blades cut, 30 pushes started, 1 back-away unstick, 0 instabilities | 0 / 0 | 0.47 |
 | `dead_hang` headless + 640×426 event screenshots, shadows on | 180 s | **7 falls: 5 chomps, 2 missed the trap** (survival rate 29 %), best streak 39.3 s, 167 s on the bar, 5 re-grips, 3 slips (2 legs physically slid off), 8 re-grabs, 55 re-grab misses, 8 twitches, 0 instabilities | 7 explicit respawns (5 chomped, 2 missed_trap) | 0.31 with the screenshots (0.44–0.53 in earlier runs without rendering, shadows off) |
+| `dead_hang` before the one-arm rework, headless, shadows off, seeds 0 / 1 (2026-09-27) | 2 × 180 s | seed 0 as above; seed 1: 9 falls (7 chomps), **all 16 on one arm with the holding hand at 64–90 % grip**; re-grips 5 + 6 ok / 11 + 11 missed (a missed re-grip becomes a slip), re-grabs 8 + 4 ok / 44 + 15 attempts refused (bar out of reach; the job's `regrab_fails` counter, 55 / 26, also counts the missed re-grips); mean completed hang 20.0 / 17.4 s | – | 0.50 |
+| `dead_hang` after the rework, same runs | 2 × 180 s | **4 falls (all chomped), all tired**: grip of the hand(s) still on the bar 0.17–0.32 (seed 0: both hands at 31–32 % right after a re-grab, one arm at 17 %; seed 1: one arm at 30 % and 24 %); re-grips 11 + 12, all back on the bar; re-grabs 4 + 4 ok, 1 miss, 0 refused; 11 slips; mean completed hang 82.0 / 79.3 s (best 89.6 / 81.5 s); 0 instabilities | 4 explicit respawns | 0.40–0.44 |
 | `raking` headless + 640×432 timelapse every 3 s | 185 s | **46 leaves raked**, 2 piles completed, 2 gusts survived (47 leaves blown about, 14 out of the yard and back to the tree), 38 leaves fallen from the tree, 0 instabilities | 0 / 0 | 0.55 |
 | `broccoli_toss` headless | 150 s | **10 plates yeeted, 10 explosions**, 10 rebuilds, 130 props launched, viewers 1,337 → 5,782, vegetables eaten 0, 0 flight timeouts, 4 back-away unsticks, 0 instabilities | 0 / 0 | 0.31 |
 
@@ -1569,12 +1662,17 @@ shavings piling up on the tray, and the counters climbing.
 
 ## Limitations
 
-* dead_hang: most falls happen during one-arm phases (a re-grip or re-grab twists the
-  body off the other leg) while the strength is still 0.7–0.9, not from the
-  adhesion slowly running out. The fatigue drives the re-grips and slips that cause
-  them. Re-grabs miss often (55 misses vs 8 re-grabs in 180 s). The trap lobes are
-  visual and the catch pad is invisible (see above). The real-brain flinch path is
-  untested.
+* dead_hang: the one-arm stability comes partly from engineered help: the mid-leg brace
+  carries a little adhesion (10 µN, about one body weight, a design choice), slips and
+  re-grips shed their adhesion over 0.15–0.2 s instead of instantly, reaches follow the
+  spawn poses (IK-corrected), and the efference copy is perfect. Tired falls often
+  come right after a re-grab (the fresh tarsus is a point contact, not the draped
+  grip of the spawn), so the two-arm / one-arm label of a fall is not very meaningful.
+  One arm fails at a strength of about 0.3 and two arms at about 0.15; these thresholds
+  come from the contact model (friction 1, condim 4, adhesion gain 40), not from fly
+  data. With the real brain and `--habituation`, repeated twitches do not habituate
+  the flinch (see above). The trap lobes are visual and the catch pad is invisible
+  (see above).
 
 * mowing: the mower is on planar joints at a fixed height and turned kinematically
   toward its push direction (the fly pushes only its translation). The stripes wobble

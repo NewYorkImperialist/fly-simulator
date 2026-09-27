@@ -243,6 +243,8 @@ class TrampolineConfig(JobConfig):
 @register_job
 class TrampolineJob(EternalJob):
     name = "trampoline"
+    #: depth precision (shadow maps span znear..zfar; EternalJob applies it after compile)
+    znear = 0.05
     title = "TRAMPOLINE FLY"
     tagline = "the fly bounces on a trampoline forever"
     work_label = "bounces"
@@ -389,7 +391,6 @@ class TrampolineJob(EternalJob):
                     meshname=P + "backdrop_mesh", pos=(0.0, 30.0, 17.0),
                     quat=quat_axis_angle((0, 0, 1), -math.pi / 2), material=P + "backdrop",
                     **dict(contact_kwargs("visual"), mass=0.0))
-        spec.visual.map.znear = 0.05
         spec.visual.headlight.ambient = (0.32, 0.32, 0.32)
         spec.visual.headlight.diffuse = (0.35, 0.35, 0.35)
         spec.visual.headlight.specular = (0.1, 0.1, 0.1)

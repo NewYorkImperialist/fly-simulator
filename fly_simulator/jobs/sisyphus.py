@@ -107,6 +107,9 @@ class SisyphusConfig(JobConfig):
 @register_job
 class SisyphusJob(EternalJob):
     name = "sisyphus"
+    #: depth precision for a scene tens of mm away (FlyGym's 5e-4 z-fights); 10 um
+    #: still allows close-ups of the fly. Applied by EternalJob.attach.
+    znear = 0.01
     title = "SISYPHUS FLY"
     tagline = "one must imagine the fly happy"
     work_label = "summits"
@@ -389,10 +392,6 @@ class SisyphusJob(EternalJob):
     # ------------------------------------------------------------ attach
     def on_attach(self) -> None:
         m = self.sim.model
-        # the fly's MuJoCo globals (merged in after the job's spec edits) set znear to
-        # 0.5 um: far too little depth precision for this scene tens of mm away
-        # (z-fighting); 10 um still allows close-ups of the fly
-        m.vis.map.znear = 0.01
         self.ball_body = m.body(P + "boulder").id
         j = m.joint(P + "boulder_free").id
         self.ball_qadr = int(m.jnt_qposadr[j])

@@ -261,6 +261,9 @@ class MowingConfig(JobConfig):
 @register_job
 class MowingJob(EternalJob):
     name = "mowing"
+    #: depth precision for a scene tens of mm away (FlyGym's 5e-4 z-fights); 10 um
+    #: still allows close-ups of the fly. Applied by EternalJob.attach.
+    znear = 0.01
     title = "LAWN MOWER FLY"
     tagline = "the grass is always growing"
     work_label = "lawn mowed"
@@ -544,10 +547,6 @@ class MowingJob(EternalJob):
     # ------------------------------------------------------------ attach
     def on_attach(self) -> None:
         m = self.sim.model
-        # the fly's MuJoCo globals (merged in after the job's spec edits) set znear to
-        # 0.5 um: far too little depth precision for this scene tens of mm away
-        # (z-fighting); 10 um still allows close-ups of the fly
-        m.vis.map.znear = 0.01
         c = self.cfg
         self.mower_body = m.body(P + "mower").id
         jx, jy, jz = (m.joint(P + n).id for n in ("slide_x", "slide_y", "yaw"))

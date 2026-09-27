@@ -209,6 +209,15 @@ class EternalJob:
     #: dt 5e-5 s; docs/FLIGHT.md). ``configure_app`` then turns ``cfg.flight`` on and the
     #: app allows ``--job NAME`` with (or without) ``--flight`` for this job only.
     needs_flight: bool = False
+    #: depth range of the rendered view (``model.vis.map.znear`` / ``zfar``, in units of
+    #: the model extent = mm here). None = leave the compiled value. Set these here,
+    #: not on ``spec.visual.map`` in ``extension``: the fly's MuJoCo globals are merged
+    #: into the spec *after* the job's extension and reset znear to 5e-4 (FlyGym's
+    #: close-up value, far too little depth precision for a scene tens of mm away:
+    #: z-fighting, shadow acne). ``attach`` writes them into the compiled model
+    #: before ``on_attach``.
+    znear: float | None = None
+    zfar: float | None = None
 
     def __init__(self, cfg: JobConfig | None = None) -> None:
         self.cfg = cfg if cfg is not None else self.config_cls()
@@ -284,9 +293,17 @@ class EternalJob:
         sim.reset_hooks.append(self._on_sim_reset)
         self.wall_start = time.perf_counter()
         self.last_work_rt = session.run_time()
+        self.apply_visual_globals(sim.model)
         self.on_attach()
         self._attached = True
         return self
+
+    def apply_visual_globals(self, model) -> None:
+        """Write the job's ``znear`` / ``zfar`` (if set) into the compiled model."""
+        if self.znear is not None:
+            model.vis.map.znear = float(self.znear)
+        if self.zfar is not None:
+            model.vis.map.zfar = float(self.zfar)
 
     def detach(self) -> None:
         if not self._attached:

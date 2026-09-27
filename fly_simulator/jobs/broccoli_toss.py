@@ -272,6 +272,8 @@ SHELF = dict(x=-12.3, y0=-6.4, y1=-2.0, z=5.5, depth=0.9)
 @register_job
 class BroccoliTossJob(EternalJob):
     name = "broccoli_toss"
+    #: depth precision (shadow maps span znear..zfar; EternalJob applies it after compile)
+    znear = 0.05
     title = "BROCCOLI TOSS FLY"
     tagline = "absolutely not"
     work_label = "plates yeeted"
@@ -308,7 +310,6 @@ class BroccoliTossJob(EternalJob):
         self._add_plate(spec)
         self._add_blast(spec)
         self._add_lights(spec)
-        spec.visual.map.znear = 0.05
         sky = spec.texture("skybox")
         if sky is not None:  # a dark room, not FlyGym's white sky
             sky.rgb1 = (0.03, 0.025, 0.05)

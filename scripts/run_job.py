@@ -9,6 +9,7 @@
 
     python scripts/run_job.py --job kebab --brain --stress   # S startles the chef
     python scripts/run_job.py --job dead_hang --brain --habituation  # T = trap twitch
+    python scripts/run_job.py --job dead_hang --brain-actions --headless  # GF -> flinch
 
 Keys (window): Q / ESC quit, C camera (job / follow / side / top), P pause,
 X explicit reset (counted), I screenshot (PNG with HUD), TAB show / hide the stats box (off by default), M start / stop an MP4 recording; job keys are forwarded to
@@ -67,6 +68,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--habituation", action="store_true",
                    help="looming habituation of the giant fibre's LC4 / LPLC2 inputs "
                         "(docs/HABITUATION.md); implies --brain")
+    p.add_argument("--brain-actions", action="store_true",
+                   help="brain -> actions (docs/ACTIONS.md: giant fibre -> jump, ...); jobs "
+                        "may re-map them (dead_hang: GF -> flinch); implies --brain")
     p.add_argument("--no-brain-window", action="store_true",
                    help="with --brain: no brain window")
     p.add_argument("--seed", type=int, default=None, help="controller (CPG) seed")
@@ -103,10 +107,13 @@ def run_one(name: str, args, max_seconds: float | None, stop_flag: dict) -> dict
     job = make_job(name, job_cfg)
     cfg = app_config(args)
     brain = None
-    if args.brain or args.stress or getattr(args, "habituation", False):
+    if (args.brain or args.stress or getattr(args, "habituation", False)
+            or getattr(args, "brain_actions", False)):
         from fly_simulator.brain_link import BrainLink, missing_requirements
 
         cfg.brain.enabled = True
+        if getattr(args, "brain_actions", False):
+            cfg.brain.actions = True
         if getattr(args, "habituation", False):
             cfg.brain.habituation = True
         problem = missing_requirements(cfg.brain)

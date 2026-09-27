@@ -65,6 +65,9 @@ def test_props_and_no_welds(hang):
     for a in ("hang/servo_far", "hang/servo_near", "hang/servo_lunge"):
         assert mj.mj_name2id(m, mj.mjtObj.mjOBJ_ACTUATOR, a) >= 0
     assert job.ik_residual["lf"] < 0.2 and job.ik_residual["rf"] < 0.2
+    assert all(r < 0.05 for r in job.brace_residual.values())  # the mid legs reach the bar
+    assert m.geom_condim[bar] == job.cfg.bar_condim  # pad patch: torsional friction
+    assert m.vis.map.znear == pytest.approx(job.znear)  # EternalJob.znear after compile
 
 
 def test_hangs_at_full_grip(hang):
@@ -135,6 +138,45 @@ def test_flinch_instead_of_jump(hang):
     assert any("CHOMPS" in l for l in lines)
 
 
+def _brace_touching(session, job) -> bool:
+    m, d = session.sim.model, session.sim.data
+    fn = session.sim.fly_name
+    ids = {m.geom(f"{fn}/{leg}_tarsus{k}").id for leg in job.cfg.brace_legs for k in (3, 4, 5)}
+    bar = job.bar_gid
+    return any((int(g1) == bar and int(g2) in ids) or (int(g2) == bar and int(g1) in ids)
+               for g1, g2 in d.contact.geom[:d.ncon])
+
+
+def test_one_arm_at_high_strength_survives_and_regrabs(hang):
+    """A slip at 90 % grip: the other hand holds, the mid legs brace on the bar, the
+    slipped leg re-grabs (both sides)."""
+    session, job, _ = hang
+    _run(session, job, 0.3)
+    drops0 = job.n_drops
+    for leg in ("lf", "rf"):
+        assert job.phase == "hang" and all(s == "grip" for s in job.leg_state.values())
+        n0, f0 = job.n_regrabs, job.n_regrab_fails
+        job.strength = {"lf": 0.9, "rf": 0.9}
+        job._slip(leg, session.sim.time)
+        braced = False
+        t0 = session.run_time()
+        while job.leg_state[leg] != "grip" and session.run_time() - t0 < 4.0:
+            _run(session, job, 0.05)
+            braced |= _brace_touching(session, job)
+        assert job.phase == "hang" and job.n_drops == drops0
+        assert job.n_regrabs == n0 + 1 and job.n_regrab_fails == f0  # first try
+        assert braced
+        _run(session, job, 1.5)  # braces off again, both hands on
+        assert job.phase == "hang" and job._brace_w < 0.05
+        assert all(job.bar_contacts(tarsi_only=True).values())
+    assert not np.any(session.sim.data.xfrc_applied)
+    # a voluntary re-grip at high strength: weight shift, lift, put back
+    job.strength = {"lf": 0.9, "rf": 0.72}
+    assert job._start_reach("rf", session.sim.time, "regrip")
+    _run(session, job, 0.8)
+    assert job.leg_state["rf"] == "grip" and job.phase == "hang" and job.n_drops == drops0
+
+
 def test_no_grip_falls_into_trap_and_respawns(hang):
     session, job, _ = hang
     streak = job.streak()
@@ -162,3 +204,25 @@ def test_no_grip_falls_into_trap_and_respawns(hang):
     assert job.phase == "hang" and all(job.bar_contacts().values())
     st = job.stats()
     assert st["chomps"] == 1 and st["drops"] == 1
+
+
+def test_fatigue_drains_to_a_fall(hang):
+    """Fatigue on (fast), no re-grips: the grip drains until the fly falls; it was
+    tired when it fell (the fall comes from fatigue, not from a strong grip)."""
+    session, job, _ = hang
+    while job.phase != "hang":
+        _run(session, job, 0.1)
+    _run(session, job, 0.5)
+    c = job.cfg
+    c.fatigue_per_s, c.slip_rate_per_s = 0.12, 0.045
+    drops0 = job.n_drops
+    t0 = session.run_time()
+    while job.n_drops == drops0 and session.run_time() - t0 < 14.0:
+        _run(session, job, 0.1)
+    c.fatigue_per_s, c.slip_rate_per_s = 0.0, 0.0
+    assert job.n_drops == drops0 + 1
+    assert job.last_streak > 4.0  # it hung on for a while first
+    assert job.last_fall_grip < 0.45  # tired
+    assert sum(job.fall_causes.values()) == job.n_drops
+    st = job.stats()
+    assert st["fall_causes"] == job.fall_causes and st["mean_fall_grip"] is not None

@@ -345,6 +345,9 @@ def _quat_z_to(d) -> tuple[float, float, float, float]:
 @register_job
 class BowlingJob(EternalJob):
     name = "bowling"
+    #: depth precision (FlyGym's 5e-4 gave shadow acne on the fly, ball and lane);
+    #: applied by EternalJob.attach
+    znear = 0.05
     title = "BOWLING FLY"
     tagline = "league night, every night"
     work_label = "pins knocked down"

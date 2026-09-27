@@ -118,6 +118,9 @@ class RakingConfig(JobConfig):
 @register_job
 class RakingJob(EternalJob):
     name = "raking"
+    #: depth precision for a scene tens of mm away (FlyGym's 5e-4 z-fights); 10 um
+    #: still allows close-ups of the fly. Applied by EternalJob.attach.
+    znear = 0.01
     title = "LEAF RAKING FLY"
     tagline = "autumn is forever"
     work_label = "leaves raked"
@@ -272,10 +275,6 @@ class RakingJob(EternalJob):
     # ------------------------------------------------------------ attach
     def on_attach(self) -> None:
         m = self.sim.model
-        # the fly's MuJoCo globals (merged in after the job's spec edits) set znear to
-        # 0.5 um: far too little depth precision for this scene tens of mm away
-        # (z-fighting); 10 um still allows close-ups of the fly
-        m.vis.map.znear = 0.01
         c = self.cfg
         self.rake_mocap = int(m.body_mocapid[m.body(P + "rake").id])
         self.leaf_mocap = np.array([int(m.body_mocapid[m.body(f"{P}leaf{i}").id])

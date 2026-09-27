@@ -229,6 +229,9 @@ def _quat_from_x_axis(x_axis, up_hint=(0.0, 0.0, 1.0)) -> tuple[float, float, fl
 @register_job
 class KebabJob(EternalJob):
     name = "kebab"
+    #: spot-light shadow maps span znear..zfar (mm): a larger near plane gives them
+    #: enough depth precision (no acne on the fly); applied by EternalJob.attach
+    znear = 0.05
     title = "DONER KEBAB FLY"
     tagline = "carving for eternity"
     work_label = "shavings carved"
@@ -490,9 +493,6 @@ class KebabJob(EternalJob):
         add_box(wb, P + "wall_side", (6.0, 9.0, 0.1), (sx + 7.0, wy - 9.0, 6.0), quat=FACE_MX,
                 material=P + "wall", collide="visual")
         # light rig: a key spot (shadows) from the front left, a cool rim from behind
-        # spot-light shadow maps span znear..zfar (x extent = 1 mm here): a larger
-        # near plane gives them enough depth precision (no acne on the fly)
-        spec.visual.map.znear = 0.05
         spec.visual.headlight.ambient = (0.28, 0.28, 0.28)
         spec.visual.headlight.diffuse = (0.32, 0.32, 0.32)
         spec.visual.headlight.specular = (0.15, 0.15, 0.15)

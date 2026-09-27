@@ -184,6 +184,10 @@ def _mat_texture(n: int = 64) -> np.ndarray:
 @register_job
 class DeliveryPilotJob(EternalJob):
     name = "delivery_pilot"
+    #: depth range for a town-sized scene (the job camera is >= ~8 mm away);
+    #: applied by EternalJob.attach
+    znear = 0.3
+    zfar = 400.0
     title = "DELIVERY PILOT"
     tagline = "the fly delivers packages by air forever"
     work_label = "parcels delivered"
@@ -439,10 +443,6 @@ class DeliveryPilotJob(EternalJob):
     def on_attach(self) -> None:
         m = self.sim.model
         self.fm = self.session.flight
-        # depth precision for a town-sized scene: FlyGym's globals put the near plane at
-        # 5e-4 mm (close-ups of the fly); the job camera is >= ~8 mm away
-        m.vis.map.znear = 0.3
-        m.vis.map.zfar = 400.0
         if self.fm is None:
             raise RuntimeError("delivery_pilot needs the flight fly (cfg.flight.enabled)")
         # altitude = height above the street: the job sets absolute set points

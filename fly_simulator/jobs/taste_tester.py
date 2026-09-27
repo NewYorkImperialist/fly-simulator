@@ -191,6 +191,8 @@ def _slerp_quat(q0, q1, u: float) -> np.ndarray:
 @register_job
 class TasteTesterJob(EternalJob):
     name = "taste_tester"
+    #: depth precision (shadow maps span znear..zfar; EternalJob applies it after compile)
+    znear = 0.05
     title = "TASTE TESTER FLY"
     tagline = "quality control, one drop at a time, forever"
     work_label = "samples tasted"
@@ -514,7 +516,6 @@ class TasteTesterJob(EternalJob):
         wb.add_geom(name=P + "clip_clip", type=mj.mjtGeom.mjGEOM_BOX, size=(0.03, 0.14, 0.05),
                     pos=(cx + 0.2, cy, 1.18), quat=q, material=P + "steel", **vis)
         # lights: a cool key spot from above the belt (shadows), a fill, the headlight
-        spec.visual.map.znear = 0.05
         spec.visual.headlight.ambient = (0.30, 0.31, 0.32)
         spec.visual.headlight.diffuse = (0.34, 0.35, 0.36)
         spec.visual.headlight.specular = (0.12, 0.12, 0.12)

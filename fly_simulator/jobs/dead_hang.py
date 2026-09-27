@@ -8,14 +8,16 @@ Physics (no welds, no hidden forces on the fly):
   (MuJoCo ``adhesion`` actuators on tarsus5, 40 uN per leg at ctrl 1 = 4 body
   weights) plus friction, and the leg posture: the front legs reach up over the bar
   and the tarsi drape over it. Measured (see the docs): with adhesion off the tarsi
-  slide off the bar within ~5 s; at ctrl >= 0.25 on both legs it hangs indefinitely;
-  at 0.12 it falls. One front leg alone at full adhesion sometimes holds, sometimes
-  not (it swings and twists): one-arm hanging is precarious, as intended.
+  slide off the bar within ~0.3 s; at ctrl >= 0.2 on both legs it hangs
+  indefinitely; at 0.15 it falls. One arm holds while the fly is fresh (the mid legs
+  brace on the bar meanwhile) and fails below ~0.35: one-arm moments are survivable
+  when strong, fatal when tired.
 * The posture is a job action (``HangGrip``, run by the ``ActionManager``): position
   targets for all 42 leg joints plus the 6 adhesion commands. The front-leg grip
   and reach poses come from a small inverse-kinematics solve against the actual
   bar (``LegIK``: damped least squares on the 7 actuated DoFs of one leg, on a
-  scratch MjData). The mid / hind legs dangle and kick.
+  scratch MjData). The mid / hind legs dangle and kick; while a front leg is off the
+  bar the mid legs brace against it (friction + a little adhesion).
 * The spawn / respawn pose is written into FlyGym's "neutral" keyframe (free joint
   + leg angles, like the course respawn does); ``sim.warmup_s`` is 0 so the
   standing-pose warm-up does not run. Every respawn is an explicit, counted reset.
@@ -23,9 +25,10 @@ Physics (no welds, no hidden forces on the fly):
 Grip fatigue (phenomenological, ours): each front leg has a grip strength s (0-1,
 the adhesion command is s, so force = 40 uN x s) that drains while it carries load
 (faster on one arm, faster when stressed), capped by a slowly decaying capacity.
-When a leg gets tired the fly re-grips it (lifts it off the bar and puts it back:
-a real, physical leg lift, the other leg holds alone meanwhile), which restores part
-of the strength and costs capacity. Random slips (more likely when tired) make it
+When a leg gets tired the fly re-grips it (shifts its weight, lifts it off the bar
+and puts it back: a real, physical leg lift, the other leg holds alone meanwhile),
+which restores part of the strength and costs capacity; once tired it stops daring
+to let go and clings. Random slips (more likely when tired) make it
 hang one-armed and kick until it re-grabs the bar. Whether it falls is decided by
 the physics: once the adhesion is too weak, the tarsi slide off.
 
@@ -73,6 +76,12 @@ class DeadHangConfig(JobConfig):
     bar_radius: float = 0.15
     bar_half_len: float = 4.0
     bar_friction: float = 1.0
+    # tarsus-on-bar contacts: condim 4 (sliding + torsional friction: the pad is a
+    # small patch, not a point, so it resists spinning about the contact normal);
+    # condim 3 = FlyGym's point contacts (a one-arm fly pivots freely), 6 adds rolling
+    bar_condim: int = 4
+    bar_torsion: float = 0.02  # mm (FlyGym's default torsional friction)
+    bar_rolling: float = 0.01  # mm (used only with condim 6)
     # --- hanging pose (fly faces -y, ventral side toward the bar and the camera) --
     hang_pitch_deg: float = 80.0  # body axis this far from horizontal (nose up)
     hang_drop: float = 1.2  # thorax centre below the bar axis at spawn (mm)
@@ -97,11 +106,15 @@ class DeadHangConfig(JobConfig):
     fatigue_per_s: float = 0.011  # strength lost per second per loaded leg
     one_arm_load: float = 2.5  # ... x this when one leg holds alone
     cap_decay_per_s: float = 0.002  # the capacity (max strength) decays too
-    regrip_below: float = 0.86  # re-grip a leg when its strength drops below this
-    regrip_jitter: float = 0.05
+    regrip_below: float = 0.9  # re-grip a leg when its strength drops below this ...
+    regrip_margin: float = 0.12  # ... and this far below the capacity (a tired fly
+    #                              re-grips relative to what it has left)
+    regrip_jitter: float = 0.04
+    regrip_other_min: float = 0.6  # ... only if the other leg can hold alone (else it clings)
     regrip_restore: float = 0.6  # a re-grip restores this fraction of (cap - s)
     regrip_cap_cost: float = 0.045  # ... and costs this much capacity
     regrip_cooldown_s: float = 1.2
+    regrip_release_s: float = 0.2  # re-grip: shift the weight first (adhesion ramps off)
     regrip_lift_s: float = 0.12
     regrip_place_s: float = 0.18
     slip_rate_per_s: float = 0.045  # hazard at strength 0.5 (x ((1 - s) / 0.5)^2)
@@ -110,9 +123,24 @@ class DeadHangConfig(JobConfig):
     one_arm_pull: float = 0.3  # rad: the holding leg flexes (pulls up) while the other is off
     slip_drop: float = 0.5  # mm: a slipped front leg hangs this far below the re-grab point
     slip_drop_s: float = 0.15
+    slip_release_s: float = 0.15  # a slip: the tarsus loses its adhesion over this long
     flail_hz: float = 5.5
     flail_amp: float = 0.15  # rad
     regrab_retry_s: float = 0.7
+    # mid-leg brace: while one front leg is off the bar, the mid legs press their
+    # tarsi against the front of the bar (friction + a little adhesion) to steady the
+    # body (without it one arm is a frictionless pivot: the fly swings and spins)
+    brace: bool = True
+    brace_legs: tuple = ("lm", "rm")
+    brace_x: float = 0.62  # mm from the grip centre along the bar
+    brace_z: float = -0.05  # mm: height on the bar's front face (0 = the axis)
+    brace_push: float = 0.02  # mm: the target is this far inside the bar surface
+    brace_in_s: float = 0.12
+    brace_out_s: float = 0.4
+    brace_adhesion: float = 0.25  # adhesion command of a bracing mid leg
+    kick_amp: float = 0.5  # rad: mid / hind leg kicks while struggling (one arm, weak grip)
+    kick_hz: float = 7.0
+    kick_tau_s: float = 0.1  # the kick amplitude eases in / out (a sudden stop jolts the grip)
     ik_max_residual: float = 0.35  # mm: farther than this = the bar is out of reach
     reach_lift: float = 0.15  # mm: a re-gripping leg lifts this far above its grip
     reach_press: float = 0.0  # mm: ... and is put down this far "into" the bar top
@@ -120,6 +148,11 @@ class DeadHangConfig(JobConfig):
     settle_s: float = 1.0  # spawn pre-computation: let the IK hang settle this long
     regrip_place_ik: bool = False  # re-grip: IK-track the placement (else joint replay)
     reach_mode: str = "joint"  # "joint": replay grip -> lift -> grip poses; "ik": track
+    regrab_mode: str = "joint"  # re-grab: "joint" (corrected spawn poses) or "ik" (track)
+    reach_correct_max: float = 0.5  # rad: max IK correction of the spawn grip pose
+    grip_relax_s: float = 0.3  # both hands on: the grip poses relax back to the spawn hang
+    grip_settled: bool = True  # aim reaches at the settled spawn grip (relative to the bar)
+    regrab_spacing: tuple = (1.0, 0.75, 0.5, 0.25)  # hand spacings tried when re-grabbing
     # --- trap twitches (looming threat; also shown without a brain) ----------------
     twitch_every_s: float = 14.0  # mean interval (0 = off)
     twitch_deg: float = 22.0  # lobes snap this much toward closed
@@ -128,9 +161,15 @@ class DeadHangConfig(JobConfig):
     twitch_down_s: float = 0.6
     # --- brain tie-in (--brain) -----------------------------------------------------
     gf_flinch_hz: float = 60.0  # giant fibre (DNp01) rate -> flinch (= the jump rule)
+    # efference copy (phenomenological): while hanging, the trap is seen as if the body
+    # were at its resting hang, so the fly's own swings / re-grips / flinches do not
+    # make the (large, close) trap loom; only the trap's own motion does
+    efference_copy: bool = True
     flinch_s: float = 0.35
     flinch_refractory_s: float = 1.0
     flinch_fatigue: float = 0.02  # a flinch costs this much strength per front leg
+    flinch_flex: float = 0.12  # rad: femur-tibia flexion of the clenching front legs
+    flinch_kick: float = 1.0  # x kick_amp: mid / hind legs kick while flinching
     # --- stress (--stress): arousal speeds up fatigue and struggling ---------------
     stress_fatigue_gain: float = 1.0  # fatigue x (1 + gain * level)
     stress_slip_gain: float = 2.0  # slip hazard x (1 + gain * level)
@@ -232,6 +271,8 @@ class LegIK:
 @register_job
 class DeadHangJob(EternalJob):
     name = "dead_hang"
+    #: depth precision (shadow maps span znear..zfar; EternalJob applies it after compile)
+    znear = 0.05
     title = "DEAD HANG FLY"
     tagline = "hanging on for dear life"
     work_label = "time on the bar"
@@ -260,6 +301,11 @@ class DeadHangJob(EternalJob):
         self.n_twitches = 0
         self.n_flinches = 0
         self.n_gf_bursts = 0
+        # falls by situation: "two-arm" (both hands on) / "one-arm" (a hand was off),
+        # and the grip of the hand(s) still on the bar when it fell
+        self.fall_causes: dict[str, int] = {}
+        self.last_fall_grip = 1.0
+        self._fall_grip_sum = 0.0
         self.best_streak = 0.0
         self.last_streak = 0.0
         self.streak_t0 = 0.0
@@ -270,6 +316,8 @@ class DeadHangJob(EternalJob):
         self._flash_until = -1.0
         self.gf_hz = 0.0
         self.grip_cx = 0.0  # x on the bar the hands are centred on
+        self.grip_rel = None  # settled tarsus1 / tarsus5 positions relative to the bar
+        self.hand_x: dict[str, float] = {}
         self._reopen_after_reset = False
         self._trap_t0 = 0.0
         self._twitch_t0 = 0.0
@@ -304,9 +352,11 @@ class DeadHangJob(EternalJob):
         # --- the pull-up bar: a static capsule along x (the only thing the fly grips)
         H, R = c.bar_height, c.bar_radius
         qx = quat_axis_angle((0, 1, 0), math.pi / 2)  # capsule z -> world x
+        bar_kw = contact_kwargs("static", c.bar_friction)
+        bar_kw.update(condim=int(c.bar_condim),
+                      friction=(c.bar_friction, c.bar_torsion, c.bar_rolling))
         wb.add_geom(name=P + "bar", type=mj.mjtGeom.mjGEOM_CAPSULE, size=(R, c.bar_half_len, 0),
-                    pos=(0, 0, H), quat=qx, material=P + "chrome",
-                    **contact_kwargs("static", c.bar_friction))
+                    pos=(0, 0, H), quat=qx, material=P + "chrome", **bar_kw)
         # chalk marks where the hands go (visual)
         for s in (-1, 1):
             wb.add_geom(name=P + f"chalk{'lr'[s > 0]}", type=mj.mjtGeom.mjGEOM_CYLINDER,
@@ -389,7 +439,6 @@ class DeadHangJob(EternalJob):
                                ("poster3", 10.5, 6.5, 1.2, 1.6)):
             add_box(wb, P + nm, (w, h, 0.02), (x, 8.85, z), quat=face_my,
                     material=P + nm, collide="visual")
-        spec.visual.map.znear = 0.05
         spec.visual.headlight.ambient = (0.30, 0.30, 0.30)
         spec.visual.headlight.diffuse = (0.30, 0.30, 0.30)
         spec.visual.headlight.specular = (0.12, 0.12, 0.12)
@@ -585,6 +634,9 @@ class DeadHangJob(EternalJob):
             self.ik_residual[leg] = err
         self.q_grip0 = {leg: v.copy() for leg, v in self.q_grip.items()}
         self.dangle = self._dangle_pose()
+        self._brace_w = 0.0
+        self._brace_on = False
+        self._kick_amp, self._kick_ph = 0.08, 0.0
         for leg in REAR:
             cols = np.flatnonzero(b.leg_mask([leg]))
             q[b.qpos_adr[cols]] = self.dangle[cols]
@@ -595,11 +647,45 @@ class DeadHangJob(EternalJob):
             q = self._settle(q)
         m.key_qpos[self._key] = q
         self.key_qpos = q
+        # where the tarsi really rest on the bar after settling: re-grips and re-grabs
+        # aim there (relative to the bar), not at the nominal IK targets
+        dd = self.ik.d
+        dd.qpos[:] = q
+        mj.mj_kinematics(m, dd)
+        self.grip_rel = {leg: {sg: dd.xpos[self.ik.bid(leg, sg)] - self.bar_pos
+                               for sg in ("tarsus1", "tarsus5")} for leg in FRONT}
+        self.hand_x0 = {leg: float(self.grip_rel[leg]["tarsus5"][0]) for leg in FRONT}
+        self.hand_spacing = self.hand_x0["lf"] - self.hand_x0["rf"]
+        self.hand_x = dict(self.hand_x0)
         # the re-grip lift and the slipped-leg pose, from the settled hang
         self.q_lift0 = {leg: self.ik.solve(q, leg, self.lift_targets(leg, q),
                                            ref=self.q_grip0[leg])[0] for leg in FRONT}
         self.q_slip = {leg: self.ik.solve(q, leg, self.front_targets(leg, drop=c.slip_drop),
                                           ref=self.q_grip0[leg])[0] for leg in FRONT}
+        # the mid-leg brace pose (from the settled hang)
+        self.q_brace0, self.brace_residual = {}, {}
+        for leg in c.brace_legs:
+            cols = b.leg_mask([leg])
+            ang, err = self.ik.solve(q, leg, [("tarsus5", self.brace_target(leg))],
+                                     ref=self.dangle[cols])
+            self.q_brace0[leg], self.brace_residual[leg] = ang, err
+        self.q_brace = {k: v.copy() for k, v in self.q_brace0.items()}
+        self.brace_aim_err = dict(self.brace_residual)
+
+    def brace_target(self, leg: str, below_deg: float | None = None,
+                     x: float | None = None) -> np.ndarray:
+        """Where a bracing mid leg puts tarsus5: on the front face of the bar
+        (``brace_z``), or ``below_deg`` round the bar toward its underside."""
+        c = self.cfg
+        s = 1.0 if leg[0] == "l" else -1.0
+        cx = 0.5 * (self.hand_x["lf"] + self.hand_x["rf"]) if self.hand_x else 0.0
+        n = c.grip_from
+        r = c.bar_radius + 0.02 - c.brace_push
+        bx = cx + s * (c.brace_x if x is None else x)
+        if below_deg is None:
+            return self.bar_pos + np.array([bx, n * r, c.brace_z])
+        a = math.radians(below_deg)
+        return self.bar_pos + np.array([bx, n * r * math.cos(a), -r * math.sin(a)])
 
     def _settle(self, q: np.ndarray) -> np.ndarray:
         """Pre-compute the spawn: let the IK hanging pose settle for ``settle_s`` on a
@@ -622,6 +708,7 @@ class DeadHangJob(EternalJob):
         if not np.all(np.isfinite(out)):
             return q
         self.settled_thorax = dd.xpos[self.sim.thorax_body_id].copy()
+        self.settled_thorax_R = dd.xmat[self.sim.thorax_body_id].reshape(3, 3).copy()
         return out
 
     def lift_targets(self, leg: str, q: np.ndarray):
@@ -641,8 +728,14 @@ class DeadHangJob(EternalJob):
         s = 1.0 if leg[0] == "l" else -1.0  # the fly faces -y: its left is +x
         bar = self.bar_pos
         R = c.bar_radius
-        x = self.grip_cx + s * c.grip_half_width  # around the fly, wherever it hangs
         n = c.grip_from  # the side of the bar the legs come up on (+1 = +y)
+        if self.grip_rel is not None and c.grip_settled:
+            rel = self.grip_rel[leg]
+            off = np.array([self.hand_x[leg] - rel["tarsus5"][0], 0.0, 0.0])
+            return [("tarsus1", bar + rel["tarsus1"] + off + np.array([0.0, n * 0.1 * lift, lift])),
+                    ("tarsus5", bar + rel["tarsus5"] + off
+                     + np.array([0.0, n * 0.2 * lift, lift - press]))]
+        x = self.grip_cx + s * c.grip_half_width  # around the fly, wherever it hangs
         return [("tarsus1", bar + np.array([x, n * (R + 0.2 + 0.1 * lift), 0.1 + lift])),
                 ("tarsus5", bar + np.array([x, n * (-c.grip_over + 0.2 * lift),
                                             R + 0.035 + lift - press]))]
@@ -654,7 +747,8 @@ class DeadHangJob(EternalJob):
         s = 1.0 if leg[0] == "l" else -1.0
         bar = self.bar_pos
         R, n = c.bar_radius, c.grip_from
-        x = self.grip_cx + s * c.grip_half_width  # around the fly, wherever it hangs
+        x = (self.hand_x[leg] if self.grip_rel is not None and c.grip_settled
+             else self.grip_cx + s * c.grip_half_width)  # around the fly, wherever it hangs
         return [("tarsus1", bar + np.array([x, n * (R + 0.45), 0.05 - drop])),
                 ("tarsus5", bar + np.array([x, n * (R + 0.2), R + 0.2 - drop]))]
 
@@ -699,12 +793,19 @@ class DeadHangJob(EternalJob):
         self._q_from = {leg: self.q_grip[leg].copy() for leg in FRONT}
         self._regrab_tries = {leg: 0 for leg in FRONT}
         self._place_from = {leg: None for leg in FRONT}
+        self._released = {leg: True for leg in FRONT}
+        self._slip_fresh = {leg: False for leg in FRONT}
+        self._q_lift = {leg: self.q_lift0[leg].copy() for leg in FRONT}
+        self._q_place = {leg: None for leg in FRONT}
         self._grip_seen = {leg: self.sim.time for leg in FRONT}
         self.grip_cx = 0.0
+        if self.grip_rel is not None:
+            self.hand_x = dict(self.hand_x0)
         self._last_bar_t = self.sim.time
         self._next_regrip_t = self.sim.time + c.regrip_cooldown_s
         self._regrip_thr = self._draw_regrip_threshold()
         self._flinch_until = -1.0
+        self._brace_w, self._brace_on = 0.0, False
         self._t_phase = self.sim.time
         self._next_twitch = self.sim.time + self._draw_twitch_gap()
         self._twitch_t0 = None
@@ -715,7 +816,11 @@ class DeadHangJob(EternalJob):
 
     def _draw_regrip_threshold(self) -> float:
         c = self.cfg
-        return c.regrip_below + self.rng.uniform(-c.regrip_jitter, c.regrip_jitter)
+        return self.rng.uniform(-c.regrip_jitter, c.regrip_jitter)
+
+    def regrip_threshold(self) -> float:
+        c = self.cfg
+        return min(c.regrip_below, self.cap - c.regrip_margin) + self._regrip_thr
 
     def _draw_twitch_gap(self) -> float:
         c = self.cfg
@@ -892,7 +997,8 @@ class DeadHangJob(EternalJob):
         if both and t >= self._next_regrip_t:
             weak = min(FRONT, key=lambda l: self.strength[l])
             other = FRONT[1 - FRONT.index(weak)]
-            if self.strength[weak] < self._regrip_thr and self.strength[other] > 0.3:
+            if (self.strength[weak] < self.regrip_threshold()
+                    and self.strength[other] > c.regrip_other_min):
                 self._start_reach(weak, t, "regrip")
             else:
                 s_min = min(self.strength.values())
@@ -918,23 +1024,43 @@ class DeadHangJob(EternalJob):
         tt = t - self._leg_t0[leg]
         clench = t < self._flinch_until
         if st == "grip":
-            q = self.q_grip[leg]
             other = FRONT[1 - FRONT.index(leg)]
+            dt = c.update_every_steps * self.sim.timestep
+            if self.leg_state[other] == "grip" and c.grip_relax_s > 0:
+                # both hands on the bar: the arms ease back into the spawn hang (the
+                # body re-centres under the hands after a one-arm moment)
+                g = self.q_grip[leg]
+                g += (self.q_grip0[leg] - g) * min(1.0, dt / c.grip_relax_s)
+            q = self.q_grip[leg]
             want = c.one_arm_pull if self.leg_state[other] in ("slipped", "regrab") else 0.0
             # low-passed (tau 0.2 s): letting go of the pull all at once jolts the grip
-            dt = c.update_every_steps * self.sim.timestep
             self._pull[leg] += (want - self._pull[leg]) * min(1.0, dt / 0.2)
-            flex = (0.12 if clench else 0.0) + self._pull[leg]
+            flex = (c.flinch_flex if clench else 0.0) + self._pull[leg]
             if flex > 1e-4:  # flinch / one-arm: pull up (flex the femur-tibia joint)
                 q = q.copy()
                 q[list(np.flatnonzero(cols)).index(b.idx(leg, "fti"))] += flex
             self.targets[cols] = q
             self.adhesion[i] = 1.0 if clench else self.strength[leg]
         elif st in ("regrip", "regrab"):
-            # closed-loop reach: the targets for tarsus1 / tarsus5 move from where they
-            # were to a point above the bar, then down onto it; a warm-started IK
-            # tracks them every tick from the *current* body pose (the body swings and
-            # twists while one leg holds alone)
+            # a reach: the tarsi go from where they were to a point above the bar, then
+            # down onto it. Default (joint space): the spawn lift / grip poses, each
+            # IK-corrected once for where the body hangs now. reach_mode / regrab_mode
+            # "ik": a warm-started IK tracks the moving targets every tick (the old
+            # behaviour; it chases a swinging body into contortions)
+            T0 = c.regrip_release_s if st == "regrip" else 0.0
+            if tt < T0:
+                # weight shift: the tarsi stay put while their adhesion ramps off, so
+                # the body settles under the other hand without a pendulum kick
+                self.targets[cols] = self._q_from[leg]
+                self.adhesion[i] = (1.0 - smoothstep(tt / T0)) * self.strength[leg]
+                return
+            if not self._released[leg]:
+                self._released[leg] = True
+                d = self.sim.data
+                self._reach_from[leg] = [(sg, d.xpos[self.ik.bid(leg, sg)].copy())
+                                         for sg in ("tarsus1", "tarsus5")]
+                self._ik_sol[leg] = d.qpos[b.qpos_adr[cols]].copy()
+            tt -= T0
             T1, T2 = c.regrip_lift_s, c.regrip_lift_s + c.regrip_place_s
             # a re-grab comes up in front of the bar (the leg hangs below it) and then
             # down onto the top; a re-grip lifts straight off and back
@@ -956,24 +1082,36 @@ class DeadHangJob(EternalJob):
                 late = tt > T1 + 0.6 * c.regrip_place_s
                 adh = self.strength[leg] if late else 0.0
                 self._touched[leg] |= late and contacts[leg]
-            if c.reach_mode == "ik" or st == "regrab" or (c.regrip_place_ik and tt >= T1):
+            if (c.reach_mode == "ik" or (st == "regrab" and c.regrab_mode == "ik")
+                    or (c.regrip_place_ik and tt >= T1)):
                 q = self.sim.data.qpos.copy()
                 q[b.qpos_adr[cols]] = self._ik_sol[leg]
                 sol, err = self.ik.solve(q, leg, tg, iters=c.reach_ik_iters,
                                          ref=self.q_grip0[leg], weights=(0.3, 1.0))
                 self._ik_err[leg] = err
-            else:  # joint space: current pose -> lifted grip pose -> the spawn grip pose
+            else:  # joint space: current pose -> lifted grip pose -> the grip pose (the
+                # spawn poses, IK-corrected for where the body hangs now)
                 if tt < T1:
-                    sol = (1 - a) * self._q_from[leg] + a * self.q_lift0[leg]
+                    sol = (1 - a) * self._q_from[leg] + a * self._q_lift[leg]
                 else:
-                    sol = (1 - a) * self.q_lift0[leg] + a * self.q_grip0[leg]
+                    if self._q_place[leg] is None:
+                        self._q_place[leg] = self._corrected(leg, self.q_grip0[leg],
+                                                             self.grip_targets(leg))
+                    sol = (1 - a) * self._q_lift[leg] + a * self._q_place[leg]
             self._ik_sol[leg] = sol
             self.targets[cols] = sol
             self.adhesion[i] = adh
             if tt >= T2 and (tt > T2 + 0.15 or (self._touched[leg] and tt > T2 + 0.03)):
                 self._finish_reach(leg, t, self._touched[leg])
         elif st == "slipped":
+            # the tarsus loses its hold (adhesion ramps off over slip_release_s), then
             # the free leg drops away from the bar (over slip_drop_s) and flails
+            if tt < c.slip_release_s and self._slip_fresh[leg]:
+                self.targets[cols] = self._leg_from[leg]
+                self.adhesion[i] = (1.0 - smoothstep(tt / c.slip_release_s)) * self.strength[leg]
+                return
+            if self._slip_fresh[leg]:
+                tt -= c.slip_release_s
             a = smoothstep(tt / c.slip_drop_s)
             q = (1 - a) * self._leg_from[leg] + a * self.q_slip[leg]
             ph = 2 * math.pi * c.flail_hz * t + (0.0 if leg == "lf" else 1.7)
@@ -996,6 +1134,26 @@ class DeadHangJob(EternalJob):
         # reach for the bar around where the body hangs now (it can slide along it)
         lim = c.bar_half_len - 1.0
         self.grip_cx = float(np.clip(d.xpos[self.sim.thorax_body_id, 0], -lim, lim))
+        other = FRONT[1 - FRONT.index(leg)]
+        settled = self.grip_rel is not None and c.grip_settled
+        if settled and self.leg_state[other] == "grip":
+            # aim relative to where the other hand really is on the bar
+            sgn = 1.0 if leg[0] == "l" else -1.0
+            ox = float(d.xpos[self.ik.bid(other, "tarsus5"), 0])
+            spacings = c.regrab_spacing if kind == "regrab" else (1.0,)
+            best = None
+            for f in spacings:
+                self.hand_x[leg] = float(np.clip(ox + sgn * f * self.hand_spacing, -lim, lim))
+                if kind != "regrab":
+                    break
+                _, err = self.ik.solve(d.qpos.copy(), leg, self.grip_targets(leg), iters=60,
+                                       ref=self.q_grip0[leg], weights=(0.3, 1.0))
+                if best is None or err < best[0]:
+                    best = (err, self.hand_x[leg])
+                if err <= c.ik_max_residual:
+                    break
+            if best is not None:
+                self.hand_x[leg] = best[1]
         if kind == "regrab":
             _, err = self.ik.solve(d.qpos.copy(), leg, self.grip_targets(leg), iters=60,
                                    ref=self.q_grip0[leg], weights=(0.3, 1.0))
@@ -1009,6 +1167,11 @@ class DeadHangJob(EternalJob):
         self._ik_sol[leg] = d.qpos[b.qpos_adr[cols]].copy()
         self._q_from[leg] = self.targets[cols].copy()
         self._place_from[leg] = None
+        lift_t = (self.front_targets(leg) if kind == "regrab"
+                  else self.grip_targets(leg, lift=c.reach_lift))
+        self._q_lift[leg] = self._corrected(leg, self.q_lift0[leg], lift_t)
+        self._q_place[leg] = None
+        self._released[leg] = not (kind == "regrip" and c.regrip_release_s > 0)
         if kind == "regrab":
             self._regrab_tries[leg] += 1
         self._leg_t0[leg] = t
@@ -1021,6 +1184,7 @@ class DeadHangJob(EternalJob):
         if not touching:
             # missed the bar: dangle and try again
             self.leg_state[leg] = "slipped"
+            self._slip_fresh[leg] = False
             self._leg_from[leg] = self._ik_sol[leg].copy()
             self._leg_until[leg] = t + c.regrab_retry_s
             self._leg_t0[leg] = t
@@ -1047,6 +1211,20 @@ class DeadHangJob(EternalJob):
         self._next_regrip_t = t + c.regrip_cooldown_s
         self._regrip_thr = self._draw_regrip_threshold()
 
+    def _corrected(self, leg: str, q0: np.ndarray, targets) -> np.ndarray:
+        """``q0`` (a spawn pose of ``leg``) corrected by IK for the current body pose:
+        start at q0, pulled toward it in the null space, each joint at most
+        ``reach_correct_max`` from it (a natural leg shape, not an IK contortion)."""
+        c = self.cfg
+        if c.reach_correct_max <= 0:
+            return q0.copy()
+        b = self.body
+        q = self.sim.data.qpos.copy()
+        q[b.qpos_adr[b.leg_mask([leg])]] = q0
+        sol, _ = self.ik.solve(q, leg, targets, iters=40, ref=q0, ref_gain=0.5,
+                               weights=(0.3, 1.0))
+        return q0 + np.clip(sol - q0, -c.reach_correct_max, c.reach_correct_max)
+
     def _lost_grip(self, leg: str, t: float) -> None:
         """The leg's tarsi slid off the bar (physics): now it is a slip."""
         self.n_lost += 1
@@ -1057,6 +1235,7 @@ class DeadHangJob(EternalJob):
         self.n_slips += 1
         self._streak["slips"] += 1
         self.leg_state[leg] = "slipped"
+        self._slip_fresh[leg] = True
         self._regrab_tries[leg] = 0
         b = self.body
         # the slipped leg drops away from the bar and flails (see _front_leg_tick)
@@ -1070,25 +1249,48 @@ class DeadHangJob(EternalJob):
         """Mid / hind legs: dangle with a lazy sway, kick when struggling / falling."""
         b = self.body
         struggling = (self.phase == "hang" and (
-            any(s != "grip" for s in self.leg_state.values()) or self.grip_pct() < 0.35
-            or t < self._flinch_until))
+            any(s in ("slipped", "regrab") for s in self.leg_state.values())
+            or self.grip_pct() < 0.35 or t < self._flinch_until))
+        flinching = self.phase == "hang" and t < self._flinch_until
         if self.phase in ("falling", "chomped"):
             amp, hz = 0.7, 9.0
         elif struggling:
-            amp, hz = 0.5 * self._stress_mult(1.0), 7.0
+            amp, hz = self.cfg.kick_amp * self._stress_mult(1.0), self.cfg.kick_hz
+            if flinching and all(s == "grip" for s in self.leg_state.values()):
+                amp *= self.cfg.flinch_kick
         elif self.phase == "missed":
             amp, hz = 0.15, 2.0
         else:
             amp, hz = 0.08, 1.1
+        c = self.cfg
+        dt = c.update_every_steps * self.sim.timestep
+        want = c.brace and self.phase == "hang" and self.bracing_wanted()
+        tau = c.brace_in_s if want else c.brace_out_s
+        k = min(1.0, 2.5 * dt / max(tau, 1e-6))  # ~95 % of the way in tau
+        self._brace_w += ((1.0 if want else 0.0) - self._brace_w) * k
+        if want and not self._brace_on:
+            self._aim_brace()  # a new brace: aim it from where the body hangs now
+        self._brace_on = want
+        wb = smoothstep(min(max(self._brace_w, 0.0), 1.0))
+        # continuous phase and a low-passed amplitude: switching from kicking to the
+        # lazy sway (or back) must not step the leg targets
+        self._kick_amp += (amp - self._kick_amp) * min(1.0, dt / max(c.kick_tau_s, 1e-6))
+        self._kick_ph = (self._kick_ph + 2 * math.pi * hz * dt) % (2 * math.pi)
         for k, leg in enumerate(REAR):
             cols = b.leg_mask([leg])
             q = self.dangle[cols].copy()
             idx = list(np.flatnonzero(cols))
-            ph = 2 * math.pi * hz * t + k * 1.9
-            q[idx.index(b.idx(leg, "ctr_pitch"))] += amp * math.sin(ph)
-            q[idx.index(b.idx(leg, "fti"))] += amp * 1.2 * math.sin(ph + 1.3)
+            ph = self._kick_ph + k * 1.9
+            braced = leg in self.q_brace and self.phase == "hang"
+            a = self._kick_amp * ((1.0 - wb) if braced else 1.0)
+            q[idx.index(b.idx(leg, "ctr_pitch"))] += a * math.sin(ph)
+            q[idx.index(b.idx(leg, "fti"))] += a * 1.2 * math.sin(ph + 1.3)
+            adh = 0.0
+            if braced and wb > 0:
+                q = (1.0 - wb) * q + wb * self.q_brace[leg]
+                adh = c.brace_adhesion * wb
             self.targets[cols] = q
-            self.adhesion[LEGS.index(leg)] = 0.0
+            self.adhesion[LEGS.index(leg)] = adh
         if self.phase != "hang":
             # front legs flail too, no adhesion (nothing to hold)
             for leg in FRONT:
@@ -1101,11 +1303,42 @@ class DeadHangJob(EternalJob):
                 self.targets[cols] = q
                 self.adhesion[LEGS.index(leg)] = 0.0
 
+    def bracing_wanted(self) -> bool:
+        """Brace with the mid legs while a front leg is (about to be) off the bar."""
+        return any(s != "grip" for s in self.leg_state.values())
+
+    def _aim_brace(self) -> None:
+        """Re-aim the brace from the current body pose (it may have swung)."""
+        c = self.cfg
+        q = self.sim.data.qpos.copy()
+        # the body may hang lower than at spawn (a tired grip slides down the bar):
+        # try spots further round the front / underside of the bar and closer in
+        spots = [(None, None)] + [(a, x) for x in (c.brace_x, 0.7 * c.brace_x)
+                                  for a in (30.0, 55.0, 80.0)]
+        b = self.body
+        for leg in self.q_brace:
+            q[b.qpos_adr[b.leg_mask([leg])]] = self.q_brace0[leg]  # start from the spawn brace
+            best = None
+            for a, x in spots:
+                ang, err = self.ik.solve(q, leg, [("tarsus5", self.brace_target(leg, a, x))],
+                                         iters=40, ref=self.q_brace0[leg])
+                if best is None or err < best[1]:
+                    best = (ang, err)
+                if err < 0.05:
+                    break
+            self.q_brace[leg] = best[0] if best[1] < 0.6 else self.q_brace0[leg]
+            self.brace_aim_err[leg] = best[1]
+
     def _fall(self, t: float) -> None:
         self.phase = "falling"
         self.state = "FALLING"
         self._t_phase = t
         self.n_drops += 1
+        held = [self.strength[l] for l in FRONT if self.leg_state[l] == "grip"]
+        kind = "two-arm" if len(held) == 2 else "one-arm"
+        self.fall_causes[kind] = self.fall_causes.get(kind, 0) + 1
+        self.last_fall_grip = max(held) if held else 0.0
+        self._fall_grip_sum += self.last_fall_grip
         self.last_streak = self.run_time() - self.streak_t0
         self.best_streak = max(self.best_streak, self.last_streak)
         if self.trap_mode == "twitch":
@@ -1213,7 +1446,15 @@ class DeadHangJob(EternalJob):
                 cs.append(o + R @ local)
         C = np.asarray(cs)
         n = len(C)
-        return C, np.tile([0.0, 0.0, 1.0], (n, 1)), np.zeros(n), np.full(n, 0.9)
+        ax = np.tile([0.0, 0.0, 1.0], (n, 1))
+        if c.efference_copy and self.phase == "hang" and hasattr(self, "settled_thorax_R"):
+            # the trap in the resting body frame, placed around the body as it is now:
+            # the eyes see it as from the resting hang (self-motion cancelled)
+            tb = self.sim.thorax_body_id
+            M = d.xmat[tb].reshape(3, 3) @ self.settled_thorax_R.T
+            C = d.xpos[tb] + (C - self.settled_thorax) @ M.T
+            ax = ax @ M.T
+        return C, ax, np.zeros(n), np.full(n, 0.9)
 
     def request_flinch(self, gf_hz: float, source: str) -> str:
         c = self.cfg
@@ -1285,6 +1526,9 @@ class DeadHangJob(EternalJob):
             "chomps": self.n_chomps, "drops": self.n_drops, "escapes": self.n_escapes,
             "regrips": self.n_regrips, "slips": self.n_slips, "regrabs": self.n_regrabs,
             "regrab_fails": self.n_regrab_fails, "lost_grips": self.n_lost, "best_streak_s": round(self.best_streak, 2),
+            "fall_causes": dict(self.fall_causes),
+            "mean_fall_grip": (round(self._fall_grip_sum / self.n_drops, 3)
+                               if self.n_drops else None),
             "streak_s": round(self.streak(), 2), "grip": round(self.grip_pct(), 3),
             "capacity": round(self.cap, 3), "twitches": self.n_twitches,
             "flinches": self.n_flinches, "gf_bursts": self.n_gf_bursts, "phase": self.phase,
