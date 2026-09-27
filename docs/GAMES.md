@@ -14,14 +14,19 @@ Files: `fly_simulator/games/` (`asteroids.py` rocks + game rules, `vision.py` th
 `experiment.py`; game 2: `chase.py` leader fly + LC10a eyes + rules,
 `chase_experiment.py`; game 3: `rings.py` hoops + flight pilot + rules,
 `rings_experiment.py`; game 4: `pong.py` court + ball + paddles + rules,
-`pong_experiment.py`), `scripts/play.py`, `tests/test_games.py`. Nothing in the app
-(`app.py`, `config.py`) was changed. Each game builds its own `Simulation` (game 3: a `FlightSimulation`).
+`pong_experiment.py`; game 5: `canyon.py` pillars + looming eyes + rules,
+`canyon_experiment.py`), `scripts/play.py`, `tests/test_games.py`. Each game builds its
+own `Simulation` (games 3 and 5: a `FlightSimulation`). The app only forwards:
+`scripts/run_sim.py --game NAME --brain` runs the same runner with the same options
+(`app.game_argv`; simulator options such as `--job` or `--course` are refused, see
+docs/USAGE.md).
 
 Games: **1. ASTEROID DODGE** (`--game asteroids`, the looming channel: turn *away*),
 **2. FOLLOW THE LEADER** (`--game chase`, the pursuit channel: turn *toward*) and
 **3. FLY THROUGH RINGS** (`--game rings`, the same pursuit channel piloting the real
-flapping-wing flight model) and **4. FLY PONG** (`--game pong`, the pursuit channel
-moving a Pong paddle).
+flapping-wing flight model), **4. FLY PONG** (`--game pong`, the pursuit channel
+moving a Pong paddle) and **5. CANYON RUN** (`--game canyon`, the looming channel
+piloting the real flight model: turn *away*).
 
 ## Game 1: ASTEROID DODGE
 
@@ -1066,3 +1071,254 @@ from `--record`. They were read by eye and then deleted.
   vs 14/30 first returns). The run used a ball centre at z = r; the table was then
   raised by 0.1 mm for rendering. This changes the ball's elevation seen by the eyes
   by under 0.3° and leaves its azimuth unchanged.
+
+## Game 5: CANYON RUN (real flight, the avoidance channel)
+
+![CANYON RUN: the brain-steered flying fly turns away from looming pillars](media/canyon.gif)
+
+The fly **flies** (the flight stack of game 3: `FlightSimulation`, `FlightMode`,
+`FlightPilot`) through an endless field of sandstone pillars. Every pillar is a
+**looming source** for the two compound eyes, through the eyes of game 1. In the
+connectome one eye's LC4 / LPLC2 drive the **opposite** side's DNa01/DNa02 pair, and
+here the DNa01/02 left–right difference sets the flight controller's **heading rate**,
+exactly as in game 3. Games 2–4 use the pursuit channel (turn *toward*); this one uses
+the avoidance channel (turn *away*) in flight.
+
+### Embodiment
+
+* **Flight.** `CanyonSession` (a `RingsSession` with other props and eyes) builds a
+  `FlightSimulation` + `ActionManager` + `FlightMode`. Every game, relaunch and
+  experiment trial begins with game 3's **air start** (placed at 6 mm in the hover
+  posture, held 40 ms while the wingbeat fades in, then released). Forward flight at
+  the level's set speed, COM held 6 mm above the ground, velocity control, heading
+  loop stiffened, altitude-integral trim (all as in game 3).
+* **Measured speed.** With the game 3 pilot (velocity P loop, the integral cleared
+  every chunk) the fly flies at ~0.75× the set speed: set 32 / 40 / 50 / 60 / 70 mm/s
+  → 24 / 30 / 38 / 45 / 53 mm/s (0.8 s of straight flight each). The HUD shows both
+  ("v 30 mm/s (set 40)"). This applies to game 3 too: its "50 mm/s" is ~38 mm/s.
+* **Pillars.** `CanyonField` is a pool of 12 mocap hoodoos: a cylinder 10 mm tall
+  (radius 1.6 / 2.0 / 1.8 / 2.3 mm by slot), a flared base, three darker strata
+  bands and a cap rock. They are visual only (contype 0).
+* **Layout.** Rows appear 48 mm ahead along the fly's current heading, one row every
+  24 mm of flight (normal). Each row has one **path pillar**, aimed at the fly's
+  projected straight path + U(−6.5, 6.5) mm lateral, and **flank pillars** (the canyon
+  sides) at ±U(10, 13.5) mm with probability 0.65 per side. The first rows are laid
+  out from 26 mm ahead when the game starts. Rows are placed relative to the fly's
+  heading *when they appear*, so after a sharp dodge the rows already ahead no longer
+  line up with its new path (sometimes easier, sometimes harder).
+* **Hit.** Geometric, at the thorax COM: a hit is the pillar's surface coming within
+  **2.5 mm** (horizontally) of the COM. That is the wings' reach: the model's wing
+  geoms reach ≤ 2.6 mm from the COM, so the beating wings would strike the pillar. A
+  hit tints the pillar red, crashes the flight (`FlightMode` crash: the wings stop and
+  the fly falls), costs a life, and relaunches the fly 0.5 s later where it lies. A
+  `FlightMode` crash (tilt / body contact) counts the same.
+* **Passed / near miss.** A pillar is passed once it is behind the fly. A pass with a
+  surface clearance under 0.8 mm (beyond the 2.5 mm reach) is a **near miss**, and the
+  pillar turns yellow.
+
+**Why the wings' reach and not the body.** With a 1 mm body radius, a pillar in the
+fly's path is within ~2 mm of its axis. It then sits inside both eyes' frontal
+binocular zone (15° overlap, 8° soft edge) until the last ~8 mm, so both eyes loom
+equally and, in the connectome, the two turn signals cancel. In a pilot with that
+radius (4 trials, offsets 0.6–2.2 mm), brain, mirror and none all hit every pillar,
+with turns of ±2–9°. A flying fly does collide with its wings, and with them in the
+hit test the pillars that threaten it include ones the eyes can tell apart.
+
+### What the brain sees and does (interface, ours)
+
+* **Input.** `CanyonVision` = `GameVision` (game 1) with the gaze frame following the
+  level stroke-frame yaw (as game 3's `RingVision`). Each pillar is a looming source:
+  its axis point at the eyes' height and its radius, so each eye computes the
+  pillar's true angular width θ = 2 asin(r/d). θ is low-passed (20 ms) and
+  differentiated, passed through game 1's `asteroid_response` **unchanged**, and
+  multiplied by the eye's field-of-view weight in the pillar's direction. Output:
+  `StimulusEvent("loom", side=eye, details={lc4_hz, lplc2_hz, ...})` to that side's
+  LC4 / LPLC2 (`mirror`: the other side). Update cadence: 2 ms while any pillar is up.
+  A 2 mm pillar closing at 30 mm/s starts to drive LC4 at ~15 mm (0.4 s before it
+  passes).
+* **Output.** turn = tanh(turn_L / 25 Hz) − tanh(turn_R / 25 Hz) (game 3's
+  `turn_command`), low-passed with τ = 60 ms, × **240°/s** = the heading rate
+  integrated into `FlightMode`'s heading goal. For `none`, turn = 0 (straight
+  flight).
+* **Gain choice (disclosed).** We started with game 3's 120°/s. In a 6-trial pilot
+  (seed 0) the brain turned away from every first pillar, but only by +12° on average,
+  and passed 1 of 6. At 240°/s (the walking games' measured CPG turn rate at full DN drive, game
+  3's first value) the same 6 trials gave 4 of 6. We kept 240. The experiment below
+  used a different seed (1). No other parameter was tuned on brain runs.
+* **Not controlled by the brain:** forward speed (set by the level), altitude (held;
+  the pillars are taller than the flight altitude, so only a sideways dodge helps),
+  and the giant fibre (DNp01). The GF fires at 125–225 Hz for every pillar; it is shown
+  in the panel as "not mapped". Mapping it to a jump or boost would interrupt the
+  steering, as in game 1.
+* **Game.** Score: 1 point per mm flown, 25 × level per pillar passed, 200 × level per
+  near miss. Every 6 path pillars passed is a new level: +4 mm/s set speed (max 70)
+  and 0.5 mm closer rows (min 14 mm). 3 lives. High scores go to
+  `runs/games_highscores.json` under `canyon`. Difficulties:
+
+  | difficulty | set speed (mm/s) | measured (mm/s) | path pillar offset (mm) | row spacing (mm) |
+  |---|---|---|---|---|
+  | easy | 32 | 24 | ±7.5 | 28 |
+  | normal | 40 | 30 | ±6.5 | 24 |
+  | hard | 50 | 38 | ±5.5 | 21 |
+
+  With offsets up to ±6.5 mm and a hit reach of 2.5 mm + r, about two thirds of the
+  path pillars are in the way of a straight flight.
+
+### Scientific check: does the brain fly around pillars better than chance?
+
+`--experiment N` runs paired pillar runs (`canyon_experiment.py`):
+
+* **Trial i.** 5 pillars. Each pillar's lateral offset from the fly's projected
+  straight path has magnitude U(1.5, 3.9) mm, with the side alternating along the
+  run and between trials, and a pool slot (radius 1.6–2.3 mm). A settling jitter is
+  U(0, 20) ms. All of it is replayed under brain / mirror / none. Every offset is
+  inside the hit reach (2.5 mm + r ≥ 4.1 mm), so straight flight always hits.
+* **Each trial:**
+  1. reset the model and the brain (neurons at rest);
+  2. air start at the origin heading +x, 0.4 s of straight flight with no pillar;
+  3. the first pillar appears 30 mm ahead of the fly along its heading, at its
+     offset;
+  4. each next pillar appears the same way (relative to the fly's *current* position
+     and heading) once the previous one is behind;
+  5. the trial ends at the first crash, or after 5 pillars.
+
+Real FlyWire brain, headless, normal difficulty (set 40 mm/s, measured ~30 mm/s), 24
+trials × 3 conditions, seed 1. It took 251 s wall (brain trials ~6 s each):
+
+```bash
+.venv/bin/python scripts/play.py --game canyon --brain --experiment 24 --seed 1 --json runs/canyon_exp.json
+```
+
+| condition | trials | first pillar passed | all 5 cleared | mean pillars passed (of 5) | crashes per pillar reached | mean distance (mm) | near misses | turned away from the first pillar (p) | mean turn away (deg) | away from the eye that saw more (p) |
+|---|---|---|---|---|---|---|---|---|---|---|
+| **brain** | 24 | **21/24 (88%)** | 5/24 | **2.58 ± 0.36** | 0.23 | **95.0 ± 8.7** | 10 | **23/24** (p = 3e-6) | +35.3 | **24/24** (p = 1e-7) |
+| mirror | 24 | 0/24 (0%) | 0/24 | 0 | 1.00 | 26.1 ± 0.1 | 0 | 1/24 (p = 3e-6) | −19.0 | 0/9 (p = 0.004) |
+| none | 24 | 0/24 (0%) | 0/24 | 0 | 1.00 | 26.4 ± 0.1 | 0 | – | 0 | – |
+
+| comparison | pairs | first pillar passed only in first | only in second | McNemar p | first flew further | mean distance diff (mm) | Wilcoxon p |
+|---|---|---|---|---|---|---|---|
+| brain vs none | 24 | 21 | 0 | 1e-6 | 23/24 | +68.5 | 2e-5 |
+| brain vs mirror | 24 | 21 | 0 | 1e-6 | 24/24 | +68.9 | 2e-5 |
+
+(Distance: flown from the first pillar's appearance to the crash or the end. "Away
+from the eye that saw more": trials where one eye's peak LC4 / LPLC2 drive was ≥ 1.25×
+the other's and the heading changed by ≥ 0.5°; sign tests.)
+
+* **The brain turns away.** It turned away from the first pillar in 23 of 24 trials
+  (mean +35°), and away from the eye that saw more in 24 of 24. The contralateral
+  DNa01/02 group peaked at 25–100 Hz. It passed 21 of 24 first pillars. The 3 hits
+  were grazes (0.07–0.10 mm inside the reach) of pillars at 1.5–2.1 mm offset, the
+  most nearly head-on ones.
+* **The mirror turns toward**, in 23 of 24 trials (−19°), and hit every pillar.
+* **The disconnected fly** flew straight into every first pillar (by design).
+* **Later pillars are harder.** The brain crashed on 3 of 24 first pillars (13 %) but
+  on 16 of the 57 later pillars it reached (28 %). A later pillar appears 30 mm ahead
+  of wherever the fly is heading at that moment, often while it is still turning from
+  the last dodge (we did not separate the causes). 5 of 24 runs cleared all 5 pillars;
+  over a run the heading wandered by up to 150°.
+* DN peaks: MDN ≤ 50 Hz, walk ≤ 42 Hz (not mapped in flight), giant fibre
+  125–200 Hz (brain) and 150–225 Hz (mirror), 0 for `none`.
+
+This is the same connectome property as game 1 (LC4 / LPLC2 → contralateral
+DNa01/02), now on a flying body: 88 % of first pillars passed vs 33 % of rocks dodged
+in game 1, with turns about as large (+35° vs +30°).
+
+**Pilots** (seed 0): with the body-only hit radius, 4 trials, all conditions 0/4.
+With the wings' reach at 120°/s, 6 trials: brain 1/6 first pillars, mirror 0/6, none
+0/6. At 240°/s: brain 4/6, mirror 0/6, none 0/6. **Single games** (seed 0, normal,
+3 lives): brain 285–305 mm, 22–24 pillars passed, 12 s; none 113 mm, 4 pillars, 6 s;
+mirror 71 mm, 1 pillar, 5 s.
+
+### HUD, window, controls
+
+* **Game view.** A chase camera 22 mm behind and 27° above the flying fly, high
+  enough to look over the pillars. It follows the stroke-frame heading without
+  zooming out for the altitude (game 3's `render`).
+* **HUD.**
+  * Top: title, control mode ("NONE, straight flight (control)" for `none`), score,
+    hearts, level, difficulty, best score; distance (cm), pillars passed, near
+    misses, crashes.
+  * Right: a top-down pillar radar (the fly as a green arrow; hit pillars red, near
+    misses yellow) and "next pillar d mm, y mm left/right".
+  * Centre: FLY THE CANYON!, NEAR MISS! +200, CRASH!, LEVEL n: v mm/s, CRASHED:
+    relaunching, GAME OVER with the restart hint, PAUSED.
+  * Bottom: the flight line (state, wingbeat Hz, altitude, measured and set speed,
+    heading command), the honest label and the keys.
+* **Brain panel** (TAB; off by default):
+  * **SEES**: LC4 and LPLC2 Hz per eye, with the lobe each eye drives (swapped in
+    mirror mode), and the nearest pillar's distance and bearing;
+  * **DOES**: DNa01/02 L / R → heading left / right, walk / MDN (not mapped in
+    flight), giant fibre (not mapped);
+  * the heading command.
+* **Keys.** SPACE pause, R restart, 1/2/3 difficulty, B brain window, TAB panel, M
+  record (`runs/recordings/canyon_<time>.mp4`), Q/ESC quit.
+
+### Commands
+
+```bash
+.venv/bin/python scripts/play.py --game canyon --brain --window
+.venv/bin/python scripts/run_sim.py --game canyon --brain                    # the same, from run_sim
+.venv/bin/python scripts/play.py --game canyon --brain --control mirror      # or: none
+.venv/bin/python scripts/play.py --game canyon --brain --panel --frames runs/frames --frame-times 1.3,4.3 --width 800 --height 600
+.venv/bin/python scripts/play.py --game canyon --brain --record runs/canyon.mp4 --max-seconds 16
+.venv/bin/python scripts/play.py --game canyon --brain --experiment 24 --seed 1 --json runs/canyon_exp.json
+.venv/bin/python scripts/play.py --game canyon --synthetic-brain --max-seconds 5   # no data
+.venv/bin/python -m pytest -q tests/test_games.py -k canyon
+```
+
+`--trial-obstacles K` sets the pillars per experiment trial (default 5).
+
+API: `CanyonSession(GameBrain("brain").start(), CanyonConfig(difficulty="normal"))`,
+then `.step()` repeatedly. It exposes `.game` (`CanyonGame`: `distance_mm`, `passed`,
+`near_misses`, `crashes`, `level`, `nearest`, `events`), `.field` (`CanyonField`:
+the pillars, `spawn_row`, `spawn_obstacle`, `visual_sources()` for any
+`LoomingVision`), `.vision` (`CanyonVision`) and `.pilot` / `.flight`.
+
+Speed: ~0.57× real time without the brain; with the brain the game ran at 12–13 s
+of game time per ~22–33 s wall, including recording.
+
+### Frames checked (game 5)
+
+Renderer PNGs (800 × 600 + panel, and frames of a 960 × 640 `--record` clip), read
+by eye, then deleted:
+
+* **Start (none, 1.4 s)**: rows of banded hoodoos ahead, flank pillars on both sides,
+  "FLY THE CANYON!", flight line "v 30 mm/s (set 40)", radar matching the 3D view.
+* **Dodge (brain, panel, 1.3 s)**: a pillar 4 mm to the left: left eye LC4 158 Hz /
+  LPLC2 195 Hz, right eye 13 / 13 Hz; turn R 25 Hz, turn L 0; heading command
+  −100°/s, "turning right ->"; giant fibre 150 Hz (not mapped).
+* **Near miss (brain clip, 1.4 s)**: the pillar just passed is yellow, "NEAR MISS!
+  +200", heading command −73°/s.
+* **Head-on (brain, panel, 4.3 s)**: a pillar 7.3 mm ahead, 0.5 mm left: left
+  109 / 91 Hz, right 106 / 91 Hz; turn L and R both 0 Hz. The fly hit it 0.2 s later.
+  This is the binocular limit of game 1.
+* **Crash (brain clip, 4.5 s)**: red pillar, "CRASH!", "CRASHED: relaunching", one
+  heart grey, the fly falling beside the pillar with its wings stopped (flight line
+  "WALKING 0 Hz").
+* **Game over (12.9 s)**: "GAME OVER score 1330 30.5 cm passed 24". The first version
+  still drew the last CRASH! banner over it; the banners are now hidden at game over.
+* **Window**: checked with injected keys (TAB, SPACE ×2, 3 = hard, R, M on / off,
+  Q). The M recording was written (0.2 MB) and deleted.
+
+### Limitations
+
+* **Most of the loop is ours.** The looming response (game 1's tuning, unchanged),
+  the pillar-as-width geometry, the gaze model, the heading gain (240°/s, chosen on a
+  6-trial pilot) and the flight controller are designed by us. The brain supplies the
+  side and the timing of the turn.
+* **Head-on pillars are invisible to the turn system.** Inside the frontal binocular
+  zone both eyes loom equally and the DNa01/02 signals cancel. Near-centre pillars
+  are hit unless an earlier turn moved them off-centre.
+* **The pillars are not physical.** Hits are judged geometrically (COM + 2.5 mm
+  wing reach), so a wing tip can pass through a pillar's edge, and a crash is the
+  game stopping the wings, not a collision. Colliding pillars could blow up the dt
+  5e-5 fluid model.
+* **Heading only.** Speed and altitude are fixed by the game; there are no overhangs
+  or low obstacles. The giant fibre is not mapped.
+* **Visual model.** Only looming (LC4 / LPLC2) is driven: no optic flow from the
+  fly's own motion, no object tracking. The pillar's size uses its horizontal width
+  only.
+* **Scope of the claim.** 24 paired runs at one speed (set 40 mm/s, ~30 mm/s
+  measured), one spawn distance (30 mm) and one offset range (1.5–3.9 mm, balanced
+  sides). The difference is unambiguous (21/24 vs 0/24 first pillars), but the
+  pass rate depends strongly on the gain, the speed and the offset range.

@@ -172,6 +172,7 @@ long it has been down.
 | `--course-loop` | with `--course`: start a new lap after the finish instead of quitting |
 | `--job NAME` | eternal job ([JOBS.md](JOBS.md)): `sisyphus`, `hamster_wheel`, `mowing`, `raking`, `kebab`. The job's props are compiled into the world, flat terrain, no auto hits / auto reset (the job recovers the fly itself, also from physics instabilities), no whip (hit keys shove; `--whip-vision` keeps the whip). Job HUD on top, C adds the job camera. Same as `scripts/run_job.py`, but with every app key and flag |
 | `--job-config JSON` | with `--job`: job config overrides, e.g. `'{"gap": 1.6}'` |
+| `--game NAME` | play a brain game ([GAMES.md](GAMES.md)) instead of the simulator: `asteroids`, `chase`, `rings`, `pong`, `canyon`. The same runner as `scripts/play.py`: needs `--brain` (FlyWire) or `--synthetic-brain` (tests); opens the game window unless `--headless` (then `--max-seconds` is game time, in the window it is wall time); `--record`, `--seed`, `--script-keys` pass through. Game options: `--control brain\|mirror\|none`, `--difficulty easy\|normal\|hard`, `--lives N`, `--panel`, `--experiment N` (headless paired trials) with `--controls` / `--json`. Game keys: SPACE pause, R restart, 1/2/3 difficulty, B brain window, TAB panel, M record, Q quit. Any simulator option (`--job`, `--course`, `--flight`, `--terrain`, `--swatter`, `--config`, ...) is refused with `ERROR:` (code 2); the game options without `--game` are refused too. For the game-specific options (`--win-points`, `--air-start`, `--frames`, ...) use `scripts/play.py` |
 
 The features compose: e.g. `--brain-actions --stress --swatter --whip-vision`,
 `--job kebab --brain`, `--course gauntlet --stress`. `--course` and `--job` can't be
@@ -186,6 +187,8 @@ happens while a loom is active and can lower the window's frame rate then).
 .venv/bin/python scripts/run_sim.py --course gauntlet --stress --brain-steer
 .venv/bin/python scripts/run_sim.py --job kebab --brain                              # + brain window
 .venv/bin/python scripts/run_sim.py --flight --brain-actions --swatter                # escape by real flight
+.venv/bin/python scripts/run_sim.py --game canyon --brain                             # a brain game (window)
+.venv/bin/python scripts/run_sim.py --game pong --synthetic-brain --headless --max-seconds 3
 ```
 
 ### Flight (`--flight`)

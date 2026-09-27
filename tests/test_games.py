@@ -861,3 +861,214 @@ def test_play_script_pong_synthetic(tmp_path):
                    "--width", "320", "--height", "240"])
     assert rc == 0
     assert len(list(frames.glob("pong_*.png"))) == 1
+
+
+# ---------------------------------------------------------------------------
+# game 5: CANYON RUN (real flight through looming pillars: the avoidance channel)
+# ---------------------------------------------------------------------------
+
+from fly_simulator.games import (  # noqa: E402
+    CANYON_DIFFICULTIES,
+    CanyonConfig,
+    CanyonField,
+    canyon_level_params,
+)
+from fly_simulator.games.canyon_experiment import (  # noqa: E402
+    format_canyon_summary,
+    make_canyon_specs,
+    run_canyon_trial,
+    summarize_canyon,
+)
+
+
+def test_canyon_levels_and_difficulty():
+    cfg = CanyonConfig()
+    l1, l3 = canyon_level_params(cfg, 1), canyon_level_params(cfg, 3)
+    assert l3["speed"] > l1["speed"] == CANYON_DIFFICULTIES["normal"].speed
+    assert l3["spacing_mm"] <= l1["spacing_mm"]
+    assert canyon_level_params(cfg, 99)["speed"] == cfg.max_speed
+    easy = canyon_level_params(CanyonConfig(difficulty="easy"), 1)
+    hard = canyon_level_params(CanyonConfig(difficulty="hard"), 1)
+    assert easy["speed"] < l1["speed"] < hard["speed"]
+
+
+def test_canyon_row_layout_without_sim():
+    cfg = CanyonConfig()
+    f = CanyonField(cfg, seed=3)
+    for k in range(3):
+        row = f.spawn_row((0.0, 0.0), 0.0, 30.0 + 20 * k, 5.0)
+        path = [p for p in row if p.kind == "path"]
+        assert len(path) == 1 and abs(path[0].pos[1]) <= 5.0 + 1e-9
+        assert abs(path[0].pos[0] - (30.0 + 20 * k)) < 1e-9
+        for q in row:
+            if q.kind == "flank":
+                assert abs(q.pos[1]) >= cfg.flank_min_mm - 1e-9
+                gap = abs(q.pos[1] - path[0].pos[1]) - q.radius - path[0].radius
+                assert gap >= cfg.min_gap_mm - 1e-6 or q.pos[1] * path[0].pos[1] < 0
+    # heading +90 deg: "ahead" is +y, "left" is -x
+    p = f.spawn_obstacle((1.0, 2.0), math.pi / 2, 10.0, 3.0)
+    assert np.allclose(p.pos[:2], (1.0 - 3.0, 12.0))
+    f.park_all()
+    assert not f.active()
+
+
+def test_canyon_specs_and_summary():
+    specs = make_canyon_specs(6, seed=1, n_obstacles=4)
+    assert specs == make_canyon_specs(6, seed=1, n_obstacles=4)
+    offs = [o for s in specs for o in s.offsets_mm]
+    assert all(1.5 <= abs(o) <= 3.9 for o in offs)
+    assert sum(o > 0 for o in offs) == len(offs) // 2
+    # straight flight hits every one of them (reach + the smallest pillar radius)
+    cfg = CanyonConfig()
+    assert max(abs(o) for o in offs) < cfg.reach_mm + min(cfg.radii_mm)
+
+    def row(i, c, passed, dist, turn):
+        return {"trial": i, "control": c, "n_obstacles": 4, "passed": passed,
+                "first_hit": passed == 0, "crashed": passed < 4, "distance_mm": dist,
+                "near_misses": 0, "first_turn_away_deg": turn,
+                "first_heading_change_deg": -turn, "loom_peak_left": 150.0,
+                "loom_peak_right": 20.0}
+
+    rows = []
+    for i in range(4):
+        rows += [row(i, "brain", 2 if i < 3 else 0, 80.0 if i < 3 else 26.0, 20.0),
+                 row(i, "none", 0, 26.0, 0.0)]
+    summ = summarize_canyon(rows)
+    b, n = summ["conditions"]["brain"], summ["conditions"]["none"]
+    assert b["first_passed"] == 3 and n["first_passed"] == 0
+    assert b["mean_passed"] == 1.5 and b["first_turned_away"] == "4/4"
+    assert b["away_from_seen"] == "4/4" and n["n_lateralised"] == 0
+    p = summ["paired"]["brain_vs_none"]
+    assert p["first_only_brain"] == 3 and p["first_only_none"] == 0 and p["further"] == "3/3"
+    assert "brain vs none" in format_canyon_summary(summ)
+
+
+@pytest.fixture(scope="module")
+def canyon():
+    from fly_simulator.games.session import CanyonSession
+
+    s = CanyonSession(GameBrain("none"), CanyonConfig(lives=2, ready_s=0.3), seed=0)
+    yield s
+    s.close()
+
+
+def _canyon_trial(s):
+    s.restart()
+    _steps(s, 0.3)
+    g = s.game
+    g.state = "trial"
+    g.field.park_all()
+    return g
+
+
+def test_canyon_pillar_in_path_hits_and_crashes(canyon):
+    s = canyon
+    g = _canyon_trial(s)
+    assert s.pilot.airborne and s.flight.state == "forward"
+    q = g.field.spawn_obstacle(s.sim.com()[:2], s.pilot.true_yaw(), 12.0, 1.0, t=g.time())
+    t0 = g.time()
+    while q.outcome is None and g.time() - t0 < 1.5:
+        s.step()
+    assert q.outcome == "hit" and g.state == "crashed" and g.hits == 1
+    assert q.min_clear < 0
+    _steps(s, 0.1)
+    assert s.flight.state == "walking"  # the wings stopped: the fly falls
+    assert g.lives == s.cfg.lives  # (trial: no lives lost)
+
+
+def test_canyon_pillar_beside_the_path_is_passed_and_seen_by_that_eye(canyon):
+    s = canyon
+    g = _canyon_trial(s)
+    n0 = len(s.vision.sent)
+    q = g.field.spawn_obstacle(s.sim.com()[:2], s.pilot.true_yaw(), 16.0, 7.0, t=g.time())
+    t0 = g.time()
+    while q.outcome is None and g.time() - t0 < 1.5:
+        s.step()
+    assert q.outcome == "passed" and g.state == "trial" and q.min_clear > 0
+    evs = s.vision.sent[n0:]
+    assert evs and all(e.kind == "loom" for e in evs)
+    assert {e.side for e in evs} == {"left"}  # a pillar on the left looms on the left eye
+    assert max(e.details["lc4_hz"] + e.details["lplc2_hz"] for e in evs) > 20
+
+
+def test_canyon_game_rows_crashes_gameover_restart(canyon):
+    s = canyon
+    s.restart()
+    g = s.game
+    _steps(s, g.cfg.ready_s + 0.1)
+    assert g.state == "playing" and any(p.kind == "path" for p in g.field.active())
+    for _ in range(2):  # the disconnected fly flies straight: force pillars into its path
+        n = g.crashes
+        g.field.spawn_obstacle(s.sim.com()[:2], s.pilot.true_yaw(), 8.0, 0.0, t=g.time())
+        t0 = g.time()
+        while g.crashes == n and g.time() - t0 < 1.0:
+            s.step()
+        assert g.crashes == n + 1
+        t0 = g.time()
+        while g.state == "respawn" and g.time() - t0 < 1.0:
+            s.step()
+        if g.state == "ready":
+            _steps(s, g.cfg.ready_s + 0.05)
+    assert g.state == "gameover" and g.lives == 0 and g.distance_mm > 0
+    assert any(e.kind == "crash" for e in g.events)
+    s.restart("easy")
+    assert g.state == "ready" and g.lives == g.cfg.lives and g.score == 0
+    assert s.pilot.speed == CANYON_DIFFICULTIES["easy"].speed
+    g.cfg.difficulty = "normal"
+    s.restart()
+
+
+def test_canyon_hud_frame(canyon):
+    from fly_simulator.games.hud import compose
+    from fly_simulator.games.session import make_renderer
+
+    canyon.restart()
+    _steps(canyon, canyon.cfg.ready_s + 0.1)
+    r = make_renderer(canyon.sim, 320, 240, **canyon.camera)
+    try:
+        img = compose(canyon.render(r), canyon)
+    finally:
+        r.close()
+    assert img.shape == (240, 320 + 150, 3) and img[:, 320:].mean() > 5
+
+
+def test_canyon_experiment_trial_none_crashes_into_the_first_pillar(canyon):
+    spec = make_canyon_specs(1, seed=0, n_obstacles=2)[0]
+    r = run_canyon_trial(canyon, spec, "none", settle_s=0.3)
+    assert r["first_hit"] and r["passed"] == 0 and r["why"] == "pillar"
+    assert abs(r["first_heading_change_deg"]) < 1.0 and 15.0 < r["distance_mm"] < 40.0
+    canyon.restart()
+
+
+def test_canyon_synthetic_brain_runs():
+    from fly_simulator.games.session import CanyonSession
+
+    b = GameBrain("brain", synthetic={"n": 60, "p_conn": 0.1, "seed": 0}).start()
+    try:
+        s = CanyonSession(b, CanyonConfig(ready_s=0.1), seed=0)
+        try:
+            _steps(s, 1.0)
+            assert b.n_states >= 5
+            assert abs(s.pilot.yaw_rate) <= math.radians(s.cfg.max_turn_dps) + 1e-9
+            assert s.vision.n_sent() > 0 and b.n_sent > 0  # pillars loom -> LC4 / LPLC2
+        finally:
+            s.close()
+    finally:
+        b.close()
+
+
+def test_play_script_canyon_synthetic(tmp_path):
+    import importlib.util
+    from pathlib import Path
+
+    path = Path(__file__).resolve().parents[1] / "scripts" / "play.py"
+    spec = importlib.util.spec_from_file_location("play_script_canyon", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    hs = tmp_path / "hs.json"
+    frames = tmp_path / "frames"
+    rc = mod.main(["--game", "canyon", "--synthetic-brain", "--max-seconds", "1.0",
+                   "--highscores", str(hs), "--frames", str(frames), "--frame-times", "0.9",
+                   "--width", "320", "--height", "240"])
+    assert rc == 0
+    assert len(list(frames.glob("canyon_*.png"))) == 1

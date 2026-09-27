@@ -348,8 +348,73 @@ class GameRunner:
 
 
 # ---------------------------------------------------------------------------
-# entry point used by scripts/play.py
+# entry point used by scripts/play.py (and scripts/run_sim.py --game)
 # ---------------------------------------------------------------------------
+
+
+def build_parser(description: str | None = None):
+    """The command line of ``scripts/play.py`` (also used by ``run_sim.py --game``)."""
+    import argparse
+
+    from fly_simulator.games import CONTROLS, DIFFICULTIES, GAMES
+
+    p = argparse.ArgumentParser(description=description,
+                                formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("--game", choices=GAMES, default="asteroids")
+    src = p.add_mutually_exclusive_group(required=True)
+    src.add_argument("--brain", action="store_true",
+                     help="the real FlyWire brain (data in data/brain)")
+    src.add_argument("--synthetic-brain", action="store_true",
+                     help="tiny random network (tests; no connectome, no real behaviour)")
+    p.add_argument("--data-dir", default=None)
+    p.add_argument("--control", choices=CONTROLS, default="brain",
+                   help="brain (default) | mirror (left eye -> right optic lobe) | "
+                        "none (brain disconnected, constant walk)")
+    p.add_argument("--difficulty", choices=sorted(DIFFICULTIES), default="normal")
+    p.add_argument("--lives", type=int, default=3)
+    p.add_argument("--seed", type=int, default=0)
+    p.add_argument("--jump", action="store_true",
+                   help="giant fibre (DNp01) > 60 Hz triggers a jump (off by default)")
+    p.add_argument("--jump-mode", choices=("long", "short"), default="long")
+    p.add_argument("--win-points", type=int, default=7, help="pong: points to win a game")
+    p.add_argument("--air-start", action="store_true",
+                   help="rings: start in the air instead of the jump take-off")
+    # presentation
+    p.add_argument("--window", action="store_true", help="OpenCV game window")
+    p.add_argument("--brain-window", action="store_true",
+                   help="also open the brain activity window (separate process)")
+    p.add_argument("--panel", action="store_true", help="start with the brain panel beside the game (off by default; TAB toggles it)")
+    p.add_argument("--no-panel", action="store_true", help=argparse.SUPPRESS)
+    p.add_argument("--width", type=int, default=960)
+    p.add_argument("--height", type=int, default=640)
+    p.add_argument("--scale", type=float, default=1.0, help="window display scale")
+    p.add_argument("--record", type=Path, default=None, help="write an MP4 (30 fps game time)")
+    p.add_argument("--frames", type=Path, default=None, help="directory for PNG frames")
+    p.add_argument("--frame-times", default=None,
+                   help="game seconds at which to save frames (with --frames), e.g. 2,5,8")
+    p.add_argument("--max-seconds", type=float, default=600.0,
+                   help="headless: stop after this much game time (default: at game over)")
+    p.add_argument("--max-wall-seconds", type=float, default=None,
+                   help="window: close after this many wall seconds")
+    p.add_argument("--script-keys", default=None,
+                   help='inject keys, e.g. "3:space,4:space,20:r" (headless: game s; window: wall s)')
+    p.add_argument("--highscores", type=Path, default=Path("runs/games_highscores.json"))
+    p.add_argument("--no-highscore", action="store_true")
+    # experiment
+    p.add_argument("--experiment", type=int, default=None, metavar="N",
+                   help="paired trials per condition (brain, mirror, none): single rocks "
+                        "(asteroids), leader runs (chase), single rings (rings), served rallies (pong) "
+                        "or pillar runs (canyon)")
+    p.add_argument("--controls", default="brain,mirror,none")
+    p.add_argument("--rock-speed", type=float, default=10.0, help="experiment rock speed (mm/s)")
+    p.add_argument("--trial-seconds", type=float, default=6.0,
+                   help="chase experiment: game seconds per leader run")
+    p.add_argument("--max-returns", type=int, default=5,
+                   help="pong experiment: a trial ends after this many returns (or a miss)")
+    p.add_argument("--trial-obstacles", type=int, default=5,
+                   help="canyon experiment: pillars per trial (a trial ends at the first crash)")
+    p.add_argument("--json", type=Path, default=None, help="experiment rows + summary")
+    return p
 
 
 def play(args) -> int:
@@ -382,7 +447,17 @@ def play(args) -> int:
               f"({brain.info.get('n_neurons', '?')} neurons)", flush=True)
     runner = None
     try:
-        if args.game == "pong":
+        if args.game == "canyon":
+            from fly_simulator.games.canyon import CANYON_DIFFICULTIES, CanyonConfig
+            from fly_simulator.games.session import CanyonSession
+
+            if args.difficulty not in CANYON_DIFFICULTIES:
+                print(f"difficulty must be one of {sorted(CANYON_DIFFICULTIES)}", file=sys.stderr)
+                return 2
+            session = CanyonSession(brain, CanyonConfig(difficulty=args.difficulty,
+                                                        lives=args.lives), seed=args.seed)
+            title = "CANYON RUN"
+        elif args.game == "pong":
             from fly_simulator.games.pong import PONG_DIFFICULTIES, PongConfig
             from fly_simulator.games.session import PongSession
 
@@ -454,7 +529,15 @@ def play(args) -> int:
 def _experiment(session, args) -> int:
     controls = tuple(args.controls.split(","))
     say = lambda m: print(m, flush=True)  # noqa: E731
-    if getattr(session, "game_name", "asteroids") == "pong":
+    if getattr(session, "game_name", "asteroids") == "canyon":
+        from fly_simulator.games.canyon_experiment import (
+            format_canyon_summary, run_canyon_experiment, summarize_canyon)
+
+        rows = run_canyon_experiment(session, args.experiment, controls=controls, seed=args.seed,
+                                     say=say, n_obstacles=getattr(args, "trial_obstacles", 5))
+        summ = summarize_canyon(rows)
+        text = format_canyon_summary(summ)
+    elif getattr(session, "game_name", "asteroids") == "pong":
         from fly_simulator.games.pong_experiment import (
             format_pong_summary, run_pong_experiment, summarize_pong)
 

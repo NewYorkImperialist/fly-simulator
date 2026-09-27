@@ -1017,7 +1017,102 @@ def build_arg_parser() -> argparse.ArgumentParser:
                         "side / top, flat terrain, no auto reset (the job recovers itself)")
     g.add_argument("--job-config", metavar="JSON", default=None,
                    help='with --job: job config overrides, e.g. \'{"slope_deg": 8}\'')
+    g = p.add_argument_group("brain games (docs/GAMES.md; same as scripts/play.py)")
+    g.add_argument("--game", metavar="NAME", default=None,
+                   help="play a FLY BRAIN PLAYS game instead of the simulator: asteroids, "
+                        "chase, rings, pong, canyon. Needs --brain (FlyWire) or "
+                        "--synthetic-brain; opens the game window unless --headless")
+    g.add_argument("--synthetic-brain", action="store_true",
+                   help="with --game: tiny random network instead of the connectome (tests)")
+    g.add_argument("--control", choices=GAME_CONTROLS, default=None,
+                   help="with --game: brain (default) | mirror (eyes swapped) | none "
+                        "(brain disconnected)")
+    g.add_argument("--difficulty", choices=("easy", "normal", "hard"), default=None,
+                   help="with --game: easy / normal (default) / hard")
+    g.add_argument("--lives", type=int, default=None, help="with --game: lives (default 3)")
+    g.add_argument("--panel", action="store_true",
+                   help="with --game: start with the brain panel shown (TAB toggles it)")
+    g.add_argument("--experiment", type=int, default=None, metavar="N",
+                   help="with --game: the paired brain / mirror / none experiment, N trials "
+                        "per condition (headless)")
+    g.add_argument("--controls", default=None,
+                   help="with --experiment: conditions, default brain,mirror,none")
+    g.add_argument("--json", type=Path, default=None,
+                   help="with --experiment: write the rows + summary here")
     return p
+
+
+GAME_CONTROLS = ("brain", "mirror", "none")
+# run_sim options that --game passes on to the games runner (dest names); every
+# other option set on the command line is refused with --game
+GAME_OPTIONS = ("game", "synthetic_brain", "control", "difficulty", "lives", "panel",
+                "experiment", "controls", "json", "headless", "max_seconds", "record", "seed",
+                "script_keys", "brain", "brain_headless", "no_brain_window", "no_log")
+GAME_ONLY = ("synthetic_brain", "control", "difficulty", "lives", "panel", "experiment",
+             "controls", "json")
+
+
+def game_argv(args: argparse.Namespace, parser: argparse.ArgumentParser) -> list[str]:
+    """``run_sim.py --game NAME ...`` -> the ``scripts/play.py`` command line (the same
+    runner, options and defaults). Refuses options that make no sense with a game
+    (ConfigError): the games build their own world, fly and brain wiring."""
+    from fly_simulator.games import GAMES
+
+    opt = {a.dest: " / ".join(a.option_strings) if len(a.option_strings) > 1
+           else a.option_strings[0] for a in parser._actions if a.option_strings}
+    defaults = {a.dest: a.default for a in parser._actions}
+    if args.game is None:
+        used = [opt[d] for d in GAME_ONLY if getattr(args, d) != defaults.get(d)]
+        if used:
+            raise ConfigError(f"{', '.join(used)}: needs --game NAME "
+                              f"({', '.join(GAMES)})")
+        return []
+    if args.game not in GAMES:
+        raise ConfigError(f"unknown game {args.game!r}; available: {', '.join(GAMES)}")
+    bad = [opt.get(a.dest, a.dest) for a in parser._actions
+           if a.option_strings and a.dest not in GAME_OPTIONS and a.dest != "help"
+           and getattr(args, a.dest) != a.default]
+    if bad:
+        raise ConfigError(f"--game {args.game} can't be combined with {', '.join(bad)}: a game "
+                          "builds its own world, fly and brain wiring (docs/GAMES.md). Game "
+                          "options: --brain / --synthetic-brain, --control, --difficulty, "
+                          "--lives, --panel, --experiment, --controls, --json, --headless, "
+                          "--max-seconds, --record, --seed, --script-keys")
+    if args.brain and args.synthetic_brain:
+        raise ConfigError("--brain and --synthetic-brain exclude each other")
+    if not (args.brain or args.synthetic_brain):
+        raise ConfigError(f"--game {args.game} needs a brain: --brain (the FlyWire connectome, "
+                          "data in data/brain) or --synthetic-brain (a tiny random network, "
+                          "tests only)")
+    if args.controls is not None and args.experiment is None:
+        raise ConfigError("--controls needs --experiment N")
+    if args.json is not None and args.experiment is None:
+        raise ConfigError("--json needs --experiment N")
+    out = ["--game", args.game, "--brain" if args.brain else "--synthetic-brain"]
+    for dest, flag in (("control", "--control"), ("difficulty", "--difficulty"),
+                       ("lives", "--lives"), ("seed", "--seed"), ("record", "--record"),
+                       ("experiment", "--experiment"), ("controls", "--controls"),
+                       ("json", "--json"), ("script_keys", "--script-keys")):
+        v = getattr(args, dest)
+        if v is not None:
+            out += [flag, str(v)]
+    if args.panel:
+        out.append("--panel")
+    windowed = not args.headless and args.experiment is None
+    if windowed:
+        out.append("--window")
+        if args.max_seconds is not None:  # the window runs on wall time
+            out += ["--max-wall-seconds", str(args.max_seconds)]
+    elif args.max_seconds is not None:
+        out += ["--max-seconds", str(args.max_seconds)]
+    return out
+
+
+def run_game(argv: list[str]) -> int:
+    """Run a game through ``fly_simulator.games.runner`` (what scripts/play.py does)."""
+    from fly_simulator.games.runner import build_parser, play
+
+    return play(build_parser("run_sim.py --game").parse_args(argv))
 
 
 def _parse_levels(text: str) -> tuple[tuple[int, ...], tuple[float, ...]]:
@@ -1870,7 +1965,15 @@ def _stress_hud(stress) -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = build_arg_parser().parse_args(argv)
+    parser = build_arg_parser()
+    args = parser.parse_args(argv)
+    try:
+        gargv = game_argv(args, parser)
+    except ConfigError as e:
+        print(f"ERROR: {e}", file=sys.stderr)
+        return 2
+    if gargv:  # --game NAME: the games runner (docs/GAMES.md), not the simulator
+        return run_game(gargv)
     try:
         cfg = config_from_args(args)
     except ConfigError as e:

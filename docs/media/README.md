@@ -33,6 +33,7 @@ ffmpeg -ss START -t DUR -i in.mp4 -vf "setpts=PTS/SPEED,fps=FPS,scale=W:-2:flags
 | `rings_brain_panel.png` | 0.2 MB | A full rings frame including the "THE BRAIN" side panel |
 | `chase.gif` | 1.8 MB | Game "Follow the Leader": the brain-steered fly pursues a leader fly |
 | `pong.gif` | 2.0 MB | Game "Fly Pong": the real FlyWire brain moves the green paddle the fly stands on (ball → LC10a → DNa01/02 → paddle speed) against a scripted AI; returns as the ball speeds up, then a miss ("MISSED! AI SCORES") and the next serve |
+| `canyon.gif` | 2.1 MB | Game "Canyon Run": real flapping flight through sandstone pillars; each pillar looms on the eye that sees it (LC4 / LPLC2 → the opposite DNa01/02), the real FlyWire brain turns away: a near miss (yellow pillar), dodges, then a nearly head-on pillar (both eyes loom equally) is hit: CRASH!, relaunch |
 | `course.png` | 0.1 MB | The `gauntlet` obstacle course: gates, a ramp, a pebble field |
 | `taste.png` | 0.1 MB | Feeding: the fly stands on a sugar spot and the real MN9 extends its proboscis (close side view) |
 | `social_preview.png` | 0.2 MB | 1280×640 GitHub social card: a kebab frame plus the title and tagline |
@@ -167,6 +168,11 @@ a 642×430 grid, with labels drawn by OpenCV. GIF: 3.2 s, 10 fps, 112 colours, b
 **pong.gif** (start 6.0, dur 5.6, 540 px, 12 fps, 128 colours, dither none, speed 1)
 ```bash
 .venv/bin/python scripts/play.py --game pong --brain --record $S/pong.mp4 --max-seconds 24 --seed 2 --no-highscore
+```
+
+**canyon.gif** (start 0.6, dur 4.2, 480 px, 10 fps, 96 colours, dither none, speed 1)
+```bash
+.venv/bin/python scripts/play.py --game canyon --brain --record $S/canyon.mp4 --max-seconds 16 --no-highscore
 ```
 
 **course.png** (frame at 1.45 s, resized to 720×408)

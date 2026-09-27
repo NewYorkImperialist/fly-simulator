@@ -51,10 +51,12 @@ Keys: **C** camera · **P** pause · **TAB** show stats · **I** screenshot · *
 .venv/bin/python scripts/play.py --game chase --brain --window       # chases a leader fly
 .venv/bin/python scripts/play.py --game asteroids --brain --window   # dodges rolling rocks
 .venv/bin/python scripts/play.py --game pong --brain --window        # plays Pong: the brain moves its paddle
+.venv/bin/python scripts/play.py --game canyon --brain --window      # flies a canyon, turning away from looming pillars
 ```
 
 Keys: **SPACE** pause · **R** restart · **1/2/3** easy/normal/hard · **B** brain window ·
 **TAB** brain panel · **M** record · **Q** quit. Add `--control mirror` to swap its eyes and watch it fail.
+`scripts/run_sim.py --game NAME --brain` runs the same games from the simulator's entry point.
 
 **Poke the fly yourself:** `.venv/bin/python scripts/run_sim.py --flight --brain-actions --swatter`
 (V swats, SPACE whips, L takes off, ? shows every key).

@@ -33,6 +33,14 @@ from .pong import (
     PongPhysics,
     paddle_command,
 )
+from .canyon import (
+    CANYON_DIFFICULTIES,
+    CanyonConfig,
+    CanyonField,
+    CanyonGame,
+    CanyonVision,
+    canyon_level_params,
+)
 from .chase import (
     CHASE_DIFFICULTIES,
     ChaseConfig,
@@ -48,11 +56,12 @@ HONEST_LABEL = ("Brain responses are real connectome wiring (FlyWire v783, Shiu 
                 "LIF model); the game interface (what the brain sees, how its outputs map to "
                 "controls) is designed by us.")
 
-GAMES = ("asteroids", "chase", "rings", "pong")  # ASTEROID DODGE, FOLLOW THE LEADER, FLY THROUGH RINGS, FLY PONG
+GAMES = ("asteroids", "chase", "rings", "pong", "canyon")
+# ASTEROID DODGE, FOLLOW THE LEADER, FLY THROUGH RINGS, FLY PONG, CANYON RUN
 
 
 def __getattr__(name):  # lazy: session pulls in MuJoCo / FlyGym
-    if name in ("AsteroidSession", "ChaseSession", "RingsSession", "PongSession", "make_renderer", "render_frame",
+    if name in ("AsteroidSession", "ChaseSession", "RingsSession", "PongSession", "CanyonSession", "make_renderer", "render_frame",
                 "game_looming_config"):
         from . import session
 
@@ -61,6 +70,8 @@ def __getattr__(name):  # lazy: session pulls in MuJoCo / FlyGym
 
 
 __all__ = [
+    "CANYON_DIFFICULTIES", "CanyonConfig", "CanyonField", "CanyonGame", "CanyonSession",
+    "CanyonVision", "canyon_level_params",
     "CHASE_DIFFICULTIES", "CONTROLS", "DIFFICULTIES", "GAMES", "HONEST_LABEL", "AsteroidConfig",
     "AsteroidField", "AsteroidGame", "AsteroidSession", "ChaseConfig", "ChaseGame",
     "ChaseSession", "GameBrain", "GameEvent", "GameMapping", "LeaderFly", "PursuitResponse",

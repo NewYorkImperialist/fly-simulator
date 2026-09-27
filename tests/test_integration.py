@@ -175,3 +175,76 @@ def test_course_quits_at_the_finish(tmp_path, capsys):
     assert "[course] terrain difficulty is fixed" in out and "flatten is disabled" in out
     assert "[FINISHED] course mini lap 1" in out
     assert (Path(res.run_dir) / "course_results.json").exists()
+
+
+# ------------------------------------------------------------------ --game (the games runner)
+def test_game_flag_translates_to_the_games_runner():
+    from fly_simulator.app import game_argv
+
+    p = build_arg_parser()
+
+    def ga(*argv):
+        return game_argv(p.parse_args(list(argv)), p)
+
+    assert ga() == [] and ga("--flight", "--brain") == []  # not a game: the simulator
+    # window by default (wall seconds there), headless on request (game seconds)
+    assert ga("--game", "canyon", "--brain") == ["--game", "canyon", "--brain", "--window"]
+    assert ga("--game", "pong", "--brain", "--max-seconds", "4") == [
+        "--game", "pong", "--brain", "--window", "--max-wall-seconds", "4.0"]
+    out = ga("--game", "rings", "--synthetic-brain", "--headless", "--max-seconds", "3",
+             "--control", "mirror", "--difficulty", "hard", "--seed", "2", "--record", "x.mp4",
+             "--lives", "5", "--panel", "--no-log", "--brain-headless")
+    assert out == ["--game", "rings", "--synthetic-brain", "--control", "mirror",
+                   "--difficulty", "hard", "--lives", "5", "--seed", "2", "--record", "x.mp4",
+                   "--panel", "--max-seconds", "3.0"]
+    # the experiment runs headless
+    assert ga("--game", "canyon", "--brain", "--experiment", "4", "--json", "e.json") == [
+        "--game", "canyon", "--brain", "--experiment", "4", "--json", "e.json"]
+    from fly_simulator.games.runner import build_parser
+
+    a = build_parser().parse_args(out)  # the play.py parser accepts it
+    assert a.game == "rings" and a.control == "mirror" and not a.window
+
+
+@pytest.mark.parametrize("argv, msg", [
+    (["--game", "pong"], "needs a brain"),
+    (["--game", "pong", "--brain", "--synthetic-brain"], "exclude each other"),
+    (["--game", "tetris", "--brain"], "unknown game"),
+    (["--game", "pong", "--synthetic-brain", "--job", "kebab"], "--job"),
+    (["--game", "canyon", "--brain", "--course", "gauntlet"], "--course"),
+    (["--game", "rings", "--brain", "--flight", "--swatter"], "--swatter"),
+    (["--game", "rings", "--brain", "--terrain", "flat"], "--terrain"),
+    (["--game", "pong", "--brain", "--controls", "brain,none"], "--controls needs --experiment"),
+    (["--control", "mirror"], "needs --game"),
+    (["--synthetic-brain"], "needs --game"),
+    (["--experiment", "4"], "needs --game"),
+])
+def test_game_flag_refuses_combos_that_make_no_sense(argv, msg, capsys):
+    from fly_simulator.app import game_argv
+
+    p = build_arg_parser()
+    with pytest.raises(ConfigError, match=msg.replace("(", r"\(")):
+        game_argv(p.parse_args(argv), p)
+    assert main(argv) == 2
+    assert "ERROR" in capsys.readouterr().err
+
+
+def test_run_sim_game_pong_synthetic_headless(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)  # (high scores go to ./runs)
+    rc = main(["--game", "pong", "--synthetic-brain", "--headless", "--max-seconds", "1.0"])
+    out = capsys.readouterr().out
+    assert rc == 0, out
+    assert "[play] FLY PONG  control=brain" in out and "real connectome wiring" in out
+    res = json.loads(out.strip().splitlines()[-1].removeprefix("[play] "))
+    assert res["control"] == "brain" and res["game_time_s"] >= 1.0 and res["brain_states"] > 0
+
+
+def test_run_sim_game_canyon_synthetic_headless(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    rc = main(["--game", "canyon", "--synthetic-brain", "--headless", "--max-seconds", "1.0",
+               "--control", "none", "--difficulty", "easy"])
+    out = capsys.readouterr().out
+    assert rc == 0, out
+    res = json.loads(out.strip().splitlines()[-1].removeprefix("[play] "))
+    assert res["control"] == "none" and res["difficulty"] == "easy"
+    assert res["distance_mm"] > 0 and res["state"] in ("playing", "respawn", "ready")

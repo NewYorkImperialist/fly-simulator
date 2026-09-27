@@ -270,6 +270,67 @@ class RingsSession:
         self.sim.close()
 
 
+class CanyonSession(RingsSession):
+    """Wiring for CANYON RUN: flight world + flying fly + pillars + eyes (LC4 / LPLC2)
+    + brain (docs/GAMES.md, game 5).
+
+    Same flight stack and loop as ``RingsSession`` (``FlightSimulation`` +
+    ``FlightMode`` + ``FlightPilot``; ``step()`` = one 5 ms physics chunk, then
+    ``brain.update``, then DNa01/02 -> heading rate, then the rules). The eyes are
+    ``CanyonVision`` (ASTEROID DODGE's ``GameVision``: every pillar is a looming
+    source) and the sink is ``brain.on_loom``. The game starts with an air start."""
+
+    game_name = "canyon"
+    # chase camera behind and above the fly, high enough to look over the pillars
+    camera = {"distance": 22.0, "elevation": -27.0, "azimuth": 0.0}
+
+    def __init__(self, brain: GameBrain | None = None, cfg=None, *, seed: int = 0,
+                 app_cfg=None, chunk_steps: int = 100, looming: LoomingConfig | None = None,
+                 response=None) -> None:
+        from fly_simulator.actions.base import ActionManager
+        from fly_simulator.config import AppConfig, FlightModeConfig
+        from fly_simulator.flight import FlightSimulation
+        from fly_simulator.flight.mode import FlightMode
+        from fly_simulator.games.canyon import (
+            CanyonConfig, CanyonField, CanyonGame, CanyonVision)
+        from fly_simulator.games.rings import FlightPilot, turn_command
+
+        self._turn_command = turn_command
+        self.cfg = cfg or CanyonConfig()
+        self.brain = brain or GameBrain("none")
+        self.brain.map.jump = False
+        self.app_cfg = app_cfg or AppConfig()
+        self.field = CanyonField(self.cfg, seed=seed + 17)
+        self.sim = FlightSimulation(self.app_cfg, world_extensions=[self.field.extension])
+        self.field.attach(self.sim)
+        self.actions = ActionManager(self.sim)
+        self.flight = FlightMode(self.sim, self.actions,
+                                 FlightModeConfig(enabled=True, hover_s=None))
+        self.pilot = FlightPilot(self.sim, self.flight, self.cfg)
+        self.chunk_steps = int(chunk_steps)
+        self.jump_times: list[float] = []
+        self.unstable = 0
+        self._crash_count = 0
+        self.sim.reset()
+        self.game = CanyonGame(self.sim, self.field, self.pilot, self.cfg, seed=seed,
+                               on_respawn=self._on_respawn)
+        self.vision = CanyonVision(self.sim, looming or game_looming_config(),
+                                   self.pilot.true_yaw, sink=self.brain.on_loom,
+                                   time_fn=self.game.time)
+        for src in self.field.visual_sources(response):
+            self.vision.add_source(src)
+        sim = self.sim
+        self.field.eye_z_fn = lambda: float(sim.thorax_position()[2])
+        self.vision.attach()
+        self._last_rt = self.game.time()
+        self.brain.reset(self.game.time())
+
+    def close(self) -> None:
+        self.vision.detach()
+        self.field.detach()
+        self.sim.close()
+
+
 class PongSession:
     """Wiring for FLY PONG: world + standing fly on a paddle sled + court + eyes
     (LC10a) + brain (docs/GAMES.md, game 4).
