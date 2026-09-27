@@ -20,6 +20,7 @@ ffmpeg -ss START -t DUR -i in.mp4 -vf "setpts=PTS/SPEED,fps=FPS,scale=W:-2:flags
 | `hero.gif` | 2.3 MB | Swatter slam: a lazy swat comes from behind. The real FlyWire brain's giant fibre fires, and the fly escapes on flapping wings (no external force) while the paddle lands behind it. 3x slow motion |
 | `kebab.gif` | 1.5 MB | The doner kebab chef job: it carves the spit with the recorded grooming stroke |
 | `dead_hang.gif` | 0.5 MB | The dead-hang job: the fly hangs from the pull-up bar, the flytrap twitches, the fly re-grips, then its grip is drained and it slides off into the trap: CHOMP, then the respawn |
+| `bowling.gif` | 2.3 MB | The bowling job: the fly pushes the ball over the ramp, the ball rolls down the lane and scatters pins (real contacts), the pinsetter sweeps, the scoreboard counts. Recorded with the HUD |
 | `jobs.gif` | 2.5 MB | 2x2 grid of the eternal jobs: Sisyphus, hamster wheel, lawn mowing, leaf raking |
 | `whip.gif` | 2.0 MB | A level-3 physical whip crack from the right knocks the fly sideways. 4x slow motion |
 | `brain_window.png` | 0.1 MB | The brain window with real FlyWire activity 0.1 s after a looming stimulus (giant fibre 115 Hz, JUMP), after two whip hits under `--stress`. Shows the decision meters, DN traces, pain/arousal and the playground panel |
@@ -121,4 +122,13 @@ blended into a 500 px dark left panel. The title, tagline and credits were drawn
 Pillow in Avenir Next (Bold / Medium), a macOS system font.
 ```bash
 .venv/bin/python scripts/run_sim.py --job kebab --headless --max-seconds 3 --record $S/kb.mp4 --no-log --config $S/r1280.json
+```
+
+**bowling.gif** (real time, 6 s from the start, 480 px, 10 fps, 96 colours, no dither).
+`run_job.py --record` frames include the HUD (scoreboard):
+```bash
+.venv/bin/python scripts/run_job.py --job bowling --headless --max-seconds 40 --record $S/bowl --segment-s 60 --keep 1 \
+  --width 720 --height 480 --job-config '{"seed": 3}'
+ffmpeg -t 6 -i $S/bowl/recording01_t00000.02s.mp4 -vf "fps=10,scale=480:-2:flags=lanczos,split[a][b];\
+[a]palettegen=max_colors=96:stats_mode=diff[p];[b][p]paletteuse=dither=none:diff_mode=rectangle" -loop 0 bowling.gif
 ```

@@ -14,6 +14,7 @@ constant.
 | `mowing` | pushes a red push mower up and down a lawn in rows, leaving light / dark mowing stripes; the grass grows back | m² mowed, rows mowed, lawns completed |
 | `raking` | leaves fall from an autumn tree; the fly sweeps them into a pile with a rake; when the pile is done, the wind blows it away | leaves raked, piles completed, gusts survived |
 | `dead_hang` | dead-hangs by its front legs from a pull-up bar over a Venus flytrap; its grip tires, it re-grips and slips; when it falls, the trap snaps shut, and the fly respawns on the bar | time on the bar, hang streak (best), re-grips, slips, chomps, survival rate |
+| `bowling` | pushes a 3 mm ball over the ramp at the head of the lane; it rolls down and scatters 10 free-body pins; a kinematic pinsetter clears / resets them; standard ten-pin scoring | pins knocked down, games, best / average game, strikes, spares, gutters, fouls |
 
 ```bash
 python scripts/run_job.py --job sisyphus                   # window; Q quit, C camera, P pause, X reset, I screenshot, TAB HUD
@@ -556,6 +557,98 @@ session. The flinch logic is tested with a fake brain state.
 CHOMPS, a grip bar (`GRIP [######----] 62 %`, L / R, capacity), re-grips / slips /
 re-grabs / survival rate, and (with a brain) twitches / GF bursts / FLINCHES. A
 banner flashes `*** CHOMP! ***`, `SLIP!`, `AAAAAAAAAH!`, `FLINCH!`.
+
+### bowling
+
+`fly_simulator/jobs/bowling.py` (scene, behaviour, `BowlingGame` scoring),
+`fly_simulator/jobs/bowling_assets.py` (procedural meshes / textures), tests in
+`tests/test_jobs_bowling.py`. HUD: `BOWLING FLY - league night, every night`.
+
+**Scene.** A raised lane bed (1.6 mm; the fly walks on it) with a maple / pine board
+texture, the black foul line, 7 target arrows, guide and approach dots and pin
+spots, all drawn in one procedural texture. Semicircular gutters on both sides are
+real channels (7 static facets each) that a stray ball drops into; kickbacks flank
+the deck; the pit behind has a high-rolling-friction floor and a back cushion. A
+masking unit ("FLY LANES / LEAGUE NIGHT - EVERY NIGHT") hides the pinsetter
+housing; two neighbouring lanes with full racks, a ball-return hood and house
+balls are decoration. Cosmic carpet on the floor. Scale: the ball is 3 mm (R 1.5,
+0.3 mg); pins, spacing (4.2 mm) and lane width use the same scale as the ball
+(8.5 in → 3 mm), but the lane is compressed ~11× (22 mm from foul line to head pin
+instead of 250 mm).
+
+**Pins.** 10 free bodies in the standard triangle (numbering 1 … 10, 7 on the
+left). Collision: a flat foot cylinder, belly capsule, neck capsule, head sphere
+(COM ~0.37 of the height); visual: a lathe mesh through the regulation USBC pin
+profile, white with two red neck stripes. Mass 0.067 mg, the regulation ball / pin
+ratio (~4.5). They touch the lane, the ball and each other, never the fly. Tuning
+found: (1) with default max-mixing the ball's friction 1 and its spin pinned the
+light pin to the deck and the ball stopped dead against it, so pin geoms have
+priority 2 and friction 0.25 (lacquered pins); (2) FlyGym's stiff 0.2 ms contact
+time constant blew up on fast pin-pin hits, so pins use 1 ms; (3) condim-6 contacts
+between ball and pin (with the noslip solver) welded them together, so the ball
+itself is condim 3 and its rolling friction comes from ball-only surfaces
+(contype bit 64: the oiled lane 1e-4 mm, the dry approach 0.02 mm, the pit 0.25 mm).
+A pin is **down** if it tilts more than 35° or is off the deck.
+
+**The ramp (engineered, labelled).** A ball pushed at walking speed (~10 mm/s, ~100×
+slower than a Froude-scaled real delivery) only nudged the head pin: measured, the
+pin leaned on the ball and the ball stopped dead. So the approach is a plateau that
+ends in a bowling ramp (the device kids use): 0.35 mm drop over 3 mm onto the lane
+at the foul line. The fly pushes the ball over the top edge and the ball rolls down,
+reaching ~70 mm/s (sqrt(10/7 g h)); from then on it is real rolling and contact
+physics. Placed-ball sweeps (70–200 mm/s, aimed −3 … +3 mm) knocked down 4–6 pins on
+average, at most 9; faster balls or lighter pins (0.03 mg) changed that little.
+
+**Behaviour.** `PushPilot` (the mowing job's push loop) walks round the ball on the
+approach and pushes it along the roll's target line; the waypoints are clamped
+behind the ramp. When the ball is 0.5 mm past the ramp's top edge the fly stops
+(**engineered stop rule**: steering speed 0 and a `freeze`) behind the foul line and
+watches; a thorax past the foul line within 3 s of the release would be a **foul**
+(the ball scores 0, as in real bowling; 0 so far). The ball rolls; the roll is over
+when the ball is in the pit, in a gutter beside the deck, stalled (< 0.8 mm/s for
+1.2 s: a dead ball) or after 15 s. The job then waits until the upright pins on the
+deck are still (< 2 mm/s for 0.5 s, max 5 s) and scores the roll. Then the fly walks
+back to its waiting spot (grooming first after a strike) and freezes until the
+ball comes back. **Aim model** (documented "skill", default 0.75): roll 1 aims at the
+pocket (y = −1 mm, between pins 1 and 3), roll 2 at the front-most standing pin;
+aim error at the pins ~ N(0, 0.4 + 2 (1 − skill) mm), plus a wild throw (+N(0, 5 mm))
+with probability 0.25 (1 − skill). The push itself adds its own scatter.
+
+**Pinsetter (kinematic, labelled; every cycle counted).** After roll 1 the table
+lifts the standing pins 2.6 mm, the sweep bar (mocap, visual) comes down in front of
+the deck and sweeps back to the pit; every knocked pin it passes vanishes into the
+housing (a teleport; stored pins are held there kinematically), and the standing
+pins are put back down where they stood, upright. After a frame (or a strike, or a
+10th-frame mark) it clears everything and lowers a fresh rack of 10 from the housing
+onto the spots (`rack_resets`). **Ball return (labelled):** the ball is taken out of
+the pit into the ball-return hood (a teleport) and pops out at the approach return
+spot (x 4 mm, y ±1.5 mm) once the fly has walked clear. A reset during a roll voids
+the roll (`voided`) and puts the rack back as it was before it.
+
+**Scoring.** `BowlingGame`: standard ten-pin rules (strike = 10 + next two balls,
+spare = 10 + next ball, the 10th frame's bonus balls with a fresh rack after a mark,
+300 max), marks `X / - 7`, per-frame running totals (None while a bonus is
+pending). HUD: game, frame / ball, score, last / best / average game, a two-line
+scoreboard (`1: X =20 | 2: 7 / =30 | 3: - 4 =34 | …`), strikes / spares / gutters /
+fouls / rolls / racks, and a message line (STRIKE!, DOUBLE!, TURKEY!, SPARE!,
+GUTTER BALL, the 7-10 split!, GAME OVER).
+
+**Verified** (headless, 2026-09-26, `run_job.py --job bowling --headless
+--max-seconds 180 --timelapse 6 --record … --width 480 --height 320`): 23 rolls,
+**52 pins (2.3 per roll)**, one complete game (**46**) and 5 balls of the next,
+0 strikes, 0 spares, 3 gutter balls, 2 dead balls, 0 fouls, 23 pinsetter cycles,
+11 rack resets, 22 ball returns, 19 pushes started, 9 back-away unsticks,
+0 falls, 0 auto-recoveries, 0 instabilities, RTF 0.28. (That run used skill 0.6; with the
+current default 0.75, a 40 s run with seed 3 gave 5 rolls, 8 pins, 0 falls, RTF 0.27.) About 7.5 s per roll, so a
+game takes ~2.5 sim minutes. `run_sim.py --job bowling` runs too (3 s smoke test,
+3 pins). Frames checked by eye (job renderer / recording): the push at the ramp, the
+ball rolling down the lane, pins scattering, the sweep bar, the fly walking back.
+
+**Limitations.** The fly bowls badly: strikes and spares are possible under the
+scoring rules and the physics, but none happened in 180 s and no placed-ball test
+reached 10 pins; slow, fly-scale pin action rarely clears the deck. The lane is
+compressed, the ramp, stop rule, pinsetter and ball return are engineered (above),
+and the pins are held kinematically while in the machine.
 
 ## Verification
 
