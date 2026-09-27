@@ -17,6 +17,7 @@ constant.
 | `bowling` | pushes a 3 mm ball over the ramp at the head of the lane; it rolls down and scatters 10 free-body pins; a kinematic pinsetter clears / resets them; standard ten-pin scoring | pins knocked down, games, best / average game, strikes, spares, gutters, fouls |
 | `broccoli_toss` | in a streamer's room the host fly brings a plate of broccoli to the viewer fly in the gaming chair; the viewer ponders it for 0.75–1 s, flicks the whole plate over its shoulder without looking, and everything behind it explodes (cartoon blast, props fly with real physics); the room rebuilds | plates yeeted, explosions, stream viewers, vegetables eaten: 0 |
 | `taste_tester` | a quality-control fly at a conveyor belt taps each sample (sugar / bitter / mixed / water drops) with a front leg; the taste goes to the brain and, with `--brain`, the real connectome's MN9 decides: APPROVED (proboscis extends, green stamp, green bin) or REJECTED (the leg pushes the dish away, red stamp, red bin) | samples tasted, approved, rejected, accuracy vs the label, MN9 per sample type |
+| `pizza_chef` | in a fly-scale pizzeria the fly kneads a dough ball flat with IK leg presses, tosses it (a spinning free body, real flight), sauces and tastes it (with `--brain` the connectome's MN9), toppings rain from the bowls (pooled free bodies), the peel slides it into the brick oven, it bakes, a cutter wheel makes 8 slices, it is boxed and served | pizzas served, dough tosses, perfect tosses, slices, tips |
 
 ```bash
 python scripts/run_job.py --job sisyphus                   # window; Q quit, C camera, P pause, X reset, I screenshot, TAB HUD
@@ -1072,6 +1073,154 @@ model gives no avoidance for bitter (docs/TASTE.md), so a rejection is "no PER",
 aversive response. The belt stations are fixed; the leg reaches from wherever the fly
 stands (IK in world coordinates), but a fly that drifted far would miss (never seen). The
 window mode (`LiveViewer`) was not opened in this session.
+
+### pizza_chef
+
+`fly_simulator/jobs/pizza_chef.py` (scene, stance, sequence, pools),
+`fly_simulator/jobs/pizza_chef_assets.py` (procedural meshes / textures), tests in
+`tests/test_jobs_pizza_chef.py`. HUD (TAB): `PIZZA CHEF FLY - the fly makes pizza forever`.
+
+![pizza_chef](media/pizza_chef.gif)
+
+**Scene.** A fly-scale pizzeria on a white marble counter (the floor plane's material): a
+floury wooden prep board in front of the fly (flour dust and little footprints in its
+texture), a wood-fired brick oven on a stone plinth (an open dome shell with an arched
+mouth, so the logs, 14 flickering emissive embers, 6 flames and the pizza inside are
+visible; a flue that smokes, a warm spot light out of the mouth and a point light at the
+fire, both flickering, brighter while baking; a woodpile), four ingredient bowls (SAUCE,
+CHEESE, PEPPERONI, BASIL, labelled) hanging from a wall-mounted rail over the board, a pizza
+peel, a cutter wheel, a takeaway box ("HOT & FRESH ... THANK YOU", generic print), a TIPS
+jar with a pool of 24 coins, a flour sack, tomatoes, a menu, a neon "PIZZA" sign, and the
+chalkboard "FLY PIZZERIA - wood fired - open forever" with three 7-segment chalk counters
+(pizzas SERVED, PERFECT tosses, TIPS in dollars.dimes). The fly wears the kebab chef's
+toque (visual, massless). All meshes and textures are made in code; everything except the
+free bodies and their colliders is visual. The pizza is 1.5 mm across (the fly is ~2.5 mm
+long).
+
+**The fly** holds a stance action, `ChefStance` (all tarsi planted and adhering, like
+`freeze`, registered as stationary). The job drives both front legs inside it with joint
+targets from damped least-squares IK on a scratch `MjData` (the dead_hang `LegIK`),
+interpolated in joint space; the legs are position-controlled like any action, nothing is
+teleported, a lifted leg's adhesion is off. While the pizza bakes it grooms with the real
+recorded NeuroMechFly grooming clip (`ChefGroom`, a `CarveStroke` without a knife). Full
+body is on (proboscis joints).
+
+**One pizza** (~30 s sim, state machine in `update`, every 1 ms):
+
+1. `dough_in`: a dough ball plops onto the board (flour puff).
+2. `knead`: 10 presses, left / right front leg alternately, each 0.42 s (lift over the
+   dough, press down onto its top surface at 0.3 × its radius, release). The press lands
+   within 0.04 mm of the dough's top (measured). Each press **flattens the dough one
+   stage**: 7 dough meshes from a lumpy ball (r 0.30, h 0.32 mm) to a flat disc (r 0.62,
+   h 0.06), shown one at a time. The dough is visual; the flattening is triggered by the
+   press, not computed from a contact force.
+3. `toss_prep` / `toss_air` / `toss_land`: the legs slide under the near edge and fling
+   up; the dough becomes a **free body** (a 0.08 mg disc) with a **launch velocity set by
+   the job (engineered, labelled)**: vertical for `toss_height` 3.5 mm (262 mm/s), a random
+   lateral error (sd 0.13 mm at landing), 30 rad/s of spin about its axis and a small
+   tumble. From there it is real rigid-body physics: it flies ~55 ms, lands on the board's
+   collider and settles. Landing within 0.25 mm of the centre and within 20° of flat is a
+   **PERFECT TOSS**; otherwise it is slid back to the centre (kinematic, "re-centred") or,
+   off the board, scooped back (counted). The toss stretches it to the final base (r 0.75,
+   raised crust rim). 35 % of pizzas get a second, show-off toss.
+4. `sauce`: the sauce bowl tips, a sauce stream (a stretched capsule) spirals out from the
+   centre and the sauce spreads (4 discs, then the sauce layer).
+5. `taste`: the left front leg dips into the sauce at the edge. With `--brain` the job sends
+   `StimulusEvent("taste", "left", duration 0.5 s)` with `tastes=["sugar"]` at 150 Hz,
+   labelled `SAUCE TASTE (tarsal dip; stand-in: labellar LB3 sugar GRNs)` (**stand-in**: the
+   model has no tarsal taste neurons; tomato sauce is sweet, so the sugar set, as the taste
+   patches use, docs/TASTE.md), and the proboscis follows the brain's MN9 (fully out at
+   60 Hz, τ 0.1 s). The HUD reports the MN9 peak (`'mmm, perfetto'` at ≥ 30 Hz). Without a
+   brain a labelled scripted proboscis dab (`[scripted: no brain]`).
+6. `pour`: the cheese, pepperoni and basil bowls tip and shake in turn and pour their share
+   of a **fixed pool of 50 free bodies** (36 cheese shreds: capsules; 9 pepperoni slices
+   and 5 basil leaves: hidden cylinder / box colliders under visual meshes; 1-2 µg). Each
+   piece leaves the bowl lip with a velocity **aimed by the job** at a random spot on the
+   pizza, then falls under gravity and lands with real contacts (condim 6, rolling friction)
+   on a pizza-top collider. Once landed and at rest (or 0.15 s after landing) it rides on
+   the pizza (**kinematic carry**: contacts off, gravity compensated, its pose relative to
+   the pizza stored, and the slice it lies on).
+7. `peel_in` … `peel_home`: **the peel (kinematic, labelled)** slides under the pizza, carries
+   it up to the hearth, turns toward the mouth and pushes it inside, withdraws. `bake`
+   (5 s): the base turns from raw dough into the baked crust texture (golden, browner rim,
+   leopard char spots), a melted-cheese layer fades in while the shreds melt away, the
+   pepperoni and basil darken, the embers and lights glow brighter, the flue smokes more;
+   the chef grooms. The peel fetches it back to the board; steam rises from it.
+8. `slice`: **a cutter wheel (kinematic)** rolls across four times (0°, 45°, 90°, 135°,
+   the wheel turning with the distance rolled). The base, the sauce and the cheese are each
+   8 wedge meshes with one planar texture mapping, so the whole pizza looks seamless until
+   cut; after each cut the slices on either side part by 0.012 mm, then all spread 0.035
+   mm. The toppings move with their slice.
+9. `serve`: the pizza slides into the open box, the lid (with the front flap) closes, the
+   box slides off to the pick-up and the pool pieces are recycled (parked); coins arc into
+   the tip jar (the jar is emptied, i.e. banked, when its 24 coins are used); the chalkboard
+   counts; a new open box slides in, and the next dough ball arrives.
+
+**Contacts.** The free bodies (toss dough, toppings) have `contype 0`, `conaffinity` = bit 64
+(the job's) | TERRAIN: they touch the board / pizza-top colliders (static boxes, `contype`
+64, the pizza-top one switched on only while pouring) and the counter, never the fly and
+not each other. Parked pieces have contacts off and gravity compensation. Found while
+building it: with a contact `solref` time constant of 3-4 ms the fast pieces (150-260 mm/s)
+sank ~v · τ ≈ 0.5-1 mm into the soft contact, deeper than a 0.1 mm collider, and fell
+through; the colliders are now 0.6 mm thick boxes and the contacts 0.5 ms. Capsule shreds
+kept rolling at ~7 mm/s with condim 3; condim 6 with rolling friction stops them.
+
+**Edit effects (labelled on screen `SLOW MOTION x0.10 (edit, not physics)`).** At fly
+scale gravity is fast: the toss is ~55 ms in the air and a topping falls 1.5 mm in ~17 ms,
+one frame or less. So the toss flight runs at ×0.1 and the pours at ×0.3
+(`EternalJob.time_scale`: fewer physics steps per displayed frame, the step sequence
+unchanged), easing back to ×1. `slowmo: false` turns it off. The camera cuts between a
+close-up of the board (kneading, tasting), a low-angle shot for the toss (from two presses
+before it, so the camera has settled when the dough flies), the board with the bowls
+(sauce, pours), a wide shot with the oven, the slicing and the serve; `close_ups: false`
+keeps one wide shot.
+
+**Counters / HUD** (TAB, off by default): pizzas served (the work counter), dough tosses,
+perfect tosses, off-the-board tosses, slices, tips (fly cents: 25 per pizza + 25 if every
+toss was perfect + up to 25 for the topping coverage), kneads, toppings dropped / on the
+pizza / missed, bakes, the last message, the taste line (MN9 peak) and the label line
+`(toss launch set by the job, flight real physics; peel / cutter / box / bowls kinematic;
+slow motion: edit)`. Constant memory: fixed pools (50 toppings, 36 puffs, 24 coins),
+counters only; the brain's `stim_log` is trimmed.
+
+**Verified** (headless, 2026-09-27, Apple M1):
+
+* `run_job.py --job pizza_chef --headless --max-seconds 150`: **5 pizzas served**, 56
+  kneads, **8 tosses, 6 perfect** (landings 0.04-0.20 mm from the centre; the others 0.29
+  and 0.40 mm, re-centred), 0 off the board, 0 lost, **250 / 250 toppings on the pizza**, 0
+  missed, 40 slices, 5 bakes, tips $3.25, **0 falls, 0 auto-recoveries, 0 instabilities,
+  RTF 0.45**. ~30 s sim per pizza.
+* with the **real FlyWire brain** (v783, 138,639 neurons, window off), `run_job.py --job
+  pizza_chef --brain --headless --no-brain-window --max-seconds 12`: the sauce taste at 9.5 s
+  (one stimulus) drove **MN9 to a peak of 80 Hz** (`'mmm, perfetto'`), 0 falls, RTF 0.46.
+* `run_sim.py --job pizza_chef --headless --max-seconds 6` runs (one perfect toss, 0 falls).
+* Frames checked by eye (job renderer, 640×426): the dough ball and the kneading close-up
+  (the legs on the dough, flour puffs), the dough flying above the fly's head in the toss
+  shot, the sauce stream and sauce, cheese shreds, pepperoni and basil on the sauce, the
+  peel carrying the pizza toward the oven, the pizza on the hearth seen through the mouth
+  with the fire behind it, the baked pizza coming out with steam, the cutter wheel on a cut
+  line and the parted slices, the pizza sliding into the box, the closed box and the
+  chalkboard counting.
+
+Tests: `tests/test_jobs_pizza_chef.py` (6 tests, ~65 s): registry / config and the dough
+stages flattening; no job geom can touch the fly, only the colliders and free bodies
+collide, the fixed pools, the fly's mass, stationary actions; one fast-config pizza in the
+exact state order (stage 0 → flat, a ballistic toss above 80 % of `toss_height` that lands
+PERFECT, the slow motion at ×0.1, every topping poured, ≥ 80 % on the pizza and all
+recycled afterwards, the pizza on the hearth inside the dome and the crust texture after
+baking, 8 parted slices, served, tips and the chalkboard digit); the slow-motion label and
+the identity post-process; a fake brain's MN9 60 Hz on the sauce taste (the stimulus set,
+side, duration, stand-in label; the proboscis follows); a reset mid-cycle voids the pizza,
+parks the pools and the job continues.
+
+**Limitations.** The kneading flattens the dough by stages triggered by the presses (the
+dough is visual, no soft-body physics); the toss launch velocity, the toppings' aim, the
+re-centring, the peel, the cutter, the box, the bowls and the coins are engineered /
+kinematic (above); the toppings ride on the pizza kinematically once landed; the baking is a
+colour / texture schedule. The fling makes the fly lunge (thorax 1.0 → 0.7 mm, ~12° pitch for
+~0.3 s; `run_sim.py` reports it as DESTABILIZED), never a fall in the runs above. The cutter
+is not held by the fly. The slow motion is a presentation edit. The window mode
+(`LiveViewer`) was not opened in this session.
 
 ## Verification
 

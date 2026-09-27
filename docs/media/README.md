@@ -23,6 +23,7 @@ ffmpeg -ss START -t DUR -i in.mp4 -vf "setpts=PTS/SPEED,fps=FPS,scale=W:-2:flags
 | `bowling.gif` | 2.1 MB | The bowling job: the fly pushes the ball into the ramp guide and over the ramp, the camera rides along down the lane and cuts to the deck, a strike (real contacts, labelled slow motion x0.25), the pinsetter sweeps and lowers a fresh rack, the cut back to the fly. Recorded with the HUD |
 | `broccoli_toss.gif` | 2.3 MB | The broccoli toss job: the host fly brings a plate of broccoli, the posed viewer fly in the gaming chair ponders it, snaps it over its shoulder without looking, and the room behind it explodes, with the meme's edit effects (impact frame, flash, hit-stop and slow motion, shake, punch-in, bloom); the props fly, the room rebuilds. Compact HUD, `EDIT FX (not physics)` tag during the edit beat |
 | `taste_tester.gif` | 1.2 MB | The taste tester job with the real FlyWire brain: a sugar drop on the leg -> MN9 at ~72 Hz on the meter, the proboscis extends, APPROVED (green lamp, tally); a mixed (sugar + bitter) drop -> MN9 19 Hz, REJECTED, the leg pushes the dish away; the stamper stamps the cards and the diverter sweeps samples into the green / red bins. No HUD |
+| `pizza_chef.gif` | 2.4 MB | The pizza chef job, one pizza: the dough ball kneaded flat, the toss (a spinning free body, labelled slow motion x0.1), sauce, cheese / pepperoni / basil raining from the bowls (slow motion x0.3), into the brick oven on the peel, baked, sliced by the cutter wheel, boxed and served; the chalkboard counts. No HUD |
 | `jobs.gif` | 2.5 MB | 2x2 grid of the eternal jobs: Sisyphus, hamster wheel, lawn mowing, leaf raking |
 | `whip.gif` | 2.0 MB | A level-3 physical whip crack from the right knocks the fly sideways. 4x slow motion |
 | `brain_window.png` | 0.1 MB | The brain window with real FlyWire activity 0.1 s after a looming stimulus (giant fibre 115 Hz, JUMP), after two whip hits under `--stress`. Shows the decision meters, DN traces, pain/arousal and the playground panel |
@@ -99,6 +100,19 @@ ffmpeg -ss 6.8 -t 9.4 -i $S/tt.mp4 -vf "fps=12,scale=640:-2:flags=lanczos,split[
 [a]palettegen=max_colors=160:stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=4:diff_mode=rectangle" -loop 0 taste_tester.gif
 ```
 Run it live: `python scripts/run_job.py --job taste_tester --brain` (or `run_sim.py --job taste_tester`).
+
+**pizza_chef.gif** (default seed, the first pizza: 0-31 s of the run, no brain). Clean frames
+(`JobRunner.render(hud=False)`, so the job's slow-motion label is in them) at 420×280, one every
+1/15 s of presentation time (`session.present_time()`, so the slow motion is in it), a montage by
+frame index: the kneading at 2× then every other frame, the first toss at 1×, sauce / pours / oven /
+bake / slicing / serving sped up 2-6× and every other frame (137 frames), then:
+```bash
+ffmpeg -framerate 8 -i sel/s%04d.png -vf "scale=380:-2:flags=lanczos,split[a][b];\
+[a]palettegen=max_colors=56:stats_mode=diff[p];[b][p]paletteuse=dither=none:diff_mode=rectangle" -loop 0 pizza_chef.gif
+```
+(Every frame differs: the camera glides and the fire flickers, so the size scales with the frame
+count; 400 px / 96 colours was 3.2 MB.) Run it live: `python scripts/run_job.py --job pizza_chef`
+(or `run_sim.py --job pizza_chef`).
 
 **jobs.gif**. For each job, the same command at 480×320 with `--max-seconds 6` (raking 10). For
 sisyphus, hamster_wheel and raking the job camera was moved closer, using a small wrapper
