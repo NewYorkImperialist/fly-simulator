@@ -129,11 +129,13 @@ def check_feature_config(cfg: AppConfig) -> None:
         raise ConfigError("--course and --job can't be combined: both replace the world "
                           "(the course swaps the terrain layout, the job builds its own "
                           "scene). Run one at a time.")
-    if cfg.flight.enabled and (cfg.course.name or cfg.job.name):
+    if cfg.flight.enabled and (cfg.course.name
+                               or (cfg.job.name and not job_needs_flight(cfg.job.name))):
         raise ConfigError("--flight can't be combined with --course / --job: courses and "
                           "jobs assume a walking fly on the canonical 1e-4 s walking model "
                           "(their scoring, respawns and props are tuned for it). Run flight "
-                          "on the endless terrain.")
+                          "on the endless terrain (jobs that fly, e.g. delivery_pilot, turn "
+                          "it on themselves).")
     # --- odour zones (docs/FEAR_LEARNING.md) ---
     if cfg.odor.enabled and (cfg.course.name or cfg.job.name or cfg.flight.enabled):
         raise ConfigError("--odor-zones / --learning can't be combined with --course / --job "
@@ -145,6 +147,16 @@ def check_feature_config(cfg: AppConfig) -> None:
     if cfg.whip_vision.enabled and not cfg.whip.enabled:
         raise ConfigError("--whip-vision needs the physical whip (whip.enabled is false "
                           "in the config)")
+
+
+def job_needs_flight(name: str) -> bool:
+    """True for jobs that run on the flight fly (``EternalJob.needs_flight``)."""
+    from fly_simulator.jobs import get_job
+
+    try:
+        return bool(getattr(get_job(name), "needs_flight", False))
+    except KeyError:
+        return False
 
 
 def _make_job(name: str, overrides: dict | None):
@@ -975,7 +987,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
                    help="real flapping-wing flight (docs/FLIGHT.md): the flight fly at dt 5e-5 s "
                         "with air; L takes off / lands, arrows steer while flying; with "
                         "--brain-actions the giant-fibre escape jump starts the wings and flies "
-                        "away from the threat. Walks at ~half the RTF. Not with --course / --job")
+                        "away from the threat. Walks at ~half the RTF. Not with --course / --job "
+                        "(flying jobs such as delivery_pilot turn it on themselves)")
     g.add_argument("--taste-patches", action="store_true",
                    help="sugar / bitter spots on the ground tasted with the legs (docs/TASTE.md): "
                         "taste -> sugar / bitter GRNs in the brain (labellar stand-in); with "
@@ -1213,6 +1226,8 @@ def apply_feature_defaults(cfg: AppConfig, terrain_from_cli: bool = False) -> Ap
         cfg.session.auto_reset_after_s = None
         if not terrain_from_cli:
             cfg.terrain.difficulty = "flat"
+    if cfg.job.name and job_needs_flight(cfg.job.name):
+        cfg.flight.enabled = True  # a flying job (docs/JOBS.md, delivery_pilot)
     if cfg.flight.enabled:
         from fly_simulator.config import RenderConfig
         from fly_simulator.flight import FLIGHT_TIMESTEP

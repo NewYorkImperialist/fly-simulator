@@ -92,6 +92,22 @@ class CameraPreset:
     tau_s: float = 0.4
 
 
+def enable_flight(app_cfg: "AppConfig") -> None:
+    """The flight fly for a ``needs_flight`` job: ``cfg.flight.enabled``, dt 5e-5 s and
+    the doubled ``render_every_steps`` (same frames per simulated second), exactly as
+    the app does for ``--flight`` (``apply_feature_defaults``; idempotent)."""
+    from fly_simulator.config import RenderConfig
+    from fly_simulator.flight import FLIGHT_TIMESTEP
+
+    app_cfg.flight.enabled = True
+    if app_cfg.sim.timestep != FLIGHT_TIMESTEP:
+        if app_cfg.render.render_every_steps == RenderConfig().render_every_steps:
+            app_cfg.render.render_every_steps *= 2
+        app_cfg.sim.timestep = FLIGHT_TIMESTEP
+    app_cfg.sim.control_every_steps = 1
+    app_cfg.fly.extra_joints = False  # the flight body has its own wings
+
+
 def format_uptime(seconds: float) -> str:
     """'Day N HH:MM:SS' (Day 1 = the first 24 h)."""
     s = max(0.0, float(seconds)) if math.isfinite(seconds) else 0.0
@@ -189,6 +205,10 @@ class EternalJob:
     config_cls: type[JobConfig] = JobConfig
     #: body / geom names that must exist in the compiled model (install_job checks)
     required_names: tuple[str, ...] = ()
+    #: True: the job runs on the real flight fly (``--flight``: flapping wings, air,
+    #: dt 5e-5 s; docs/FLIGHT.md). ``configure_app`` then turns ``cfg.flight`` on and the
+    #: app allows ``--job NAME`` with (or without) ``--flight`` for this job only.
+    needs_flight: bool = False
 
     def __init__(self, cfg: JobConfig | None = None) -> None:
         self.cfg = cfg if cfg is not None else self.config_cls()
@@ -221,6 +241,8 @@ class EternalJob:
         # floor reflections draw the checker plane over thin "paint" boxes (and cost
         # ~5 ms per frame)
         app_cfg.render.reflections = False
+        if self.needs_flight:
+            enable_flight(app_cfg)
 
     def extension(self, world) -> None:
         """World extension: add the props to ``world.mjcf_root`` (before add_fly)."""

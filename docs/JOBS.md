@@ -19,6 +19,7 @@ constant.
 | `taste_tester` | a quality-control fly at a conveyor belt taps each sample (sugar / bitter / mixed / water drops) with a front leg; the taste goes to the brain and, with `--brain`, the real connectome's MN9 decides: APPROVED (proboscis extends, green stamp, green bin) or REJECTED (the leg pushes the dish away, red stamp, red bin) | samples tasted, approved, rejected, accuracy vs the label, MN9 per sample type |
 | `pizza_chef` | in a fly-scale pizzeria the fly kneads a dough ball flat with IK leg presses, tosses it (a spinning free body, real flight), sauces and tastes it (with `--brain` the connectome's MN9), toppings rain from the bowls (pooled free bodies), the peel slides it into the brick oven, it bakes, a cutter wheel makes 8 slices, it is boxed and served | pizzas served, dough tosses, perfect tosses, slices, tips |
 | `trampoline` | bounces on a backyard trampoline forever: the real Jump action, timed to the rebound of a mat held up by 48 tendon springs, pumps the height up to ~5 mm; now and then a backflip (real, boosted asymmetric push), crash landings and falls off are counted and reset | bounces, best height (mm, body lengths), streak, backflips, crash landings, falls off |
+| `delivery_pilot` | on the **real flight fly** (flapping wings, air, dt 5e-5 s) it picks up a parcel at the depot, takes off with the jump → wings, flies to a numbered house, lands on its roof terrace, drops the parcel on the doormat (DELIVERED, *ding-dong*), flies back, forever | parcels delivered, flight time, distance flown, on-time %, missed / crash landings |
 
 ```bash
 python scripts/run_job.py --job sisyphus                   # window; Q quit, C camera, P pause, X reset, I screenshot, TAB HUD
@@ -1348,6 +1349,110 @@ horizontal steering are engineered stand-ins for wings; without them the bouncin
 The rebound schedule, the timing noise, the missteps and the trick choice are ours; the trick itself
 uses the Jump's documented boost. The brain does not time the bounce (above). The window mode
 (`LiveViewer`) was not opened in this session.
+
+### delivery_pilot
+
+`fly_simulator/jobs/delivery_pilot.py` (scene, guidance, counters), tests in
+`tests/test_jobs_delivery_pilot.py`. HUD (TAB): `DELIVERY PILOT - the fly delivers packages by air
+forever`.
+
+![delivery_pilot](media/delivery_pilot.gif)
+
+**The first flying job.** `needs_flight = True` (a new `EternalJob` class flag): `configure_app`
+switches `cfg.flight` on (`base.enable_flight`: dt 5e-5 s, `render_every_steps` doubled, no
+full-body joints), so the Session builds the flight fly of docs/FLIGHT.md (stroke-plane wing hinges,
+fluid ellipsoids, air) with its `FlightMode`. `check_feature_config` still refuses `--flight --job`
+for every other job; for a `needs_flight` job `--job NAME` alone turns flight on (and `--flight`
+is allowed). Every other job is unchanged (`needs_flight` defaults to False, the walking model and
+timestep stay canonical; a test checks this). **No external force acts on the fly**: all lift,
+thrust and steering come from the beating wings in MuJoCo's fluid model.
+
+**Scene** (fly scale). A sorting depot at the origin (flat roof 14 × 14 mm, 3 mm high, yellow loading
+mark, a shelf with the parcel pool, a "PARCEL DEPOT" sign, a windsock) and four houses 42–45 mm away
+(roof terraces 11 × 11 mm at 4.0 / 5.0 / 5.5 / 6.5 mm, a pitched attic with the house number on the
+far side, a doormat on the depot side, a mailbox with a flag, a porch lamp, a lawn), trees, an
+asphalt street. Walls, roof terraces and attics collide (static props); everything else is
+decoration. The fly spawns on the depot roof.
+
+**Loop** (`phase`: load → takeoff → climb → cruise → approach → landing → landed → drop → takeoff ...).
+On the depot roof a parcel slides from the shelf under the fly (0.6 s). **Take-off** is FlightMode's
+real one: a long-mode `Jump`, wings on at the end of the leg stroke, `HoverController` hover. **Climb**
+to the cruise altitude (COM 12 mm above the street) while turning toward the address (3 rad/s);
+forward flight starts once the fly is 2.5 mm above every roof and within 20° of the bearing.
+**Cruise**: velocity control along the bearing to the doormat (the position set point follows the
+fly, velocity-loop damping 3, like FlightMode's escape flight), speed 120 mm/s with a trapezoid
+profile (400 mm/s² up, 250 mm/s² down), descending to 2.5 mm above the roof within 10 mm.
+**Approach** (1.5 mm out): the position loop on the landing point (gains raised from ω 5 to 7 rad/s,
+integral 30) plus a slow set-point integrator that leans the set point into the wind (only within
+2 mm, ≤ 4 mm). Within 1.2 mm, slower than 20 mm/s and at height (or after 2 s) → **FlightMode's
+landing** (descend 15 mm/s, adhesion at the first leg contact, 0.2 s pitch-down, wings off). At
+touchdown the horizontal integrators are cleared: before that fix, a wound-up integrator dragged
+the stuck fly sideways during the pitch-down and flipped it (2 falls in 150 s). **Landed**: on the
+target roof → the parcel slides onto the doormat (DELIVERED, `*ding-dong*`, mailbox flag up, porch lamp
+on), then take-off back to the depot; addresses cycle 1–4. The parcel previously left at that
+address is "taken in" (back to the shelf pool, out of view).
+
+**Failures, counted**: a landing that ends off the target roof (street, another roof) is a *missed
+landing* → the fly takes off again from where it stands after 0.6 s upright (retry). A FlightMode crash
+(body contact / tilt > 120° in the air) or a touchdown that ends upside down (> 60°) is a *crash
+landing*; a fly that stays down 2.5 s gets the base class's explicit, counted reset onto the depot
+roof (the parcel returns to the shelf, the order stays open and its clock keeps running). No
+delivery for 90 s → `recover("stuck")`.
+
+**Engineered, labelled**: the **parcel is carried kinematically** (a mocap body 1.7 mm under the COM on
+a drawn string, set down on the roof under the fly when it stands; visual, no mass, no contacts): it
+does not load the flight controller (HUD line `real flapping-wing flight; parcel carried
+kinematically (no mass)`). The **guidance** (speed profile, approach gains, the lean integrator, when
+to land) is our code, not the brain. The **wind is physical**: MuJoCo's medium velocity
+`model.opt.wind`, a slow breeze of 6–25 mm/s whose direction wanders (period ~23 s), acting on the
+wings and bodies through the fluid model; the windsock shows it. The DELIVERED / PARCEL LOADED /
+MISSED / CRASH captions are a screen overlay (`post_process`), not part of the scene.
+
+**Camera** (job mode): behind and above the fly (22 mm, elevation −20°), the azimuth following the
+flight heading (smoothed, 1.2 s) and, on the ground, the next address, so the town ahead is in view.
+The near clipping plane is moved from FlyGym's 5e-4 mm to 0.3 mm in `on_attach` (depth precision for
+a 100 mm scene: at 5e-4 the far walls z-fought). Shadows are off (the town-wide shadow map was
+coarse).
+
+**Counters / HUD** (TAB, off by default): parcels delivered (the work counter), route and distance,
+phase, flight time, distance flown (COM path while the wings are on), on-time % (a delivery is on
+time within 5 s + distance / 40 mm/s of the pickup, ~6 s for these addresses; normal deliveries
+take 2.1–3.6 s, so only retries and resets make one late), missed landings, crash landings,
+take-offs, wind speed, FlightMode's line (state, wingbeat Hz, altitude, speed).
+
+**Verified** (headless, 2026-09-27, Apple M1, default config, wind on):
+
+* `run_job.py --job delivery_pilot --headless --max-seconds 150`: **23 parcels delivered** (6 / 6 / 6 / 5
+  per house), **100 % on time**, 46 take-offs, 45 landings, **0 missed landings, 0 crash landings, 0
+  falls, 0 recoveries**, 0 instabilities, flight time 106 s, **2.34 m flown**, **RTF 0.36**. A
+  delivery takes 2.1–3.6 s from pickup (~1.2–1.9 s in the air, the rest ground work), a full round
+  trip ~6.5 s. An earlier version (before the integrator fix above) had 22 deliveries, 2 flips at
+  touchdown → 2 counted recoveries in the same 150 s.
+* `run_sim.py --job delivery_pilot --headless --max-seconds 3` builds the flight fly through the app
+  (`body flight (flapping wings, air)`, dt 5e-5) and delivers #1 at 2.1 s; `--flight --job sisyphus`
+  is still refused.
+* Frames checked by eye (job renderer, 600×400 and 640×400): the parcel sliding onto the fly at the
+  depot, the fly in flight with the parcel hanging under it, the landing on house 1's terrace, the
+  parcel on the doormat with DELIVERED, the take-off, the return and the landing on the depot's
+  loading mark.
+
+Tests: `tests/test_jobs_delivery_pilot.py` (7 tests, ~20 s): registry / `needs_flight` (and no
+other job has it; sisyphus keeps the walking timestep); the app allows `--flight` only with a flying
+job; the scene on the `FlightSimulation` (dt 5e-5, air, colliding roofs / walls / attics, visual
+decoration and mocap parcels, the walkable surface); one real delivery hop (the phase sequence, one
+FlightMode take-off and landing, cruise altitude reached, the parcel hanging 1.7 mm straight under the
+COM while cruising, dropped on the doormat, counters); HUD / caption / camera; a missed landing with
+the retry take-off, then an explicit recovery (parcel back on the shelf, the order kept); the wind
+is the medium velocity.
+
+**Limitations.** The parcel has no mass (a real payload would need the controller's mass and inertia
+terms and the lift trim updated). The guidance is engineered and flies straight lines at a fixed
+cruise altitude, and the landing is FlightMode's scripted sequence (docs/FLIGHT.md). The take-off
+jump goes along the fly's heading, which after a house landing points toward the attic: the wings
+start at the end of the leg stroke so it has cleared it every time, but it is not checked. In the
+150 s run no landing failed, so the missed-landing and crash paths are exercised by the tests only.
+With `run_sim.py` the app keys still work: L / the arrows act on the same FlightMode and can fight the
+job. The window mode (`LiveViewer`) was not opened in this session.
 
 ## Verification
 

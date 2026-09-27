@@ -25,6 +25,7 @@ ffmpeg -ss START -t DUR -i in.mp4 -vf "setpts=PTS/SPEED,fps=FPS,scale=W:-2:flags
 | `taste_tester.gif` | 1.2 MB | The taste tester job with the real FlyWire brain: a sugar drop on the leg -> MN9 at ~72 Hz on the meter, the proboscis extends, APPROVED (green lamp, tally); a mixed (sugar + bitter) drop -> MN9 19 Hz, REJECTED, the leg pushes the dish away; the stamper stamps the cards and the diverter sweeps samples into the green / red bins. No HUD |
 | `pizza_chef.gif` | 2.4 MB | The pizza chef job, one pizza: the dough ball kneaded flat, the toss (a spinning free body, labelled slow motion x0.1), sauce, cheese / pepperoni / basil raining from the bowls (slow motion x0.3), into the brick oven on the peel, baked, sliced by the cutter wheel, boxed and served; the chalkboard counts. No HUD |
 | `trampoline.gif` | 2.1 MB | The trampoline job: the fly stands on the spring mat, the first jump, the rebound jumps pumping the height up beside the ruler (red / gold markers, NEW BEST), a backflip (a real boosted asymmetric push) landed at the mat's edge, the next bounce sends it off onto the lawn, the counted respawn, and it pumps up again. Labelled slow motion x0.2, a one-line HUD |
+| `delivery_pilot.gif` | 2.1 MB | The delivery pilot job on the real flight fly: the parcel slides onto the fly on the depot roof, the jump → wings take-off, the flight to house No. 1 with the parcel hanging under it, the landing on the roof terrace, DELIVERED on the doormat, the take-off and the flight back to the depot's loading mark. Real time, no HUD (the captions are the job's overlay) |
 | `jobs.gif` | 2.5 MB | 2x2 grid of the eternal jobs: Sisyphus, hamster wheel, lawn mowing, leaf raking |
 | `whip.gif` | 2.0 MB | A level-3 physical whip crack from the right knocks the fly sideways. 4x slow motion |
 | `brain_window.png` | 0.1 MB | The brain window with real FlyWire activity 0.1 s after a looming stimulus (giant fibre 115 Hz, JUMP), after two whip hits under `--stress`. Shows the decision meters, DN traces, pain/arousal and the playground panel |
@@ -189,4 +190,13 @@ motion (x0.25 during the roll and the first pin action) is in it:
   --width 720 --height 480
 ffmpeg -t 9 -i $S/bowl/recording01_t00000.02s.mp4 -vf "fps=10,scale=480:-2:flags=lanczos,split[a][b];\
 [a]palettegen=max_colors=96:stats_mode=diff[p];[b][p]paletteuse=dither=none:diff_mode=rectangle" -loop 0 bowling.gif
+```
+
+**delivery_pilot.gif** (default config, wind on; clean job-camera frames, no HUD, rendered with
+`JobRunner(session, job, headless=True, chunk_steps=50).render(hud=False)` every 1/15 s of run time
+from 0.2 to 9.2 s at 600×400 into `$S/rec/%04d.png`; GIF: the first 7.4 s, 480 px, 10 fps, 64
+colours, no dither):
+```bash
+ffmpeg -framerate 15 -i $S/rec/%04d.png -vf "trim=end=7.4,fps=10,scale=480:-2:flags=lanczos,split[a][b];\
+[a]palettegen=max_colors=64:stats_mode=diff[p];[b][p]paletteuse=dither=none:diff_mode=rectangle" -loop 0 delivery_pilot.gif
 ```

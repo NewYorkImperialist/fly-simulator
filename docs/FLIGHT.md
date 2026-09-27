@@ -370,7 +370,8 @@ Other checks (headless, real brain unless noted):
   hinge); the wings now always fade out.
 
 **Refused / not supported**: `--flight` with `--course` or `--job` is a `ConfigError`
-(their scoring, respawns and props assume the canonical walking model). `--full-body`
+(their scoring, respawns and props assume the canonical walking model), except jobs
+that set `needs_flight = True` (e.g. `delivery_pilot`), which turn flight on themselves. `--full-body`
 is ignored (the flight body has its own wings and no proboscis joints: W and N are
 greyed out, MN9 has no body effect). `--real-vision` works (eyes on the flight fly),
 `--whip-vision`, `--stress`, terrain, whip and swatter work as usual.
