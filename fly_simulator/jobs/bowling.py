@@ -18,15 +18,17 @@ approach):
   at low friction (``slippery_body_contact``, legs excluded).
 
 Behaviour: the fly walks to the ball on the approach and lines it up (``PushPilot``
-from the mowing job, pushing along the roll's target line), pushes it over the top
-edge of a bowling ramp (**engineered**: a walking-speed ball can't topple pins, the
-ramp's 0.35 mm drop gives it ~70 mm/s) and stops there, behind the foul line (**stop
-rule, engineered**: at ``stop_x`` the job sets the walking speed to 0 and freezes the
-fly; a thorax past the line counts as a foul and the roll scores 0, as in real
-bowling). The ball rolls down the lane on its own momentum and the pins scatter with
-real contact physics. When everything has
-settled, the job counts the pins that are down (tilted more than ``down_tilt_deg`` or
-off the deck) and scores the roll (standard ten-pin scoring, ``BowlingGame``).
+from the mowing job, pushing along the roll's target line), pushes it into the
+funnel of the ramp guide and over the top edge of a bowling ramp (**engineered**: a
+walking-speed ball can't topple pins; the ramp's 4 mm drop gives it ~236 mm/s) and
+stops there, behind the foul line (**stop rule, engineered**: once the ball is over
+the edge the job sets the walking speed to 0 and freezes the fly; a thorax past the
+line counts as a foul and the roll scores 0, as in real bowling). The ball rolls
+down the lane on its own momentum and the pins scatter with real contact physics.
+When everything has settled, the job counts the pins that are down (tilted more
+than ``down_tilt_deg`` or off the deck) and scores the roll (standard ten-pin
+scoring, ``BowlingGame``). The roll is shown in slow motion (an **edit effect**,
+labelled on screen) and the camera cuts like a TV broadcast (see ``camera_preset``).
 
 Engineered, labelled parts (a real bowling alley has machines for these too):
 
@@ -38,8 +40,10 @@ Engineered, labelled parts (a real bowling alley has machines for these too):
   every rack reset is counted.
 * **ball return**: the ball is taken out of the pit (teleport) into the ball-return
   hood beside the approach and pops out at the approach return spot.
-* **aim**: each roll picks a target line from a documented "skill" model (normal aim
-  error at the pins, occasional wild throws). The physics decides what happens next.
+* **aim + ramp guide**: each roll picks a target line from a documented "skill" model
+  (normal aim error at the pins, occasional wild throws) and the ramp guide (two
+  ball-only rails with a funnel, like the rails of a kids' bowling ramp that a
+  helper aims) is set to it. The physics decides what happens next.
 """
 
 from __future__ import annotations
@@ -221,55 +225,87 @@ class BowlingConfig(JobConfig):
     # fly's head instead of being batted ahead by every head bump (engineered,
     # labelled: stand-in for the dry approach)
     approach_rolling: float = 0.02
-    # the bowling ramp (a real device, used by kids): the approach ends in a ramp
-    # that drops ramp_height over ramp_length onto the lane at the foul line. The
-    # fly pushes the ball over its top edge and the ball rolls down, reaching
-    # ~sqrt(10/7 g h) = 70 mm/s. A ball pushed at walking speed (~10 mm/s, ~100x
-    # slower than a Froude-scaled real delivery) only nudges a pin: measured, the
-    # pin leans on the ball and the ball stops dead
-    ramp_height: float = 0.35
-    ramp_length: float = 3.0
+    # the bowling ramp (a real device, used by kids; engineered, labelled): the
+    # approach is a plateau that ends in a ramp dropping ramp_height over
+    # ramp_length onto the lane at the foul line. The fly pushes the ball over its
+    # top edge and the ball rolls down, reaching ~sqrt(10/7 g h) = 236 mm/s (a
+    # rolling ball, h = 4 mm). A ball pushed at walking speed (~10 mm/s) only nudges
+    # a pin (measured: the pin leans on the ball and the ball stops dead), and the
+    # first, 0.35 mm ramp (70 mm/s) left pins tottering: 2 pins per roll, no strikes
+    # in 180 s. Placed-ball sweeps (1.5 s, 6 lines y -2.4 .. 0): 70 mm/s 3.8 pins,
+    # 150 mm/s 6.0, 200 mm/s 7.0 (a strike in the pocket), 320 mm/s 8.2
+    ramp_height: float = 4.0
+    ramp_length: float = 10.0
     head_friction: float = 0.05
+    # ramp guide (engineered, labelled: the rails of a kids' / adaptive bowling ramp,
+    # which a helper aims before each ball): two low chrome rails run down the ramp
+    # with a funnel on the plateau, set each roll to the aim model's release line
+    # (kinematic, moved only while the ball is away). They touch only the ball.
+    # Without it the fly's head bumps sent the ball over the edge 1-2 mm off line and
+    # drifting sideways at up to 13 mm/s: 2-3 mm (sd) off at the pins, 3.7 pins per roll
+    guide: bool = True
+    guide_gap: float = 0.15  # clearance each side of the ball in the channel
+    guide_funnel: float = 3.5  # funnel length on the plateau (mm)
+    guide_flare: float = 3.0  # the funnel's mouth is this much wider each side
     # ---- pins -------------------------------------------------------------------
     pin_height: float = 5.2  # mm (regulation 15 in, scaled like the ball: 8.5 in -> 3 mm)
     pin_mass: float = 6.7e-5  # g: the regulation ball / pin mass ratio (~4.5)
     pin_spacing: float = 4.2  # mm between spots (regulation 12 in, same scale)
     pin_friction: float = 0.25
     pin_solref: float = 1e-3  # contact time constant of the pins (s)
+    # damping ratio of the pin contacts: real pins bounce off each other and the ball
+    # (lacquered maple, restitution ~0.6); MuJoCo's default 1 (critical) makes them
+    # clay-like. 0.3 added ~0.5 pins per roll in the placed-ball sweep
+    pin_dampratio: float = 0.3
     down_tilt_deg: float = 35.0  # a pin tilted more than this (or off the deck) is down
     # ---- lane -------------------------------------------------------------------
     bed_height: float = 1.6  # lane bed above the floor (the gutters are this deep)
     lane_half_width: float = 7.25  # (regulation 41.5 in, scaled)
     gutter_radius: float = 1.6
-    approach_x0: float = -8.0
-    foul_x: float = 13.0
+    # the back of the approach plateau (5.6 mm above the floor: a fly that walks off
+    # it falls; the first 10 mm plateau was too short for the fly's turns at the
+    # waiting spot)
+    approach_x0: float = -16.0
+    foul_x: float = 19.0
     # foul line -> head pin (regulation 60 ft would be 250 mm at this scale; the lane
     # is compressed ~11x so a fly-pushed ball gets there)
     lane_length: float = 22.0
     pit_length: float = 6.5
     # ---- behaviour ----------------------------------------------------------------
-    # aim model: target line from the foul line to a point at the head pin. Roll 1
-    # aims at the pocket (between pins 1 and 3), roll 2 at the front-most standing
-    # pin. Aim error at the pins ~ N(0, aim_sd), aim_sd = 0.4 + 2.0 (1 - skill) mm,
-    # and with probability wild_prob (1 - skill) a wild throw (+ N(0, wild_sd)).
-    skill: float = 0.75
-    pocket_y: float = -1.0
-    wild_prob: float = 0.25
+    # aim model (the helper who aims the ramp guide): a line straight down the lane.
+    # Roll 1 aims at the pocket (between pins 1 and 3), roll 2 at the standing pins
+    # (weighted to the front ones). Aim error at the pins ~ N(0, aim_sd), aim_sd =
+    # 0.4 + 2.0 (1 - skill) mm, and with probability wild_prob (1 - skill) a wild
+    # throw (+ N(0, wild_sd)), which can go into a gutter.
+    skill: float = 0.9
+    # the pocket: placed-ball sweeps at 236 mm/s struck at y -1.0 and -0.7 (8 pins
+    # at -1.3 and -0.4)
+    pocket_y: float = -0.85
+    wild_prob: float = 0.5
     wild_sd: float = 5.0
-    release_board_frac: float = 0.85  # release point y = frac * aim y (+ noise)
+    # release point y = frac * aim y (+ N(0, 0.3 mm)): the ball leaves the ramp
+    # going straight down the lane (the ramp guide keeps it on its line), so
+    # where it goes over the edge is where it meets the pins
+    release_board_frac: float = 1.0
     push_speed: float = 0.75
-    runup_speed: float = 1.0  # the last runup_mm before the stop
+    # the last runup_mm before the edge: a gentle nudge (a faster run-up batted the
+    # ball sideways: up to 13 mm/s across at the release, 2-4 mm off at the pins)
+    runup_speed: float = 0.5
     runup_mm: float = 5.0
     approach_speed: float = 0.9
     behind_gap: float = 1.25
     orbit_clearance: float = 1.5
     pursuit: float = 3.0  # push goal: the target line this far ahead of the ball (mm)
-    # the fly stops when the ball it pushes is stop_over mm past the ramp's top edge
-    # (the ball rolls on down by itself); a thorax past foul_x = foul
-    stop_over: float = 0.5
-    return_x: float = 4.0  # ball-return spot on the approach
+    # release: the ball's centre stop_over mm past the ramp's top edge (gravity
+    # takes it from there); the fly then stops (a thorax past foul_x = foul)
+    stop_over: float = 0.3
+    # the fly never walks closer than this to the ramp's top edge (thorax x)
+    edge_margin: float = 0.8
+    # ball-return spot on the approach (8 mm behind the edge: room to steer the
+    # ball onto a line near the lane edge before the guide's funnel)
+    return_x: float = 1.0
     return_y_jitter: float = 1.5
-    wait_x: float = -2.0  # the fly waits here for the ball
+    wait_x: float = -4.5  # the fly waits here for the ball
     # ---- pinsetter / timing -----------------------------------------------------
     settle_speed: float = 2.0  # pins / ball below this (mm/s) ...
     settle_hold_s: float = 0.5  # ... for this long = settled
@@ -279,6 +315,14 @@ class BowlingConfig(JobConfig):
     stall_s: float = 1.2
     store_z: float = 8.4  # pins in the pinsetter: base this far above the bed (hidden)
     lift_mm: float = 2.6  # the pinsetter lifts standing pins this much for the sweep
+    # ---- presentation -------------------------------------------------------------
+    # slow motion (an *edit effect*, not physics: fewer physics steps per displayed
+    # frame, the step sequence is unchanged; labelled "SLOW MOTION" on screen) while
+    # the ball is on the ramp / lane and for the first slowmo_settle_s of the pin
+    # action; it eases back to real time over the next 0.5 s. 1 = off. (At 236 mm/s
+    # the ball crosses the 22 mm lane in ~0.1 s: a single frame at 10 fps)
+    slowmo: float = 0.25
+    slowmo_settle_s: float = 0.45
     shadows: bool = True
     stuck_timeout_s: float = 90.0
 
@@ -409,6 +453,8 @@ class BowlingJob(EternalJob):
                   collide="static")
         add_box(wb, P + "lane", ((xe - xf) / 2, hw, bed / 2), ((xe + xf) / 2, 0, bed / 2),
                 material=P + "bed_side", collide="static")
+        if c.guide:
+            self._add_guide(wb, ramp_a)
         # the polished top (visual slab mesh carrying the lane texture)
         # (three pieces: approach, ramp, lane; the texture runs over all three)
         L = xe - x0
@@ -526,8 +572,18 @@ class BowlingJob(EternalJob):
                 wb.add_geom(name=f"{P}nb_{nm}{j}", type=mj.mjtGeom.mjGEOM_MESH,
                             meshname=P + nm + "_mesh", pos=(0.0, off, 0.0), material=P + "lane_wood",
                             **vis_m)
-            add_box(wb, f"{P}nb_bed{j}", ((xe - x0) / 2, hw, bed / 2), ((xe + x0) / 2, off, bed / 2),
+            add_box(wb, f"{P}nb_bed{j}", ((xe - xf) / 2, hw, bed / 2), ((xe + xf) / 2, off, bed / 2),
                     material=P + "bed_side", collide="visual")
+            # their approach plateaus and ramps (visual)
+            add_box(wb, f"{P}nb_approach{j}", ((xr - x0) / 2, pw, az / 2), ((xr + x0) / 2, off, az / 2),
+                    material=P + "bed_side", collide="visual")
+            add_slope(wb, f"{P}nb_ramp{j}", xr, xf, az, -ramp_a, pw, y=off, thickness=az,
+                      material=P + "bed_side", collide="visual")
+            for side, sgn in (("l", 1.0), ("r", -1.0)):
+                for nm in ("top_a", "top_r"):
+                    wb.add_geom(name=f"{P}nb_{nm}_wing_{side}{j}", type=mj.mjtGeom.mjGEOM_MESH,
+                                meshname=f"{P}{nm}_wing_{side}_mesh", pos=(0.0, off, 0.0),
+                                material=P + "maple", **vis_m)
             for side, sgn in (("l", 1.0), ("r", -1.0)):
                 wb.add_geom(name=f"{P}nb_gutter{j}{side}", type=mj.mjtGeom.mjGEOM_MESH,
                             meshname=f"{P}gutter_mesh_{side}", pos=(0.0, off, 0.0),
@@ -548,7 +604,7 @@ class BowlingJob(EternalJob):
         pkw["priority"] = 2
         # softer contacts for the light pins (timeconst 1 ms instead of FlyGym's 0.2 ms,
         # which is at the 0.1 ms step's stability limit: fast pin-pin hits blew up)
-        pkw["solref"] = (c.pin_solref, 1.0)
+        pkw["solref"] = (c.pin_solref, c.pin_dampratio)
         for i, (sx, sy) in enumerate(spots):
             b = wb.add_body(name=f"{P}pin{i}", pos=(sx, sy, bed + 0.002))
             b.add_freejoint(name=f"{P}pin{i}_free")
@@ -590,6 +646,41 @@ class BowlingJob(EternalJob):
                               friction=c.head_friction)
         self._add_lights(spec)
 
+    def _add_guide(self, wb, ramp_a: float) -> None:
+        """The aimed ramp guide: a mocap body (moved in y) with two rails down the
+        ramp and a funnel on the plateau; ball-only contacts (contype BALL_BIT)."""
+        c = self.cfg
+        R = c.ball_radius
+        g = wb.add_body(name=P + "guide", mocap=True, pos=(0.0, 0.0, 0.0))
+        rail = dict(contype=BALL_BIT, conaffinity=0, priority=2, condim=3,
+                    friction=(0.05, 0.005, 0.0001), material=P + "chrome", mass=0.0)
+        hh, hw_r = 0.5, 0.1  # rail half height / half width; top 1.4 mm up (the ball's
+        # equator is 1.5 mm up: the rails touch it just below)
+        yin = R + c.guide_gap + hw_r
+        xr, xf, az = self.ramp_x0, c.foul_x, self.approach_z
+        run = (xf - 0.8) - xr
+        L = run / math.cos(ramp_a)
+        zc = az - 0.5 * run * math.tan(ramp_a)
+        for sgn in (1.0, -1.0):
+            nrm = np.array([math.sin(ramp_a), 0.0, math.cos(ramp_a)])
+            ctr = np.array([xr + run / 2, sgn * yin, zc]) + nrm * (0.9)
+            g.add_geom(name=f"{P}guide_rail{int(sgn)}", type=mj.mjtGeom.mjGEOM_BOX,
+                       size=(L / 2, hw_r, hh), pos=tuple(ctr), quat=quat_axis_angle((0, 1, 0), ramp_a),
+                       **rail)
+            # the funnel on the plateau, flaring back from the edge
+            fl = c.guide_funnel
+            y0, y1 = sgn * yin, sgn * (yin + c.guide_flare)
+            ln = math.hypot(fl, y1 - y0)
+            yaw = math.atan2(y1 - y0, -fl)
+            q = quat_axis_angle((0, 0, 1), yaw)
+            g.add_geom(name=f"{P}guide_funnel{int(sgn)}", type=mj.mjtGeom.mjGEOM_BOX,
+                       size=(ln / 2 + 0.05, hw_r, hh), pos=(xr - fl / 2 + 0.05, (y0 + y1) / 2, az + 0.9),
+                       quat=q, **rail)
+
+    def _set_guide(self) -> None:
+        if getattr(self, "guide_mocap", -1) >= 0:
+            self.sim.data.mocap_pos[self.guide_mocap] = (0.0, self.release_y, 0.0)
+
     def _bar_park(self) -> tuple[float, float, float]:
         return (self.head_x - 1.6, 0.0, self.cfg.bed_height + self.cfg.store_z + 2.0)
 
@@ -599,7 +690,7 @@ class BowlingJob(EternalJob):
         lane = A.lane_texture(2 * c.lane_half_width, c.approach_x0, self.deck_end, c.foul_x,
                               self.head_x, self.deck_x0, spots, c.foul_x + 0.27 * c.lane_length,
                               (c.foul_x + 0.11 * c.lane_length,),
-                              (c.foul_x - 3.0, c.foul_x - 6.5), seed=c.seed)
+                              (self.ramp_x0 - 2.0, self.ramp_x0 - 5.5), seed=c.seed)
         A.add_texture(spec, P + "tex_lane", lane)
         A.add_textured_material(spec, P + "lane_wood", P + "tex_lane", rgba=(1, 1, 1, 1),
                                 specular=0.9, shininess=0.9, reflectance=0.12)
@@ -631,11 +722,11 @@ class BowlingJob(EternalJob):
         spec.visual.headlight.diffuse = (0.35, 0.35, 0.36)
         spec.visual.headlight.specular = (0.15, 0.15, 0.15)
         bed = c.bed_height
-        a_pos = np.array([c.foul_x - 12.0, -6.0, 22.0])
-        a_tgt = np.array([c.foul_x - 2.0, 0.0, bed])
+        a_pos = np.array([self.ramp_x0 - 11.0, -6.0, self.approach_z + 20.0])
+        a_tgt = np.array([self.ramp_x0 - 3.5, 0.0, self.approach_z])
         wb.add_light(name=P + "approach_light", type=mj.mjtLightType.mjLIGHT_SPOT, pos=tuple(a_pos),
-                     dir=tuple(a_tgt - a_pos), diffuse=(0.55, 0.53, 0.50), specular=(0.4, 0.4, 0.4),
-                     cutoff=50.0, exponent=0.5, castshadow=bool(c.shadows))
+                     dir=tuple(a_tgt - a_pos), diffuse=(0.85, 0.82, 0.76), specular=(0.4, 0.4, 0.4),
+                     cutoff=32.0, exponent=0.5, castshadow=bool(c.shadows))
         d_tgt = np.array([self.head_x + 5.0, 0.0, bed])
         d_pos = np.array([self.head_x - 6.0, -3.0, bed + 16.0])
         wb.add_light(name=P + "deck_light", type=mj.mjtLightType.mjLIGHT_SPOT, pos=tuple(d_pos),
@@ -659,6 +750,7 @@ class BowlingJob(EternalJob):
         self.pin_q = np.array([int(m.jnt_qposadr[m.joint(f"{P}pin{i}_free").id]) for i in range(N_PINS)])
         self.pin_v = np.array([int(m.jnt_dofadr[m.joint(f"{P}pin{i}_free").id]) for i in range(N_PINS)])
         self.bar_mocap = int(m.body_mocapid[m.body(P + "sweep").id])
+        self.guide_mocap = int(m.body_mocapid[m.body(P + "guide").id]) if c.guide else -1
         self.spots = self.pin_spots()
         self._rng = np.random.default_rng(c.seed)
         # game state and counters
@@ -673,6 +765,7 @@ class BowlingJob(EternalJob):
         self.n_gutters = 0
         self.n_fouls = 0
         self.n_dead_balls = 0
+        self.n_no_roll = 0  # "releases" after which the ball stayed on the ramp
         self.n_voided = 0
         self.n_pinsetter = 0  # pinsetter cycles (every roll)
         self.n_rack_resets = 0  # full racks of 10 lowered
@@ -713,6 +806,7 @@ class BowlingJob(EternalJob):
         self._ball_hidden = False
         self._roll_foul = False
         self._roll_gutter = False
+        self._arrive_y = None
         self._sweep = None
         self._new_aim()
 
@@ -829,11 +923,13 @@ class BowlingJob(EternalJob):
         if self.game.fresh_rack:
             target = c.pocket_y
         else:
-            # spare: aim at the front-most standing pin (the key pin)
+            # spare: aim at the standing pins, weighted to the front ones (the key
+            # pin; a lone pin: straight at it)
             idx = np.flatnonzero(self.rack)
             if len(idx):
-                front = idx[np.argmin(self.spots[idx, 0] + 0.01 * np.abs(self.spots[idx, 1]))]
-                target = float(self.spots[front, 1])
+                x = self.spots[idx, 0]
+                w = np.exp(-(x - x.min()) / 3.0)
+                target = float(np.sum(w * self.spots[idx, 1]) / np.sum(w))
             else:
                 target = 0.0
         sd = 0.4 + 2.0 * (1.0 - skill)
@@ -842,8 +938,15 @@ class BowlingJob(EternalJob):
         if self.wild:
             aim += rng.normal(0.0, c.wild_sd)
         aim = float(np.clip(aim, -c.lane_half_width - 1.5, c.lane_half_width + 1.5))
-        rel = float(np.clip(c.release_board_frac * aim + rng.normal(0.0, 0.3), -2.5, 2.5))
+        lim = c.lane_half_width - 1.0
+        rel = float(np.clip(c.release_board_frac * aim + rng.normal(0.0, 0.3), -lim, lim))
+        if c.guide:
+            # the guide can be aimed past the lane edge (a wild throw: into the gutter)
+            lim = c.lane_half_width + 1.0
+            rel = float(np.clip(c.release_board_frac * aim + rng.normal(0.0, 0.3), -lim, lim))
         self.aim_y, self.release_y = aim, rel
+        if self.phase != "rolling" and getattr(self, "sim", None) is not None:
+            self._set_guide()
 
     def aim_line_y(self, x: float) -> float:
         c = self.cfg
@@ -873,6 +976,16 @@ class BowlingJob(EternalJob):
                 self._ball_to_return_spot()
         if ph != "fetch":
             self._fly_idle(t)
+        self._edge_guard()
+
+    def _edge_guard(self) -> None:
+        """Keep the fly on the plateau: near its back / side edges, walk back in."""
+        c = self.cfg
+        if self.session.actions.busy or self.fly_mode == "watch":
+            return
+        f = self.fly_xy()
+        if f[0] < c.approach_x0 + 3.0 or abs(f[1]) > self.lane_pitch / 2 - 2.5:
+            self.pilot.aim_at(np.array([c.wait_x, 0.0]), 0.6)
 
     def _fetch(self, t: float) -> None:
         c = self.cfg
@@ -881,8 +994,11 @@ class BowlingJob(EternalJob):
             return
         b = self.ball_pos()[:2].copy()
         fly = self.fly_xy()
-        # the ball went over the ramp's edge: it's a roll
-        if b[0] > self.ramp_x0 + c.stop_over + 0.3:
+        # the ball went over the ramp's edge: it's a roll. (Only the ball decides:
+        # the first version also released when the *fly* reached stop_x, and a ball
+        # that had lagged 0.1 mm behind the edge sat on the dry approach, the fly
+        # frozen behind it, for the whole 15 s roll timeout)
+        if b[0] > self.ramp_x0 + c.stop_over:
             self._release(t)
             return
         gx = max(b[0] + c.pursuit, self.ramp_x0 + 1.0)
@@ -890,8 +1006,11 @@ class BowlingJob(EternalJob):
         near = self.stop_x - fly[0] < c.runup_mm
         self.pilot.push_speed = c.runup_speed if near else c.push_speed
         self.state = self.pilot.step(b, goal)
-        if fly[0] >= self.stop_x and self.pilot.pushing(b, fly):
-            self._release(t)
+        if fly[0] > self.ramp_x0 - c.edge_margin:
+            # never onto the ramp: go round again (the approach waypoints are clamped
+            # behind the edge)
+            self.pilot.reset()
+            self.steering.set(math.pi, 0.6)
 
     def _release(self, t: float) -> None:
         self.phase = "rolling"
@@ -903,6 +1022,7 @@ class BowlingJob(EternalJob):
         self._roll_foul = False
         self._roll_gutter = False
         self._rack_before = self.rack.copy()
+        self._arrive_y = None
         self.fly_mode = "watch"
         self.steering.set(self.sim.heading(), 0.0)
         self.session.actions.trigger(_make_action("freeze", duration=30.0), source="job")
@@ -917,9 +1037,24 @@ class BowlingJob(EternalJob):
         b = self.ball_pos()
         v = self.ball_vel()
         speed = float(np.hypot(v[0], v[1])) if np.all(np.isfinite(v)) else 0.0
+        if self._arrive_y is None and not self._ball_hidden and b[0] > self.head_x - 2.0:
+            self._arrive_y = float(b[1])  # where the ball meets the rack (aim vs result)
         if (not self._roll_gutter and not self._ball_hidden and abs(b[1]) > c.lane_half_width
                 and b[2] < c.bed_height + c.ball_radius - 0.3 and b[0] < self.head_x):
             self._roll_gutter = True
+        if (self.phase == "rolling" and b[0] < c.foul_x and speed < c.stall_speed
+                and t - self._t_release > 2.0 and not self._ball_hidden):
+            # the ball never went down the ramp (it stopped on the edge): not a roll,
+            # the fly goes and pushes it again
+            self.n_no_roll += 1
+            self.say("the ball stayed on the ramp: push again")
+            if self.session.actions.busy:
+                self.session.actions.cancel()
+            self.phase = self.state = "fetch"
+            self._t_phase = t
+            self.fly_mode = "pilot"
+            self.pilot.reset()
+            return
         if self.phase == "rolling":
             # done: in the pit, or in a gutter beside the deck (a ball bouncing off
             # the kickbacks may roll back up the gutter; the roll is over anyway)
@@ -987,13 +1122,20 @@ class BowlingJob(EternalJob):
             elif gutter:
                 self._say_msg("GUTTER BALL")
             elif not self._roll_foul:
-                split = "  (the 7-10 split!)" if standing_after == [7, 10] else ""
+                split = ("  (the 7-10 split!)" if standing_after == [7, 10] and ev["ball"] == 1
+                         and self.game.frames[ev["frame"] - 1][:1] == [ev["pins"]] else "")
                 self._say_msg(f"{ev['pins']} pin{'s' if ev['pins'] != 1 else ''}{split}")
-        self.last_roll = dict(ev, gutter=gutter, foul=self._roll_foul, standing=standing_after)
-        self.say(f"frame {ev['frame']} ball {ev['ball']}: {ev['pins']} pins"
+        self.last_roll = dict(ev, gutter=gutter, foul=self._roll_foul, standing=standing_after,
+                              aim_y=self.aim_y, arrive_y=self._arrive_y)
+        # the terminal gets the marks as events (the HUD is off by default)
+        loud = ev["strike"] or ev["spare"] or gutter or self._roll_foul or "split" in self.message
+        self.say(("*** " + self.message + " ***  " if loud else "")
+                 + f"frame {ev['frame']} ball {ev['ball']}: {ev['pins']} pins"
                  f"{' STRIKE' if ev['strike'] else ' SPARE' if ev['spare'] else ''}"
                  f"{' gutter' if gutter else ''}{' FOUL' if self._roll_foul else ''}"
-                 f"  score {self.game.score()}")
+                 f"  score {self.game.score()}"
+                 + (f"  (aim y {self.aim_y:+.1f} mm, ball at the rack {self._arrive_y:+.1f})"
+                    if self._arrive_y is not None else ""))
         reset_rack = ev["reset_rack"]
         if ev["game_over"]:
             s = self.game.final_score()
@@ -1166,10 +1308,26 @@ class BowlingJob(EternalJob):
         self._msg_t = self.run_time()
 
     # ------------------------------------------------------------ view / HUD
-    def _deck_view(self) -> bool:
+    # Shots (like a TV bowling broadcast): "fetch" (the fly and the ball on the
+    # approach, the rack in the background), "lane" (after the release the camera
+    # rides along behind the ball), "deck" (a cut to the pins before the ball gets
+    # there; the pin action and the pinsetter), "back" (a cut back to the fly).
+    CUTS = {("lane", "deck"), ("deck", "back"), ("deck", "fetch")}
+
+    def _shot(self) -> str:
         b = self.ball_pos()
-        return self.phase in ("settle", "sweep") or (
-            self.phase == "rolling" and not (np.isfinite(b[0]) and b[0] < self.head_x - 9.0))
+        if self.phase == "fetch":
+            return "fetch"
+        if self.phase in ("settle", "sweep"):
+            return "deck"
+        if self.phase == "rolling":
+            if self._ball_hidden or not np.isfinite(b[0]) or b[0] > self.head_x - 7.0:
+                return "deck"
+            return "lane"
+        return "back"
+
+    def _deck_view(self) -> bool:
+        return self._shot() == "deck"
 
     def camera_target(self) -> np.ndarray:
         c = self.cfg
@@ -1177,37 +1335,77 @@ class BowlingJob(EternalJob):
         b = self.ball_pos()
         if not np.all(np.isfinite(b)):
             b = f
-        # (targets are offset up and to the left (+y) so the action sits right of /
-        # below the HUD panel in the top-left corner)
-        if self.phase == "fetch":
-            out = 0.5 * f + 0.5 * b + np.array([2.0, 1.2, 0.8])
-        elif self._deck_view():
-            out = np.array([self.head_x + 4.0, 3.0, c.bed_height + 3.2])
-        elif self.phase == "rolling":
-            out = np.array([b[0] + 5.0, 0.5 * b[1] + 2.0, c.bed_height + 2.2])
-        else:  # returning: back to the fly
-            out = f + np.array([2.5, 1.2, 0.8])
+        shot = self._shot()
+        if shot == "fetch":
+            out = 0.5 * f + 0.5 * b + np.array([2.5, 0.8, 0.6])
+        elif shot == "deck":
+            # (low enough to see under the masking unit to the back row)
+            out = np.array([self.head_x + 4.5, 0.6, c.bed_height + 2.6])
+        elif shot == "lane":
+            # ride along: the ball in the lower third, the lane ahead of it
+            # (starting a little down the lane: from right behind the ball at the top
+            # of the ramp the guide rails fill the picture)
+            out = np.array([max(b[0] + 9.0, c.foul_x + 7.0), 0.5 * b[1], c.bed_height + 1.5])
+        else:  # back: to the fly
+            out = f + np.array([2.5, 0.8, 0.6])
         return out if np.all(np.isfinite(out)) else f
 
     def camera_preset(self) -> CameraPreset:
-        tau = 0.5
-        if self.phase == "fetch":
-            goal = (18.0, -24.0, 13.0)
-        elif self._deck_view():
-            goal, tau = (10.0, -21.0, 21.0), 0.3
-        elif self.phase == "rolling":
-            goal, tau = (8.0, -16.0, 16.0), 0.2
-        else:
-            goal = (18.0, -24.0, 14.0)
+        shot = self._shot()
+        # (azimuth, elevation, distance), smoothing tau in sim s (the ride-along is
+        # tight: in slow motion 0.03 sim s is ~0.1 s on screen)
+        goal, tau = {"fetch": ((16.0, -22.0, 13.0), 0.5), "lane": ((6.0, -18.0, 17.0), 0.03),
+                     "deck": ((10.0, -15.0, 21.0), 0.3), "back": ((16.0, -22.0, 13.5), 0.5)}[shot]
         t = self.sim.time
-        if self._cam is None or t < self._cam[0]:
+        prev = getattr(self, "_shot_prev", None)
+        cut = prev is not None and (prev, shot) in self.CUTS
+        self._shot_prev = shot
+        if self._cam is None or t < self._cam[0] or cut:
             self._cam = (t, np.array(goal))
         else:
             t0, cur = self._cam
             a = 1.0 - math.exp(-(t - t0) / tau)
             self._cam = (t, cur + a * (np.array(goal) - cur))
         az, el, dist = self._cam[1]
-        return CameraPreset(azimuth=float(az), elevation=float(el), distance=float(dist), tau_s=tau)
+        # a cut: the camera's look-at snaps too (JobCamera smooths with tau_s)
+        return CameraPreset(azimuth=float(az), elevation=float(el), distance=float(dist),
+                            tau_s=1e-6 if cut else tau)
+
+    # ------------------------------------------------------------ slow motion (edit)
+    def _slowmo_scale(self) -> float:
+        c = self.cfg
+        k = min(max(float(c.slowmo), 0.05), 1.0)
+        if k >= 1.0:
+            return 1.0
+        if self.phase == "rolling":
+            return k
+        if self.phase == "settle":
+            s = self.run_time() - self._t_phase - c.slowmo_settle_s
+            return k if s <= 0 else min(1.0, k + (1.0 - k) * s / 0.5)
+        return 1.0
+
+    def time_scale(self, present_dt: float) -> float:
+        """Slow motion while the ball rolls and the pins fly (an *edit effect*: fewer
+        physics steps per displayed frame; the physics itself is unchanged)."""
+        self._last_scale = self._slowmo_scale()
+        return self._last_scale
+
+    def post_process(self, frame: np.ndarray, t: float) -> np.ndarray:
+        """Label the slow motion on screen (edit effect, not physics)."""
+        if getattr(self, "_last_scale", 1.0) >= 1.0:
+            return frame
+        import cv2
+
+        H, W = frame.shape[:2]
+        out = np.ascontiguousarray(frame).copy()
+        txt = f"SLOW MOTION x{self._last_scale:.2f}  (edit, not physics)"
+        fs = max(0.4, W / 1400.0)
+        th = max(1, int(round(W / 700)))
+        (tw, tht), _ = cv2.getTextSize(txt, cv2.FONT_HERSHEY_SIMPLEX, fs, th)
+        x, y = W - tw - int(0.015 * W), H - int(0.03 * H)
+        cv2.rectangle(out, (x - 6, y - tht - 6), (x + tw + 6, y + 6), (0, 0, 0), -1)
+        cv2.putText(out, txt, (x, y), cv2.FONT_HERSHEY_SIMPLEX, fs, (255, 220, 90), th, cv2.LINE_AA)
+        return out
 
     def scoreboard_lines(self) -> list[str]:
         g = self.game
@@ -1230,14 +1428,15 @@ class BowlingJob(EternalJob):
         return [head, *self.scoreboard_lines(),
                 f"strikes {self.n_strikes}  spares {self.n_spares}  gutters {self.n_gutters}  "
                 f"fouls {self.n_fouls}  rolls {self.n_rolls}  racks {self.n_rack_resets}",
-                ">> " + msg if msg else "(pinsetter + ball return: engineered, see docs)"]
+                ">> " + msg if msg else "(ramp, guide, pinsetter, ball return: engineered, see docs)"]
 
     def job_stats(self) -> dict:
         avg = self.total_game_pins / self.games_completed if self.games_completed else 0.0
         return {"rolls": self.n_rolls, "pins": self.pins_total,
                 "pins_per_roll": self.pins_total / self.n_rolls if self.n_rolls else 0.0,
                 "strikes": self.n_strikes, "spares": self.n_spares, "gutters": self.n_gutters,
-                "fouls": self.n_fouls, "dead_balls": self.n_dead_balls, "voided": self.n_voided,
+                "fouls": self.n_fouls, "dead_balls": self.n_dead_balls,
+                "no_roll": self.n_no_roll, "voided": self.n_voided,
                 "games": self.games_completed, "best_game": self.best_game,
                 "last_game": self.last_game, "avg_game": avg, "score": self.game.score(),
                 "frame": self.game.frame + 1, "best_streak": self.best_streak,

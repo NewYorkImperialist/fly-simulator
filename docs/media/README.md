@@ -20,7 +20,7 @@ ffmpeg -ss START -t DUR -i in.mp4 -vf "setpts=PTS/SPEED,fps=FPS,scale=W:-2:flags
 | `hero.gif` | 2.3 MB | Swatter slam: a lazy swat comes from behind. The real FlyWire brain's giant fibre fires, and the fly escapes on flapping wings (no external force) while the paddle lands behind it. 3x slow motion |
 | `kebab.gif` | 1.5 MB | The doner kebab chef job: it carves the spit with the recorded grooming stroke |
 | `dead_hang.gif` | 0.5 MB | The dead-hang job: the fly hangs from the pull-up bar, the flytrap twitches, the fly re-grips, then its grip is drained and it slides off into the trap: CHOMP, then the respawn |
-| `bowling.gif` | 2.3 MB | The bowling job: the fly pushes the ball over the ramp, the ball rolls down the lane and scatters pins (real contacts), the pinsetter sweeps, the scoreboard counts. Recorded with the HUD |
+| `bowling.gif` | 2.1 MB | The bowling job: the fly pushes the ball into the ramp guide and over the ramp, the camera rides along down the lane and cuts to the deck, a strike (real contacts, labelled slow motion x0.25), the pinsetter sweeps and lowers a fresh rack, the cut back to the fly. Recorded with the HUD |
 | `broccoli_toss.gif` | 2.3 MB | The broccoli toss job: the host fly brings a plate of broccoli, the posed viewer fly in the gaming chair ponders it, snaps it over its shoulder without looking, and the room behind it explodes, with the meme's edit effects (impact frame, flash, hit-stop and slow motion, shake, punch-in, bloom); the props fly, the room rebuilds. Compact HUD, `EDIT FX (not physics)` tag during the edit beat |
 | `jobs.gif` | 2.5 MB | 2x2 grid of the eternal jobs: Sisyphus, hamster wheel, lawn mowing, leaf raking |
 | `whip.gif` | 2.0 MB | A level-3 physical whip crack from the right knocks the fly sideways. 4x slow motion |
@@ -139,11 +139,13 @@ Pillow in Avenir Next (Bold / Medium), a macOS system font.
 .venv/bin/python scripts/run_sim.py --job kebab --headless --max-seconds 3 --record $S/kb.mp4 --no-log --config $S/r1280.json
 ```
 
-**bowling.gif** (real time, 6 s from the start, 480 px, 10 fps, 96 colours, no dither).
-`run_job.py --record` frames include the HUD (scoreboard):
+**bowling.gif** (the first 9 s of the recording, 480 px, 10 fps, 96 colours, no dither; the
+default seed's first ball is a strike). `run_job.py --record` frames include the HUD
+(scoreboard); the recording is paced by presentation time, so the job's labelled slow
+motion (x0.25 during the roll and the first pin action) is in it:
 ```bash
-.venv/bin/python scripts/run_job.py --job bowling --headless --max-seconds 40 --record $S/bowl --segment-s 60 --keep 1 \
-  --width 720 --height 480 --job-config '{"seed": 3}'
-ffmpeg -t 6 -i $S/bowl/recording01_t00000.02s.mp4 -vf "fps=10,scale=480:-2:flags=lanczos,split[a][b];\
+.venv/bin/python scripts/run_job.py --job bowling --headless --max-seconds 9 --record $S/bowl --segment-s 60 --keep 1 \
+  --width 720 --height 480
+ffmpeg -t 9 -i $S/bowl/recording01_t00000.02s.mp4 -vf "fps=10,scale=480:-2:flags=lanczos,split[a][b];\
 [a]palettegen=max_colors=96:stats_mode=diff[p];[b][p]paletteuse=dither=none:diff_mode=rectangle" -loop 0 bowling.gif
 ```

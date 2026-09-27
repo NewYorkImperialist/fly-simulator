@@ -145,9 +145,9 @@ def test_pins_stand_and_topple_when_hit(bowling):
     job._t_release = job._t_phase = job.run_time()
     job._rack_before = job.rack.copy()
     job._place_ball((job.head_x - 6.0, -0.8, c.bed_height + c.ball_radius + 0.01))
-    # ~ the speed the ramp gives (70 mm/s), rolling without slipping
-    sim.data.qvel[job.ball_v:job.ball_v + 3] = (70.0, 0.0, 0.0)
-    sim.data.qvel[job.ball_v + 3:job.ball_v + 6] = (0.0, 70.0 / c.ball_radius, 0.0)
+    # ~ the speed the ramp gives (~200 mm/s), rolling without slipping
+    sim.data.qvel[job.ball_v:job.ball_v + 3] = (200.0, 0.0, 0.0)
+    sim.data.qvel[job.ball_v + 3:job.ball_v + 6] = (0.0, 200.0 / c.ball_radius, 0.0)
     for _ in range(100):
         sim.step(500)
         if job.phase == "sweep":
@@ -203,3 +203,90 @@ def test_pinsetter_clears_knocked_and_resets_rack(bowling):
     for i in range(N_PINS):
         assert job.pin_hold[i] is None and not job.pin_down(i)
         assert np.linalg.norm(job.pin_pose(i)[0][:2] - job.spots[i]) < 0.1
+
+
+def test_ramp_release_and_slow_motion(bowling):
+    """The ramp gives the ball ~200 mm/s; the release is decided by the ball (not
+    the fly); a ball that stays on the ramp's edge is re-pushed, not scored; the
+    roll is shown in (labelled) slow motion."""
+    import mujoco as mj
+
+    session, job, msgs = bowling
+    sim = session.sim
+    c = job.cfg
+    session.reset("manual")
+    job.cfg.stuck_timeout_s = 0
+    R = c.ball_radius
+    # a ball just short of the top edge, the fly (at the origin) far behind: no release
+    job._place_ball((job.ramp_x0 - 0.2, 0.0, job.approach_z + R + 0.01))
+    sim.step(20)
+    job._fetch(job.run_time())
+    assert job.phase == "fetch"
+    assert job.time_scale(0.015) == 1.0
+    frame = np.zeros((64, 96, 3), np.uint8)
+    assert job.post_process(frame, 0.0) is frame  # no label at normal speed
+    # over the edge: it's a roll, and gravity takes the ball down the ramp
+    job._place_ball((job.ramp_x0 + c.stop_over + 0.1, 0.0, job.approach_z + R + 0.01))
+    sim.step(20)
+    job._fetch(job.run_time())
+    assert job.phase == "rolling" and job.fly_mode == "watch"
+    assert job.time_scale(0.015) == pytest.approx(c.slowmo)
+    assert job.post_process(frame, 0.0).any()  # the SLOW MOTION label
+    vmax = 0.0
+    for _ in range(40):
+        sim.step(50)
+        vmax = max(vmax, float(np.hypot(*job.ball_vel()[:2])))
+        if job.ball_pos()[0] > c.foul_x + 4.0:
+            break
+    v_ramp = np.sqrt(10.0 / 7.0 * 9810.0 * c.ramp_height)
+    assert 0.7 * v_ramp < vmax < 1.2 * v_ramp, (vmax, v_ramp)
+    # a "release" after which the ball sits on the approach: re-pushed, not scored
+    rolls = job.n_rolls
+    job._place_ball((job.ramp_x0 - 2.0, 0.0, job.approach_z + R + 0.01))
+    mj.mj_forward(sim.model, sim.data)
+    job._t_release = job.run_time() - 3.0
+    job.phase = "rolling"
+    job._watch_roll(job.run_time())
+    assert job.phase == "fetch" and job.n_no_roll >= 1 and job.n_rolls == rolls
+
+
+def test_shots_and_camera(bowling):
+    """The job camera: the fly on the approach, a ride-along behind the ball after
+    the release, a cut to the pin deck before the ball gets there."""
+    session, job, _ = bowling
+    c = job.cfg
+    session.reset("manual")
+    assert job._shot() == "fetch"
+    job.camera_preset()
+    job.phase = "rolling"
+    job._ball_hidden = False
+    job._place_ball((c.foul_x + 2.0, 0.0, c.bed_height + c.ball_radius + 0.01))
+    import mujoco as mj
+    mj.mj_forward(session.sim.model, session.sim.data)
+    assert job._shot() == "lane"
+    t = job.camera_target()
+    assert t[0] > job.ball_pos()[0]  # looking ahead of the ball, down the lane
+    job.camera_preset()
+    job._place_ball((job.head_x - 3.0, 0.0, c.bed_height + c.ball_radius + 0.01))
+    mj.mj_forward(session.sim.model, session.sim.data)
+    assert job._shot() == "deck"
+    pre = job.camera_preset()
+    assert pre.tau_s < 1e-3  # a cut, not a pan
+    session.reset("manual")
+
+
+def test_ramp_guide_is_aimed_and_ball_only(bowling):
+    """The engineered ramp guide: ball-only rails, set to each roll's release line."""
+    session, job, _ = bowling
+    m = session.sim.model
+    from fly_simulator.jobs.bowling import BALL_BIT
+
+    for name in ("bowl/guide_rail1", "bowl/guide_rail-1", "bowl/guide_funnel1"):
+        g = m.geom(name).id
+        assert m.geom_contype[g] == BALL_BIT and m.geom_conaffinity[g] == 0
+        # (the pins and the fly don't touch it)
+        assert not (m.geom_conaffinity[m.geom("bowl/pin0_belly").id] & BALL_BIT)
+    job.phase = "fetch"
+    job._new_aim()
+    assert session.sim.data.mocap_pos[job.guide_mocap][1] == pytest.approx(job.release_y)
+    assert abs(job.release_y) <= job.cfg.lane_half_width + 1.0
