@@ -22,6 +22,7 @@ ffmpeg -ss START -t DUR -i in.mp4 -vf "setpts=PTS/SPEED,fps=FPS,scale=W:-2:flags
 | `dead_hang.gif` | 0.5 MB | The dead-hang job: the fly hangs from the pull-up bar, the flytrap twitches, the fly re-grips, then its grip is drained and it slides off into the trap: CHOMP, then the respawn |
 | `bowling.gif` | 2.1 MB | The bowling job: the fly pushes the ball into the ramp guide and over the ramp, the camera rides along down the lane and cuts to the deck, a strike (real contacts, labelled slow motion x0.25), the pinsetter sweeps and lowers a fresh rack, the cut back to the fly. Recorded with the HUD |
 | `broccoli_toss.gif` | 2.3 MB | The broccoli toss job: the host fly brings a plate of broccoli, the posed viewer fly in the gaming chair ponders it, snaps it over its shoulder without looking, and the room behind it explodes, with the meme's edit effects (impact frame, flash, hit-stop and slow motion, shake, punch-in, bloom); the props fly, the room rebuilds. Compact HUD, `EDIT FX (not physics)` tag during the edit beat |
+| `taste_tester.gif` | 1.2 MB | The taste tester job with the real FlyWire brain: a sugar drop on the leg -> MN9 at ~72 Hz on the meter, the proboscis extends, APPROVED (green lamp, tally); a mixed (sugar + bitter) drop -> MN9 19 Hz, REJECTED, the leg pushes the dish away; the stamper stamps the cards and the diverter sweeps samples into the green / red bins. No HUD |
 | `jobs.gif` | 2.5 MB | 2x2 grid of the eternal jobs: Sisyphus, hamster wheel, lawn mowing, leaf raking |
 | `whip.gif` | 2.0 MB | A level-3 physical whip crack from the right knocks the fly sideways. 4x slow motion |
 | `brain_window.png` | 0.1 MB | The brain window with real FlyWire activity 0.1 s after a looming stimulus (giant fibre 115 Hz, JUMP), after two whip hits under `--stress`. Shows the decision meters, DN traces, pain/arousal and the playground panel |
@@ -86,6 +87,18 @@ ffmpeg -framerate 15 -i $S/gif/f%04d.png -vf "scale=420:-2:flags=lanczos,split[a
 [a]palettegen=max_colors=96:stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=5:diff_mode=rectangle" -loop 0 broccoli_toss.gif
 ```
 Run it live: `python scripts/run_job.py --job broccoli_toss` (or `run_sim.py --job broccoli_toss`).
+
+**taste_tester.gif** (real FlyWire brain, 6.8-16.2 s of the run, 640 px, 12 fps, 160 colours,
+bayer dither scale 4). The job is deterministic with the default seed, so this run shows samples
+#2 SUGAR (170 Hz: MN9 72 Hz, APPROVED), #1 MIXED (125 + 100 Hz: MN9 19 Hz, REJECTED) and #5 SUGAR
+(105 Hz: MN9 65 Hz, APPROVED).
+```bash
+.venv/bin/python scripts/run_sim.py --job taste_tester --brain-headless --headless --max-seconds 16.5 \
+  --record $S/tt.mp4 --no-log --config $S/r720.json
+ffmpeg -ss 6.8 -t 9.4 -i $S/tt.mp4 -vf "fps=12,scale=640:-2:flags=lanczos,split[a][b];\
+[a]palettegen=max_colors=160:stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=4:diff_mode=rectangle" -loop 0 taste_tester.gif
+```
+Run it live: `python scripts/run_job.py --job taste_tester --brain` (or `run_sim.py --job taste_tester`).
 
 **jobs.gif**. For each job, the same command at 480×320 with `--max-seconds 6` (raking 10). For
 sisyphus, hamster_wheel and raking the job camera was moved closer, using a small wrapper

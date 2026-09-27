@@ -16,6 +16,7 @@ constant.
 | `dead_hang` | dead-hangs by its front legs from a pull-up bar over a Venus flytrap; its grip tires, it re-grips and slips; when it falls, the trap snaps shut, and the fly respawns on the bar | time on the bar, hang streak (best), re-grips, slips, chomps, survival rate |
 | `bowling` | pushes a 3 mm ball over the ramp at the head of the lane; it rolls down and scatters 10 free-body pins; a kinematic pinsetter clears / resets them; standard ten-pin scoring | pins knocked down, games, best / average game, strikes, spares, gutters, fouls |
 | `broccoli_toss` | in a streamer's room the host fly brings a plate of broccoli to the viewer fly in the gaming chair; the viewer ponders it for 0.75–1 s, flicks the whole plate over its shoulder without looking, and everything behind it explodes (cartoon blast, props fly with real physics); the room rebuilds | plates yeeted, explosions, stream viewers, vegetables eaten: 0 |
+| `taste_tester` | a quality-control fly at a conveyor belt taps each sample (sugar / bitter / mixed / water drops) with a front leg; the taste goes to the brain and, with `--brain`, the real connectome's MN9 decides: APPROVED (proboscis extends, green stamp, green bin) or REJECTED (the leg pushes the dish away, red stamp, red bin) | samples tasted, approved, rejected, accuracy vs the label, MN9 per sample type |
 
 ```bash
 python scripts/run_job.py --job sisyphus                   # window; Q quit, C camera, P pause, X reset, I screenshot, TAB HUD
@@ -931,6 +932,146 @@ live window the hit-stop is honoured by waiting (the job runs at RTF ~0.3 anyway
 The host's arrival heading is within ~5–25° of the viewer, not exact. Blast-launched
 props sometimes fly out toward the camera (invisible walls keep them in the room).
 The chat on the monitors is geometry over a static texture (no text).
+
+### taste_tester
+
+`fly_simulator/jobs/taste_tester.py` (scene, stance, decision, machines),
+`fly_simulator/jobs/taste_tester_assets.py` (procedural meshes / textures), tests in
+`tests/test_jobs_taste_tester.py`. HUD (TAB): `TASTE TESTER FLY - quality control, one
+drop at a time, forever`.
+
+![taste_tester](media/taste_tester.gif)
+
+"The fly tastes food samples on a conveyor belt forever, and the real FlyWire brain
+decides: approve or reject." Flies taste with their legs first, and sugar on the tarsi
+triggers the proboscis extension response (PER): the job is a PER assay on a production
+line.
+
+**Scene** (all visual except the floor, so no machine can trip the fly). A lab: speckled
+vinyl tiles, a mint wall with a `QUALITY CONTROL / TASTE TEST STATION 1` sign, a tally
+board (two 3-digit 7-segment displays, APPROVED green / REJECTED red, emissive segments
+switched by material), a generic `TASTE WITH YOUR FEET` poster, a QC-log clipboard, the
+**MN9 meter** (a scale 0-100 Hz with the 30 Hz PASS line and a bar that shows the brain's
+live MN9 rate, green above the threshold) with two decision lamps, cool key / fill spots
+(the key casts shadows, `shadows: false` turns them off) and ceiling tubes. An **indexing
+conveyor** runs along -y in front of the fly: a rubber belt (1.5 mm wide, top 0.24 mm),
+steel rails and legs, striped rollers that turn and 22 cleats that travel with the belt
+(mocap), a `SAMPLES IN` hood with a strip curtain upstream. Stations every 2 mm: 0 (under
+the hood), 1-2 (queue), 3 (in front of the fly), 4 (the stamper), 5 (the belt end, with
+the diverter and the two bins). **Samples** are a fixed pool of 12 mocap bodies: a glass
+dish, a drop (golden syrup = sugar, dark green = bitter, marbled gold / green = mixed,
+clear = water; material swapped per sample) and a sample card (the type band, ruled
+lines; after the stamper an inked, tilted APPROVED / REJECTED stamp: 12 card materials).
+
+**The fly.** It spawns facing the belt (thorax 0.61 mm, front tarsi 0.17 mm short of the
+belt) and holds a stance action, `TasterStance` (all tarsi planted and adhering, like
+`freeze`, registered as stationary). The job moves one leg inside it: the left front
+leg's 7 joint targets come from damped least-squares IK on a scratch `MjData` (the
+dead_hang `LegIK`), interpolated in joint space; the leg is position-controlled like any
+action, nothing is teleported, its adhesion is off while it is lifted. Full body is always
+on (proboscis joints).
+
+**Cycle** (~3.3 s, every 1 ms in `update`):
+
+1. `move` (1.1 s, eased): the belt indexes one station; the end sample is swept into its
+   bin, a new one appears under the hood.
+2. `lift` / `reach` (0.3 + 0.3 s): the leg lifts over the rail and touches the drop.
+   **Touch** is a geometric test (tarsus5 within the drop radius + 0.12 mm and at most
+   0.12 mm above its top; the drop is visual); no contact within 0.3 s would count as a
+   miss (0 in every run below).
+3. `taste`: on touch the job sends `StimulusEvent("taste", "left", duration 0.5 s)` with
+   `tastes` = the sample's sugar / bitter and their rates (the sample's
+   "concentration"): **stand-in, labelled**: the brain model has no tarsal taste
+   neurons, so these are Shiu et al.'s labellar sugar (LB3) and bitter (LB1) GRN sets,
+   as for the taste patches (docs/TASTE.md). Water sends nothing (no water GRNs in the
+   stand-in sets). Rates: sugar 50-200 Hz, bitter 100-200 Hz, mixed sugar 100-200 +
+   bitter 50-200 Hz (seeded; types 40 / 25 / 20 / 15 %).
+4. **Decision.** With `--brain`: the mean MN9 rate over the brain states (0.1 s windows,
+   matched by `BrainState.sim_time`) that end in (t0 + 0.1, t0 + 0.6] s, against
+   `approve_mn9_hz` = 30 Hz (the taste patches' feeding threshold). The job waits for
+   those windows (at most `brain_wait_s` = 4 s; a timeout is counted and decided on what
+   arrived, 0 in every run). Without a brain a **scripted rule** decides (sugar without
+   bitter passes), labelled `[scripted]` / `decision: SCRIPTED (no brain)` in the HUD.
+5. `respond`: APPROVED: the green lamp, the proboscis held extended for 0.9 s (with a
+   brain the proboscis follows MN9 all the time, τ 0.1 s, fully out at 60 Hz, so the PER
+   starts during the taste); REJECTED: the red lamp, the leg drops behind the dish's rim
+   and pushes it 0.3 mm away (the dish follows the push phase kinematically:
+   engineered).
+6. `retract` (0.35 s) + 0.15 s pause, then `move`.
+
+**Machines (kinematic, labelled).** At station 4 a compact stamper slides its carriage so
+the chosen stamp (green / red ink pad) is over the card, plunges, and the card's material
+becomes the stamped one. At station 5 an overhead diverter (a paddle on a carriage on a
+beam across the belt end) drops behind the dish and sweeps it off the belt, approved to
+the green bin on the far side, rejected to the red bin on the fly's side, where it drops
+into one of 6 slots. When no spare is left, the oldest binned sample is **recycled**
+(washed and refilled with a new random sample, reappearing under the hood: a hidden
+teleport, counted in `recycled`). Keys (run_job.py): **5 / 6 / 7 / 8** make the next
+sample sugar / bitter / mixed / water.
+
+**Counters / HUD** (TAB, off by default): samples tasted (the work counter), approved,
+rejected, **accuracy** against the label (only pure sugar should pass; sugar, bitter and
+water are scored, mixed is reported apart as `mixed passed k/n`), passed per type with the
+mean MN9 per type, the decision source line, the live MN9 and the proboscis, the last
+decision (`#13 MIXED (sugar 180 + bitter 90 Hz) -> MN9 57 Hz (peak 80) -> APPROVED
+[brain]`, also printed to the terminal) and the label line `(taste input: labellar GRN
+stand-in; belt / stamper / diverter / recycling: kinematic machines)`. Constant memory:
+counters, fixed pools and deques (80 brain windows, 6 recent decisions); the brain's
+`stim_log` is trimmed (> 400 → 200).
+
+**Verified** (headless, 2026-09-27, Apple M1):
+
+* without a brain, `run_job.py --job taste_tester --headless --max-seconds 120`: **36
+  samples** tasted (3.3 s each), 16 approved / 20 rejected (scripted), 36 stamped, 28
+  recycled, 0 touch misses, **0 falls, 0 auto-recoveries, 0 instabilities**, RTF 0.57;
+  the thorax was at (0.62, 0.04) mm after 5 s and after 22 s (spawn settle: (0.61, 0.02)).
+  `run_sim.py --job taste_tester
+  --headless --max-seconds 5` runs too (2 samples).
+* with the **real FlyWire brain** (v783, 138,639 neurons, window off),
+  `run_job.py --job taste_tester --brain --headless --no-brain-window --max-seconds 60`:
+  18 samples, 16 taste stimuli, 0 brain timeouts, 0 falls, RTF 0.57. The random samples
+  (mean MN9 over the pulse, peak in brackets):
+
+  | type | n | MN9 mean (range) | approved |
+  |---|---|---|---|
+  | sugar (105-180 Hz) | 6 | 66 Hz (53-75; peaks 65-80) | 6 / 6 |
+  | bitter (110-125 Hz) | 3 | 0 Hz | 0 / 3 |
+  | water (no input) | 2 | 0 Hz | 0 / 2 |
+  | mixed | 7 | 16 Hz (0-57) | 1 / 7: sugar 180 + bitter 90 Hz gave 57 Hz and passed; 115 + 180 gave 0, 175 + 195 gave 4, 125 + 100 gave 19, 140 + 120 gave 15, 180 + 150 gave 14, 105 + 150 gave 1 |
+
+  Accuracy 100 % on sugar / bitter / water. A directed probe (a script that set the
+  next sample's type and rates each cycle; same job, real brain): sugar 50 Hz → MN9 10 Hz
+  (peak 35), **REJECTED** (a dilute syrup fails: the brain's call); 67 → 30, APPROVED at
+  the threshold; 85 → 51; 100 → 49; 200 → 76; mixed 200 + 67 → 56 APPROVED, 200 + 133 → 28
+  REJECTED, 133 + 67 → 40 APPROVED, 100 + 100 → 7 REJECTED; bitter 200 → 0; water → 0. This
+  matches the offline dose / mixture probe in docs/TASTE.md (sugar 50 / 67 / 100 / 200 Hz →
+  11 / 36 / 54 / 76 Hz; equal sugar + bitter → 3-9 Hz; 200 + 67 → 60). The job is
+  deterministic with the default seed (two 60 s runs gave the same 18 decisions and rates).
+* Frames checked by eye (job renderer and the `run_sim.py --record` MP4, 720×480): the leg
+  on a sugar drop with the MN9 bar at ~72 Hz (green) and the proboscis extended onto it;
+  the leg pushing a mixed dish away with the red lamp on; the red and the green stamp
+  coming down on cards, stamped cards on the belt; the diverter and the green / red bins
+  with their labels; the HUD with TAB (screenshot).
+
+Tests: `tests/test_jobs_taste_tester.py` (9 tests, ~45 s): registry / config; every job
+geom is visual, the pool is fixed, the proboscis actuators exist, the stance is
+stationary; the scripted fallback (sugar approved, bitter rejected, the leg reached the
+drop); a fake brain that publishes 0.1 s states with sim times (sugar → MN9 60 →
+APPROVED and the proboscis out, bitter → 0 → REJECTED, sugar + bitter → 5 → REJECTED; the
+stimulus sets, rates, side, duration and stand-in label); water sends nothing and the
+stimulus log stays bounded; 20 index moves recycle the fixed pool (no sample on two
+stations, bins within their slots); the stamper stamps the card and the tally shows the
+count; a reset mid-taste is voided and the job continues; keys queue the next sample.
+
+**Limitations.** Leg taste is a labelled stand-in (labellar GRN sets, one side); the
+"touch" is a geometric test on a visual drop, and the rates encode concentration, not a
+physical dose. The decision threshold (30 Hz on the mean MN9 over the pulse) and the PER
+hold on approval are our rules on the brain's output; the push-away, stamper, diverter,
+belt and recycling are engineered kinematic machines. MN9 is the only readout used: the
+model gives no avoidance for bitter (docs/TASTE.md), so a rejection is "no PER", not an
+aversive response. The belt stations are fixed; the leg reaches from wherever the fly
+stands (IK in world coordinates), but a fly that drifted far would miss (never seen). The
+window mode (`LiveViewer`) was not opened in this session.
 
 ## Verification
 
