@@ -620,3 +620,244 @@ def test_play_script_rings_synthetic(tmp_path):
                    "--width", "320", "--height", "240"])
     assert rc == 0
     assert len(list(frames.glob("rings_*.png"))) == 1
+
+
+# ---------------------------------------------------------------------------
+# game 4: FLY PONG (the brain moves the paddle the fly stands on)
+# ---------------------------------------------------------------------------
+
+from fly_simulator.games import (  # noqa: E402
+    PONG_DIFFICULTIES,
+    PongConfig,
+    PongPhysics,
+    paddle_command,
+)
+from fly_simulator.games.pong import aim_velocity, fold_y  # noqa: E402
+from fly_simulator.games.pong_experiment import (  # noqa: E402
+    format_pong_summary,
+    make_pong_specs,
+    summarize_pong,
+)
+
+
+def _run_phys(ph, seconds, dt=1e-3):
+    for _ in range(int(round(seconds / dt))):
+        ph.step(dt)
+
+
+def test_pong_fold_and_aim():
+    assert fold_y(3.0, 8.0) == pytest.approx(3.0)
+    assert fold_y(10.0, 8.0) == pytest.approx(6.0)  # off the +wall
+    assert fold_y(-19.0, 8.0) == pytest.approx(3.0)  # off both walls
+    for bounce in (0, 1, -1):  # an aimed ball arrives where it was aimed
+        c = PongConfig()
+        ph = PongPhysics(c)
+        ph.ai_mode = "off"
+        ph.ay = 20.0  # out of the way
+        ph.serve_aimed(c.ai_x - c.ball_radius_mm, 2.0, -4.0, bounce)
+        ph.py = 30.0  # the fly's paddle far away: the ball passes its face
+        ph.pcmd = 0.0
+        t = 0.0
+        while ph.last_cross is None and t < 5.0:
+            ph.step(1e-3)
+            t += 1e-3
+        assert ph.last_cross is not None
+        assert ph.last_cross["ball_y"] == pytest.approx(-4.0, abs=0.05), bounce
+        assert (sum(k == "wall" for k, _ in ph.events) > 0) == (bounce != 0)
+    vx, vy = aim_velocity(0.0, 0.0, -10.0, 0.0, 20.0, 8.0)
+    assert vx == pytest.approx(-20.0) and vy == pytest.approx(0.0)
+
+
+def test_pong_paddle_hit_english_speedup_and_miss():
+    c = PongConfig()
+    ph = PongPhysics(c)
+    ph.ai_mode = "off"
+    ph.serve("fly", y0=2.0, angle_deg=0.0)
+    ph.py = 0.0
+    s0 = ph.speed
+    _run_phys(ph, 1.0)
+    hits = [i for k, i in ph.events if k == "hit"]
+    assert hits and hits[0]["side"] == "fly" and hits[0]["offset"] == pytest.approx(2.0)
+    assert ph.vx > 0 and ph.vy > 0  # hit above the paddle centre: goes left (+y)
+    assert ph.speed == pytest.approx(s0 * c.speedup)
+    ph2 = PongPhysics(c)
+    ph2.ai_mode = "off"
+    ph2.serve("fly", y0=7.0, angle_deg=0.0)  # arrives 7 mm to the left of the paddle
+    _run_phys(ph2, 1.5)
+    assert ph2.events[-1][0] == "miss"
+    assert ph2.events[-1][1]["side"] == "fly" and not ph2.in_play
+
+
+def test_pong_paddle_velocity_and_limits():
+    c = PongConfig()
+    ph = PongPhysics(c)
+    ph.pcmd = 20.0
+    moved = sum(ph.step(1e-3) for _ in range(300))
+    assert 3.0 < moved < 6.0 and ph.py == pytest.approx(moved)  # 0.3 s, 60 ms low-pass
+    _run_phys(ph, 2.0)
+    assert ph.py == pytest.approx(c.court_half_w - 0.5 * c.diff.paddle_len_mm)  # at the wall
+    # DNa01/02 -> paddle: turn_L -> +y (the fly's left), turn_R -> -y
+    assert paddle_command({"turn_L": 50.0}, c) > 0 > paddle_command({"turn_R": 50.0}, c)
+    assert paddle_command({}, c) == 0.0
+    assert abs(paddle_command({"turn_L": 500.0}, c)) <= c.paddle_vmax
+
+
+def test_pong_ai_returns_slow_balls_and_wall_mode_aims():
+    c = PongConfig()
+    ph = PongPhysics(c, seed=3)
+    ph.serve("ai", y0=0.0, angle_deg=5.0)
+    ph._ai_err = ph._ai_aim = 0.0  # no aiming error: it reaches a slow, straight ball
+    _run_phys(ph, 2.0)
+    assert any(k == "hit" and i["side"] == "ai" for k, i in ph.events)
+    ph = PongPhysics(c)
+    ph.ai_mode = "wall"
+    ph.aim_fn = lambda k: (5.0, 0)
+    ph.py = -30.0
+    ph.serve("ai", y0=-8.0, angle_deg=-30.0)
+    _run_phys(ph, 3.0)
+    assert ph.ai_hits == 1 and ph.last_cross["ball_y"] == pytest.approx(5.0, abs=0.05)
+    assert PONG_DIFFICULTIES["hard"].paddle_len_mm < PONG_DIFFICULTIES["easy"].paddle_len_mm
+
+
+def test_pong_experiment_summary_and_specs():
+    rows = []
+    for i in range(6):
+        rows.append(dict(trial=i, control="brain", first_return=True, returns=5, balls_faced=5,
+                         missed=False, first_paddle_toward_mm=3.0, mean_abs_offset_mm=1.0))
+        rows.append(dict(trial=i, control="none", first_return=i < 2, returns=1 if i < 2 else 0,
+                         balls_faced=2 if i < 2 else 1, missed=True, first_paddle_toward_mm=0.0,
+                         mean_abs_offset_mm=4.0))
+    s = summarize_pong(rows)
+    b, n = s["conditions"]["brain"], s["conditions"]["none"]
+    assert b["first_return_rate"] == 1.0 and b["return_rate"] == 1.0 and b["full_rallies"] == 6
+    assert n["returns"] == 2 and n["balls_faced"] == 8 and n["paddle_toward"] == "0/0"
+    p = s["paired"]["brain_vs_none"]
+    assert p["first_only_brain"] == 4 and p["first_only_none"] == 0
+    assert p["mcnemar_p"] == pytest.approx(0.125, abs=1e-3)
+    assert p["first_more_returns"] == "6/6"
+    assert "brain vs none" in format_pong_summary(s)
+    specs = make_pong_specs(6, seed=2, n_balls=4)
+    assert [sp.targets[0][0] > 0 for sp in specs] == [True, False] * 3
+    assert all(len(sp.targets) == 4 and 1.0 <= abs(sp.targets[0][0]) <= 7.5 for sp in specs)
+    assert make_pong_specs(6, seed=2, n_balls=4)[3] == specs[3]
+
+
+@pytest.fixture(scope="module")
+def pong():
+    from fly_simulator.games.session import PongSession
+
+    s = PongSession(GameBrain("none"), PongConfig(win_points=2, ready_s=0.2, point_pause_s=0.2),
+                    seed=0)
+    yield s
+    s.close()
+
+
+def test_pong_sled_carries_the_standing_fly(pong):
+    s = pong
+    s.restart()
+    s.game.state = "trial"
+    s.court.phys.hide()
+    y0 = float(s.sim.thorax_position()[1])
+    s.court.phys.pcmd = 15.0
+    for _ in range(60):  # 0.3 s; the session's step would reset pcmd (no brain)
+        s.sim.step(s.chunk_steps)
+    dy = float(s.sim.thorax_position()[1]) - y0
+    assert dy == pytest.approx(s.court.phys.py, abs=0.1) and dy > 2.5
+    assert s.sim.tilt_deg() < 15 and 0.8 < s.sim.thorax_position()[2] < 1.6  # still standing
+    s.restart()
+    assert s.court.phys.py == 0.0 and abs(s.sim.thorax_position()[1]) < 0.2
+
+
+def test_pong_ball_on_the_left_drives_left_lc10a(pong):
+    s = pong
+    s.restart()
+    g, ph, c = s.game, s.court.phys, s.cfg
+    g.state = "trial"
+    ph.ai_mode = "off"
+    ph.serve_aimed(c.ai_x - 8.0, 6.0, 6.0)  # a ball well to the fly's left
+    n0 = len(s.vision.sent)
+    _steps(s, 0.1)
+    evs = s.vision.sent[n0:]
+    assert evs and all(e.kind == "manual" and e.details["set"] == "LC10a" for e in evs)
+    assert {e.side for e in evs} == {"left"}
+    ph.serve_aimed(c.ai_x - 8.0, -6.0, -6.0)
+    n0 = len(s.vision.sent)
+    _steps(s, 0.1)
+    assert {e.side for e in s.vision.sent[n0:]} == {"right"}
+    ph.hide()
+    n0 = len(s.vision.sent)
+    _steps(s, 0.05)
+    assert len(s.vision.sent) == n0  # no ball, no drive
+
+
+def test_pong_points_gameover_restart(pong):
+    s = pong
+    s.restart()
+    g = s.game
+    _steps(s, g.cfg.ready_s + 0.05)
+    assert g.state == "playing" and s.court.phys.in_play
+    for _ in range(2):  # the paddle (no brain) stays put: force misses on the far side
+        while g.state == "playing":
+            ph = s.court.phys
+            if ph.vx < 0 and ph.in_play:
+                ph.by, ph.vy = 8.0, 0.0
+            s.step()
+        _steps(s, g.cfg.point_pause_s + 0.05)
+    assert g.ai_points == 2 and g.state == "gameover" and g.winner == "ai"
+    assert any(e.kind == "point_ai" for e in g.events)
+    assert g.score_entry()["ai"] == 2
+    s.restart("hard")
+    assert g.state == "ready" and g.fly_points == g.ai_points == 0 and g.score == 0
+    gid = s.court._bar_gid
+    assert s.sim.model.geom_size[gid, 1] == pytest.approx(0.5 * PONG_DIFFICULTIES["hard"].paddle_len_mm)
+    s.restart("normal")
+
+
+def test_pong_hud_frame(pong):
+    from fly_simulator.games.hud import compose
+    from fly_simulator.games.session import make_renderer
+
+    pong.restart()
+    _steps(pong, pong.cfg.ready_s + 0.2)
+    r = make_renderer(pong.sim, 320, 240, **pong.camera)
+    try:
+        img = compose(pong.render(r), pong)
+        img2 = compose(pong.render(r), pong, panel=False)
+    finally:
+        r.close()
+    assert img.shape == (240, 320 + 150, 3) and img[:, 320:].mean() > 5
+    assert img2.shape == (240, 320, 3)
+
+
+def test_pong_synthetic_brain_moves_the_paddle():
+    from fly_simulator.games.session import PongSession
+
+    b = GameBrain("brain", synthetic={"n": 60, "p_conn": 0.1, "seed": 0}).start()
+    try:
+        s = PongSession(b, PongConfig(ready_s=0.05), seed=0)
+        try:
+            _steps(s, 0.4)
+            assert b.n_states >= 5
+            assert abs(s.court.phys.pcmd) <= s.cfg.paddle_vmax
+            assert abs(float(s.sim.thorax_position()[1]) - s.court.phys.py) < 0.2
+        finally:
+            s.close()
+    finally:
+        b.close()
+
+
+def test_play_script_pong_synthetic(tmp_path):
+    import importlib.util
+    from pathlib import Path
+
+    path = Path(__file__).resolve().parents[1] / "scripts" / "play.py"
+    spec = importlib.util.spec_from_file_location("play_script_pong", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    hs = tmp_path / "hs.json"
+    frames = tmp_path / "frames"
+    rc = mod.main(["--game", "pong", "--synthetic-brain", "--max-seconds", "1.2",
+                   "--highscores", str(hs), "--frames", str(frames), "--frame-times", "1.0",
+                   "--width", "320", "--height", "240"])
+    assert rc == 0
+    assert len(list(frames.glob("pong_*.png"))) == 1

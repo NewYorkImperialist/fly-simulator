@@ -270,6 +270,101 @@ class RingsSession:
         self.sim.close()
 
 
+class PongSession:
+    """Wiring for FLY PONG: world + standing fly on a paddle sled + court + eyes
+    (LC10a) + brain (docs/GAMES.md, game 4).
+
+    The fly holds the standing pose (the CPG controller is replaced by the
+    standing action, all tarsi adhering); the court's pre-step hook moves the ball
+    and the paddles and carries the fly with its sled. ``step()`` = one physics
+    chunk (the eyes send LC10a events in a post-step hook), then ``brain.update``,
+    then the paddle command (DNa01/02 -> lateral paddle velocity), then the rules.
+    ``none``: the paddle command is 0 (the paddle stays where it is)."""
+
+    game_name = "pong"
+    # a court camera well behind and above the fly (see ``render``)
+    camera = {"distance": 33.0, "elevation": -42.0, "azimuth": 0.0}
+
+    def __init__(self, brain: GameBrain | None = None, cfg=None, *, seed: int = 0,
+                 app_cfg=None, chunk_steps: int = 50, response=None) -> None:
+        from fly_simulator.config import AppConfig
+        from fly_simulator.games.chase import PursuitVision
+        from fly_simulator.games.pong import PongConfig, PongCourt, PongGame, paddle_command
+        from fly_simulator.simulation import Simulation
+
+        self._paddle_command = paddle_command
+        self.cfg = cfg or PongConfig()
+        self.brain = brain or GameBrain("none")
+        self.brain.map.jump = False
+        app_cfg = app_cfg or AppConfig()
+        app_cfg.controller.heading_gain = 0.0
+        self.app_cfg = app_cfg
+        self.court = PongCourt(self.cfg, seed=seed + 13)
+        self.sim = Simulation(app_cfg, world_extensions=[self.court.extension])
+        ctrl = self.sim.controller
+        stand = ctrl.initial_action()  # standing pose, all tarsi adhering
+
+        def _stand():
+            ctrl.apply(stand)
+            return stand
+
+        ctrl.step_and_apply = _stand
+        self.court.attach(self.sim)
+        self.chunk_steps = int(chunk_steps)
+        self.sim.reset()
+        self.game = PongGame(self.sim, self.court, self.cfg, seed=seed,
+                             on_respawn=self._on_respawn)
+        self.vision = PursuitVision(self.sim, self.court, sink=self.brain.on_pursuit,
+                                    time_fn=self.game.time, response=response)
+        self.vision.attach()
+        self.jump_times: list[float] = []
+        self.turn = 0.0
+        self.brain.reset(self.game.time())
+
+    def _on_respawn(self) -> None:
+        self.brain.reset(self.game.time())
+
+    def run_time(self) -> float:
+        return self.game.time()
+
+    def turn_now(self, run_time: float) -> float:
+        """DNa01/02 left-right command in [-1, 1] from the latest (fresh) brain state."""
+        from fly_simulator.games.rings import turn_command
+
+        b = self.brain
+        if not b.connected or b.latest is None or b.latest.sim_time is None:
+            return 0.0
+        if run_time - float(b.latest.sim_time) > b.map.stale_after_s:
+            return 0.0
+        return turn_command(b.rates, self.cfg.r_ref_hz)
+
+    def step(self) -> None:
+        self.sim.step(self.chunk_steps)
+        rt = self.game.time()
+        self.brain.update(rt)
+        self.turn = self.turn_now(rt)
+        self.court.phys.pcmd = self.cfg.paddle_vmax * self.turn
+        self.game.after_physics()
+
+    def restart(self, difficulty: str | None = None) -> None:
+        self.game.restart(difficulty)
+        self.brain.reset(self.game.time())
+
+    def render(self, renderer) -> np.ndarray:
+        """A court camera behind the fly: it looks down the court and follows the
+        paddle only partly, so the whole court stays in view."""
+        c = self.cfg
+        p = self.sim.thorax_position()
+        target = np.array([c.paddle_x + 0.26 * c.court_len, 0.35 * float(p[1]), 0.0])
+        return renderer.render(self.sim.data, self.sim.time, target, 0.0, ground_z=0.0,
+                               tilt_deg=0.0)
+
+    def close(self) -> None:
+        self.vision.detach()
+        self.court.detach()
+        self.sim.close()
+
+
 def make_renderer(sim, width: int = 960, height: int = 640, distance: float = 24.0,
                   elevation: float = -24.0, azimuth: float = -15.0):
     """Follow camera behind the fly, high enough to see the rocks coming."""

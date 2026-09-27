@@ -50,6 +50,7 @@ Keys: **C** camera · **P** pause · **TAB** show stats · **I** screenshot · *
 .venv/bin/python scripts/play.py --game rings --brain --window       # flies through hoops
 .venv/bin/python scripts/play.py --game chase --brain --window       # chases a leader fly
 .venv/bin/python scripts/play.py --game asteroids --brain --window   # dodges rolling rocks
+.venv/bin/python scripts/play.py --game pong --brain --window        # plays Pong: the brain moves its paddle
 ```
 
 Keys: **SPACE** pause · **R** restart · **1/2/3** easy/normal/hard · **B** brain window ·

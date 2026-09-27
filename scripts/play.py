@@ -26,6 +26,11 @@ by us. See docs/GAMES.md.
     # DNa01/02 -> heading rate of the flight controller (speed / altitude held)
     .venv/bin/python scripts/play.py --game rings --brain --window
     .venv/bin/python scripts/play.py --game rings --brain --experiment 16 --json runs/rings_exp.json
+
+    # game 4, FLY PONG: the ball -> LC10a -> DNa01/02 -> the paddle's sideways speed
+    # (the fly stands on the paddle's sled) against a scripted AI; first to 7
+    .venv/bin/python scripts/play.py --game pong --brain --window
+    .venv/bin/python scripts/play.py --game pong --brain --experiment 30 --json runs/pong_exp.json
 """
 
 from __future__ import annotations
@@ -56,6 +61,7 @@ def parse_args(argv=None):
     p.add_argument("--jump", action="store_true",
                    help="giant fibre (DNp01) > 60 Hz triggers a jump (off by default)")
     p.add_argument("--jump-mode", choices=("long", "short"), default="long")
+    p.add_argument("--win-points", type=int, default=7, help="pong: points to win a game")
     p.add_argument("--air-start", action="store_true",
                    help="rings: start in the air instead of the jump take-off")
     # presentation
@@ -82,11 +88,13 @@ def parse_args(argv=None):
     # experiment
     p.add_argument("--experiment", type=int, default=None, metavar="N",
                    help="paired trials per condition (brain, mirror, none): single rocks "
-                        "(asteroids), leader runs (chase) or single rings (rings)")
+                        "(asteroids), leader runs (chase), single rings (rings) or served rallies (pong)")
     p.add_argument("--controls", default="brain,mirror,none")
     p.add_argument("--rock-speed", type=float, default=10.0, help="experiment rock speed (mm/s)")
     p.add_argument("--trial-seconds", type=float, default=6.0,
                    help="chase experiment: game seconds per leader run")
+    p.add_argument("--max-returns", type=int, default=5,
+                   help="pong experiment: a trial ends after this many returns (or a miss)")
     p.add_argument("--json", type=Path, default=None, help="experiment rows + summary")
     return p.parse_args(argv)
 

@@ -13,13 +13,15 @@ Files: `fly_simulator/games/` (`asteroids.py` rocks + game rules, `vision.py` th
 `brain_io.py` brain worker + mapping, `session.py` wiring, `hud.py`, `runner.py`,
 `experiment.py`; game 2: `chase.py` leader fly + LC10a eyes + rules,
 `chase_experiment.py`; game 3: `rings.py` hoops + flight pilot + rules,
-`rings_experiment.py`), `scripts/play.py`, `tests/test_games.py`. Nothing in the app
+`rings_experiment.py`; game 4: `pong.py` court + ball + paddles + rules,
+`pong_experiment.py`), `scripts/play.py`, `tests/test_games.py`. Nothing in the app
 (`app.py`, `config.py`) was changed. Each game builds its own `Simulation` (game 3: a `FlightSimulation`).
 
 Games: **1. ASTEROID DODGE** (`--game asteroids`, the looming channel: turn *away*),
 **2. FOLLOW THE LEADER** (`--game chase`, the pursuit channel: turn *toward*) and
 **3. FLY THROUGH RINGS** (`--game rings`, the same pursuit channel piloting the real
-flapping-wing flight model).
+flapping-wing flight model) and **4. FLY PONG** (`--game pong`, the pursuit channel
+moving a Pong paddle).
 
 ## Game 1: ASTEROID DODGE
 
@@ -809,3 +811,258 @@ Renderer PNGs at 800×600 + panel, read by eye, then deleted (disk):
   per-trial LC10a peak averaged 26 Hz on the left vs 90 Hz on the right (8 rings on
   each side). This is consistent with left rings being centred faster, but we did
   not test it separately.
+
+## Game 4: FLY PONG (the brain moves the paddle)
+
+Pong at fly scale. The real NeuroMechFly stands on a sled behind a green paddle at
+one end of a 26 × 18 mm court. A ball bounces between its paddle and a red opponent
+paddle at the far end. The ball drives the **LC10a** pursuit neurons on the side
+where it is (the FOLLOW THE LEADER interface, unchanged). The DNa01/02 left–right
+difference sets the paddle's **sideways speed**, and the connectome moves the paddle
+under the ball. The opponent is a **scripted AI, not a brain**, and the HUD says so.
+
+![FLY PONG](media/pong.gif)
+
+### Connectome check (why LC10a again, and why a sled)
+
+* **Input side.** The direct-stimulation table of game 2 applies unchanged:
+  * one side's LC10a drives only that side's DNa01/02 (a turn *toward*). At 10 / 20 /
+    30 Hz of left LC10a the left turn group runs at 14 / 29 / 43 Hz;
+  * LC10a drives no MDN and no giant fibre;
+  * the model is left-biased at low rates.
+
+  A ball is a small moving object, which is exactly LC10a's pursuit case, so no new
+  input neurons were needed. The looming channel (LC4 / LPLC2, game 1) would turn the
+  fly *away* from the ball, and we did not drive it.
+* **Output side.** The walking fly cannot strafe: the CPG controller only walks
+  forward and turns. Two designs were possible:
+  * let the fly walk to the ball. That turns Pong into goalkeeping and walks the fly
+    into the court;
+  * move the paddle with the fly's steering command (chosen).
+
+  We chose the second. It is the closed-loop "flight simulator" paradigm of fly
+  vision research (the fly's yaw command moves its visual world, e.g. stripe
+  fixation), with sideways translation instead of rotation. The loop is closed:
+  moving the paddle toward the ball moves the fly's eyes with it, which reduces the
+  ball's azimuth and the LC10a drive.
+
+### Embodiment
+
+* **The fly** stands: `PongSession` replaces the CPG controller's action with the
+  standing pose, all tarsi adhering. It is the same body and physics (MuJoCo, dt 1e-4 s).
+* **The sled carries the fly kinematically.** In every physics step the court's
+  pre-step hook moves the paddle and shifts the fly's free joint by the same Δy. This
+  is a position shift with no velocity change, so the adhering legs feel no force.
+  The tests check that the thorax follows the paddle within 0.1 mm and stays upright.
+  The sled deck and rails are drawn under and in front of the fly.
+* **Court and ball** are visual mocap bodies with no collision: a dark green table
+  0.1 mm above the ground, blue side bumpers, centre dashes and goal lines. The ball
+  is a 0.75 mm radius sphere with a stripe, rolling visually. The ball uses
+  **arcade kinematics** (`PongPhysics`, pure Python, per physics step): straight
+  lines, mirror bounces off the side walls, and a paddle bounce angle set by where
+  it hits ("English", up to ±45° at the paddle ends). Each hit multiplies the speed
+  by 1.06, up to 45 mm/s. A ball that gets past a paddle face rolls into the gutter.
+* **Opponent AI (scripted).** It predicts where the ball will arrive (unfolding the
+  wall bounces), adds a random aim offset (so it angles its returns) and a Gaussian
+  error (SD 1.6 mm on normal, growing with ball speed), and moves there at up to
+  10 mm/s. Without that error it would never lose.
+* **Rules.** The serve starts from the centre, ±25°, toward whoever lost the last
+  point (the fly first). The first to 7 wins (`--win-points`). Score: +10 per
+  return, +100 per point won, +500 for a win. The HUD shows the rally counter, best
+  rally, returns / balls faced and the ball speed. High scores go to
+  `runs/games_highscores.json` under `pong`, per control and difficulty.
+
+  | difficulty | fly paddle (mm) | serve speed (mm/s) | AI speed (mm/s) | AI error SD (mm) |
+  |---|---|---|---|---|
+  | easy | 7 | 16 | 8 | 2.0 |
+  | normal | 6 | 20 | 10 | 1.6 |
+  | hard | 5 | 24 | 13 | 1.2 |
+
+### What the brain sees and does (interface, ours)
+
+* **Input.** `PursuitVision` (game 2) with the ball as the target (θ = 2 asin(r/d)):
+  * LC10a rate = 150 Hz × size(θ; 1–4°) × ramp(azimuth 0→30°) × field of view, per
+    gaze-stabilised eye, sent as `StimulusEvent("manual", side=eye, details={"set":
+    "LC10a", ...})`;
+  * a ball straight ahead drives neither eye;
+  * a ball 20° to the left drives only the left LC10a (~100 Hz);
+  * a ball that is out of play drives nothing.
+* **Output.** paddle velocity v = 25 mm/s × (tanh(turn_L / 25 Hz) − tanh(turn_R /
+  25 Hz)), low-passed with τ = 60 ms (`paddle_command`, the same `turn_command` as
+  game 3). Positive v is the fly's left. The paddle stops at the side walls. For
+  `none`, v = 0.
+* **Gains were not tuned on brain runs.** 25 mm/s, 25 Hz and 60 ms were set before
+  the first brain game. After that single pilot game (13 of 14 balls returned),
+  only the opponent was changed: its error now grows with ball speed, because it had
+  missed nothing. The fly's side was left as it was.
+* **Not mapped.** Walk DNs (BDN2/oDN1/P9) are shown in the panel as "not mapped:
+  standing". MDN and the giant fibre were not mapped either; both read 0 Hz in
+  every checked frame. The experiment did not log them.
+
+### Scientific check: does the brain return the ball better than chance?
+
+`--experiment N` runs paired served rallies (`pong_experiment.py`):
+
+* **Trial i.** The trial draws, once:
+  * the serve: a start point on the opponent's face, and an arrival point
+    U(1, 7.5) mm to the left or right of the court centre (alternating sides);
+  * every later ball's arrival point: U(0, 7.5) mm on a random side, 30 % of them
+    off a side wall.
+
+  These are replayed under brain / mirror / none. In the experiment the opponent
+  is a perfect "wall" that aims its k-th return at the pre-drawn point, so every
+  condition faces the same balls.
+* **Each trial:**
+  1. reset the fly and the brain (neurons at rest);
+  2. 0.3 s with no ball;
+  3. serve at 20 mm/s (+6 % per hit);
+  4. play until the fly misses or has returned 5 balls (`--max-returns`).
+
+The three conditions:
+
+* `brain`: correct eye → LC10a;
+* `mirror`: left eye → right LC10a and vice versa;
+* `none`: paddle still, at the centre. It returns only the balls that happen to
+  arrive within 3.75 mm of the centre (half the paddle plus the ball radius).
+
+Real FlyWire brain, headless, 30 trials × 3 conditions, seed 1, normal difficulty.
+This took 12.2 min of wall time (brain trials ~14 s each):
+
+| condition | trials | first serve returned | returns / balls faced | mean returns per rally (max 5) | full rallies (5 returns) | paddle moved toward the first ball's side¹ (p) | mean paddle shift toward it (mm) | mean miss distance at the paddle (mm)² |
+|---|---|---|---|---|---|---|---|---|
+| **brain** | 30 | **30/30** | **144/147 (98 %)** | **4.80 ± 0.12** | **27/30** | **30/30** (p = 2e-9) | +4.0 | **0.93** |
+| mirror | 30 | 9/30 | 10/40 (25 %) | 0.33 ± 0.10 | 0/30 | 10/30 (p = 0.10) | −1.9 | 8.53 |
+| none | 30 | 14/30 | 50/71 (70 %) | 1.67 ± 0.41 | 7/30 | – | 0 | 4.58 |
+
+| paired comparison | first serve returned only in first | only in second | McNemar p | mean difference in returns | first has more returns | sign test p | Wilcoxon p |
+|---|---|---|---|---|---|---|---|
+| brain vs none | 16 | 0 | **3e-5** | +3.13 | 21/21 | 1e-6 | 3e-5 |
+| brain vs mirror | 21 | 0 | **1e-6** | +4.47 | 30/30 | 2e-9 | 7e-7 |
+| mirror vs none | 4 | 9 | 0.27 | −1.33 | 4/16 | 0.08 | 0.008 |
+
+¹ The paddle's position when the first ball reached it, signed toward the ball's
+arrival side (a shift of 0.1 mm or less counts as not moved). ² |ball − paddle
+centre| at the fly's paddle face, over all balls faced; the paddle's reach is 3.75 mm.
+
+**Reading.**
+
+* **The brain plays Pong.** It returned every serve and 98 % of all balls. 27 of
+  30 rallies reached the cap of 5 returns. The ball hit, on average, within 0.93 mm
+  of the paddle centre, and within 0.57 mm on the first ball. Left and right serves
+  were returned equally: trials served to the left returned 69 of 72 balls, trials served
+  to the right 75 of 75.
+* **Mirroring breaks it.** With the eyes mirrored, the same brain drove the paddle
+  away from the ball and usually against a side wall (peak turn-group rates 25–150 Hz).
+  It returned a ball only when the ball happened to arrive where the paddle had fled
+  to. The paddle-toward count is 10/30, not 0/30, for this reason: the serve often
+  starts on the side opposite to where it arrives, so fleeing from the ball's
+  *current* position sometimes lands the paddle on the arrival side.
+* **The disconnected paddle** returns about as geometry predicts (14/30 first serves,
+  70 % of balls). The later balls' arrival points are spread over ±7.5 mm, so about
+  half of them come near the centre.
+* **The direction comes from the wiring.** The paddle follows the ball because LC10a
+  drives the ipsilateral DNa01/02: per brain trial, the peak turn-group rates were
+  ~80 Hz on both sides, because the ball is followed both ways within a rally. The
+  interface sets how much, and the mirror control reverses the result.
+
+**Pilot / game numbers** (normal, real brain, not experiment trials):
+
+* seed 0: the fly returned 13 of 14 balls in 25 s. It lost its first point after a
+  20-hit rally, at the 45 mm/s speed cap, missing by 4 mm;
+* the recorded clip (seed 2): 9 of 11 balls in 24 s. Both misses came at 30–32 mm/s,
+  4.5–6 mm off.
+
+As the ball speeds up, the loop delay (20 ms brain windows + 60 ms low-pass + the
+paddle's 25 mm/s limit) catches up with it.
+
+### HUD, window, controls
+
+* **Game view.** A court camera sits behind and above the fly, looking down the
+  court. It follows the paddle only partly, so the whole court stays in view.
+* **HUD.**
+  * Top: title, control mode ("NONE, paddle still (control)" for `none`), the
+    points `FLY n : m AI`, score, best score, "to 7", difficulty, rally / best
+    rally / returns / ball speed.
+  * Right: a top-down court map with both paddles and the ball, labelled
+    "AI: scripted (not a brain)".
+  * Centre: SERVE, RETURN rally n, FLY SCORES!, MISSED! AI SCORES, GET READY, THE FLY
+    WINS! / AI WINS with the restart hint, PAUSED.
+  * Bottom: the honest label and the keys.
+* **Brain panel** (TAB; off by default):
+  * **SEES**: LC10a Hz per eye, with the lobe each eye drives (swapped in mirror
+    mode), and the ball's distance and bearing;
+  * **DOES**: DNa01/02 L / R → paddle left / right, walk / MDN / giant fibre (not
+    mapped);
+  * the paddle speed and command.
+* **Keys.** As in the other games: SPACE, R, 1/2/3 (the paddle length changes with
+  the difficulty), B brain window, TAB panel, M record, Q/ESC.
+
+### Commands
+
+```bash
+.venv/bin/python scripts/play.py --game pong --brain --window
+.venv/bin/python scripts/play.py --game pong --brain --window --difficulty easy --win-points 3
+.venv/bin/python scripts/play.py --game pong --brain --control mirror      # or: none
+.venv/bin/python scripts/play.py --game pong --brain --panel --frames runs/frames --frame-times 1.5,8
+.venv/bin/python scripts/play.py --game pong --brain --record runs/pong.mp4 --max-seconds 24 --seed 2
+.venv/bin/python scripts/play.py --game pong --brain --experiment 30 --seed 1 --json runs/pong_exp.json
+.venv/bin/python scripts/play.py --game pong --synthetic-brain --max-seconds 5   # no data
+.venv/bin/python -m pytest -q tests/test_games.py -k pong
+```
+
+API: `PongSession(GameBrain("brain").start(), PongConfig(difficulty="normal"))`, then
+`.step()` repeatedly. It exposes:
+
+* `.game` (`PongGame`: `fly_points`, `ai_points`, `rally`, `best_rally`, `returns`,
+  `balls_faced`, `crossings`, `events`);
+* `.court` (`PongCourt`; `.court.phys` is the `PongPhysics` ball / paddle state,
+  usable without MuJoCo);
+* `.vision` (`PursuitVision`).
+
+`session.render(renderer)` gives the court camera frame; `hud.compose(frame,
+session)` picks the pong HUD.
+
+Speed: ~0.75× real time without the brain, ~0.5–0.65× with it.
+
+### Frames checked (game 4)
+
+These are renderer PNGs (960 × 640, with the panel where noted) from `--frames` and
+from `--record`. They were read by eye and then deleted.
+
+* **Serve, no brain** (panel): the ball 21° to the right drives the right LC10a at
+  94 Hz, while the panel reads "disconnected (control): paddle velocity 0".
+* **Brain rally** (t = 7.9 s of the clip): rally 6, returns 3/3, ball 28 mm/s. The
+  paddle sits under the incoming ball, and the court map matches the 3D view.
+* **Brain miss** (t = 10.45 s): "MISSED! AI SCORES". The points read 0 : 1, and the
+  ball is rolling into the gutter behind the paddle at the fly's right.
+* **Mirror** (panel, t = 1.4 s): the ball is 36° to the left, the panel reads "left
+  eye → right LC10a 150 Hz", turn R 75 Hz, paddle −18 mm/s, "paddle right ->". The
+  paddle is running away from the ball.
+* **Game over** (`none`, `--win-points 1`): "AI WINS 0 : 1, score 20, best rally
+  4". The high score was written. A first version drew the last event banner over
+  the game-over box; the banners are now hidden at game over.
+* **Rendering fix.** The first table (1 µm thick, then 10–40 µm) flickered: depth-buffer precision at the
+  camera's 33 mm distance showed the checker floor through bands of it. The table
+  top is now 0.1 mm above the ground (the ball rolls on it, and the fly's feet are
+  hidden by the sled deck).
+* **Window.** Checked with injected keys (TAB, SPACE ×2, 3 = hard, R, Q) and closed.
+
+### Limitations
+
+* **The body does not move itself.** The fly stands; the paddle (and, with it, the
+  fly) is moved by our mapping from the DNa01/02 difference to a sideways speed. A
+  real standing fly given this DN activity would turn, not slide. This is the
+  flight-simulator-style game interface, stated on screen.
+* **Arcade ball.** The ball and paddles are kinematic: no contact physics, no spin,
+  and fixed speed-up and bounce-angle rules.
+* **Vision model.** The ball is a small target for LC10a. It does not loom (no
+  LC4 / LPLC2) and makes no optic flow. The pursuit response (ramp to 30° of
+  azimuth, max 150 Hz) is our design, as in games 2 and 3.
+* **Tracking, not prediction.** The brain moves the paddle toward where the ball
+  *is*, not where it will arrive. Wall bounces and fast balls beat it. That is the
+  loop delay plus proportional tracking; nothing here anticipates.
+* **One experiment.** 30 paired rallies, one seed, normal difficulty, a cap of 5
+  returns and a perfect experiment opponent. The difference is unambiguous (30/30
+  vs 14/30 first returns). The run used a ball centre at z = r; the table was then
+  raised by 0.1 mm for rendering. This changes the ball's elevation seen by the eyes
+  by under 0.3° and leaves its azimuth unchanged.

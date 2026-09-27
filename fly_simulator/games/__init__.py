@@ -25,6 +25,14 @@ from .rings import (
     rings_level_params,
     turn_command,
 )
+from .pong import (
+    PONG_DIFFICULTIES,
+    PongConfig,
+    PongCourt,
+    PongGame,
+    PongPhysics,
+    paddle_command,
+)
 from .chase import (
     CHASE_DIFFICULTIES,
     ChaseConfig,
@@ -40,11 +48,11 @@ HONEST_LABEL = ("Brain responses are real connectome wiring (FlyWire v783, Shiu 
                 "LIF model); the game interface (what the brain sees, how its outputs map to "
                 "controls) is designed by us.")
 
-GAMES = ("asteroids", "chase", "rings")  # ASTEROID DODGE, FOLLOW THE LEADER, FLY THROUGH RINGS
+GAMES = ("asteroids", "chase", "rings", "pong")  # ASTEROID DODGE, FOLLOW THE LEADER, FLY THROUGH RINGS, FLY PONG
 
 
 def __getattr__(name):  # lazy: session pulls in MuJoCo / FlyGym
-    if name in ("AsteroidSession", "ChaseSession", "RingsSession", "make_renderer", "render_frame",
+    if name in ("AsteroidSession", "ChaseSession", "RingsSession", "PongSession", "make_renderer", "render_frame",
                 "game_looming_config"):
         from . import session
 
@@ -57,7 +65,8 @@ __all__ = [
     "AsteroidField", "AsteroidGame", "AsteroidSession", "ChaseConfig", "ChaseGame",
     "ChaseSession", "GameBrain", "GameEvent", "GameMapping", "LeaderFly", "PursuitResponse",
     "PursuitVision", "RINGS_DIFFICULTIES", "FlightPilot", "RingCourse", "RingsConfig",
-    "RingsGame", "RingsSession", "RingVision", "rings_level_params", "turn_command",
+    "RingsGame", "RingsSession", "PONG_DIFFICULTIES", "PongConfig", "PongCourt", "PongGame",
+    "PongPhysics", "PongSession", "paddle_command", "RingVision", "rings_level_params", "turn_command",
     "asteroid_response", "game_looming_config", "level_params",
     "make_renderer", "pursuit_response", "render_frame", "wave_params",
 ]

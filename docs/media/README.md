@@ -32,6 +32,7 @@ ffmpeg -ss START -t DUR -i in.mp4 -vf "setpts=PTS/SPEED,fps=FPS,scale=W:-2:flags
 | `rings.gif` | 2.2 MB | Game "Fly Through Rings": real flapping flight, steered by LC10a → DNa01/02 |
 | `rings_brain_panel.png` | 0.2 MB | A full rings frame including the "THE BRAIN" side panel |
 | `chase.gif` | 1.8 MB | Game "Follow the Leader": the brain-steered fly pursues a leader fly |
+| `pong.gif` | 2.0 MB | Game "Fly Pong": the real FlyWire brain moves the green paddle the fly stands on (ball → LC10a → DNa01/02 → paddle speed) against a scripted AI; returns as the ball speeds up, then a miss ("MISSED! AI SCORES") and the next serve |
 | `course.png` | 0.1 MB | The `gauntlet` obstacle course: gates, a ramp, a pebble field |
 | `taste.png` | 0.1 MB | Feeding: the fly stands on a sugar spot and the real MN9 extends its proboscis (close side view) |
 | `social_preview.png` | 0.2 MB | 1280×640 GitHub social card: a kebab frame plus the title and tagline |
@@ -161,6 +162,11 @@ a 642×430 grid, with labels drawn by OpenCV. GIF: 3.2 s, 10 fps, 112 colours, b
 **chase.gif** (`crop=960:640:0:0`, start 5.2, dur 3.8, 480 px, 12 fps, 96 colours, dither none)
 ```bash
 .venv/bin/python scripts/play.py --game chase --brain --record $S/chase.mp4 --max-seconds 10 --no-highscore
+```
+
+**pong.gif** (start 6.0, dur 5.6, 540 px, 12 fps, 128 colours, dither none, speed 1)
+```bash
+.venv/bin/python scripts/play.py --game pong --brain --record $S/pong.mp4 --max-seconds 24 --seed 2 --no-highscore
 ```
 
 **course.png** (frame at 1.45 s, resized to 720×408)

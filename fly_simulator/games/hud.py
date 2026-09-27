@@ -7,7 +7,8 @@ panel with what the brain sees (LC4 / LPLC2 drive per eye) and what it does
 LEADER (``session.game_name == "chase"``) uses ``draw_chase_hud`` (following time,
 catches, distance meter, radar) and ``chase_panel`` (LC10a drive per eye); FLY
 THROUGH RINGS (``"rings"``) ``draw_rings_hud`` (rings, streak, flight line, ring
-radar) and ``rings_panel``.
+radar) and ``rings_panel``; FLY PONG (``"pong"``) ``draw_pong_hud`` (points, rally,
+court map) and ``pong_panel``.
 """
 
 from __future__ import annotations
@@ -507,11 +508,167 @@ def rings_panel(session, size=(400, 640)) -> np.ndarray:
     return img
 
 
+def draw_pong_hud(img: np.ndarray, session, *, high_score: int | None = None,
+                  paused: bool = False, recent_events: list | None = None,
+                  hint: str | None = None) -> np.ndarray:
+    """HUD of FLY PONG: points FLY : AI, score, rally counter, ball speed, court map."""
+    g = session.game
+    c = g.cfg
+    ph = session.court.phys
+    H, W = img.shape[:2]
+    small = W < 800
+    over = img.copy()
+    cv2.rectangle(over, (0, 0), (W, 104 if small else 84), (0, 0, 0), -1)
+    cv2.addWeighted(over, 0.45, img, 0.55, 0, img)
+    text(img, "FLY BRAIN PLAYS: PONG" if not small else "FLY PONG", (12, 24), 0.62, YELLOW, 2)
+    lab = CONTROL_LABEL.get(session.brain.control, session.brain.control)
+    lab = lab.replace("constant walk", "paddle still")
+    text(img, lab, (12, 50), 0.48, GREEN if session.brain.control == "brain" else ORANGE, 1)
+    # the points, big, in the middle of the bar
+    pts = f"FLY {g.fly_points} : {g.ai_points} AI"
+    (pw, _), _ = cv2.getTextSize(pts, FONT, 0.9, 2)
+    text(img, pts, (W // 2 - pw // 2 + (60 if not small else 90), 30), 0.9, WHITE, 2)
+    score = f"SCORE {int(g.score)}"
+    (sw, _), _ = cv2.getTextSize(score, FONT, 0.62, 2)
+    text(img, score, (W - sw - 14, 24), 0.62, WHITE, 2)
+    hs = f"BEST {high_score}" if high_score is not None else ""
+    right = f"to {c.win_points}  {c.difficulty}  {hs}"
+    stats = (f"rally {g.rally}   best rally {g.best_rally}   returns {g.returns}/"
+             f"{g.balls_faced}   ball {ph.speed:4.1f} mm/s")
+    text(img, stats, (12, 74), 0.45, GREY)
+    if small:
+        text(img, right, (12, 96), 0.45, GREY)
+    else:
+        (ww, _), _ = cv2.getTextSize(right, FONT, 0.45, 1)
+        text(img, right, (W - ww - 14, 50), 0.45, GREY)
+    # court map (top-down; the fly's end at the bottom), with the opponent label
+    if not small or W >= 600:
+        cw, chh = 92, 124
+        x0, y0 = W - cw - 14, (118 if small else 100)
+        cv2.rectangle(img, (x0, y0), (x0 + cw, y0 + chh), (30, 45, 40), -1)
+        cv2.rectangle(img, (x0, y0), (x0 + cw, y0 + chh), (200, 140, 90), 1)
+        L, hw = c.court_len, c.court_half_w
+
+        def mp(x, y):  # court (x forward, y left) -> map pixels
+            u = x0 + int(round(cw * (0.5 - y / (2 * hw))))
+            v = y0 + chh - int(round(chh * (x - c.paddle_x) / L))
+            return u, v
+
+        cv2.line(img, mp(c.paddle_x + 0.5 * L, hw), mp(c.paddle_x + 0.5 * L, -hw), (120, 120, 120), 1)
+        a, b = mp(c.paddle_x, ph.py + ph.half), mp(c.paddle_x, ph.py - ph.half)
+        cv2.line(img, a, b, (110, 220, 90), 3)
+        a, b = mp(c.ai_x, ph.ay + ph.ai_half), mp(c.ai_x, ph.ay - ph.ai_half)
+        cv2.line(img, a, b, (70, 80, 230), 3)
+        if ph.visible:
+            cv2.circle(img, mp(ph.bx, ph.by), 3, WHITE if ph.in_play else GREY, -1, cv2.LINE_AA)
+        text(img, "AI: scripted", (x0 - 4, y0 + chh + 16), 0.4, (120, 140, 240))
+        text(img, "(not a brain)", (x0 - 4, y0 + chh + 32), 0.4, (120, 140, 240))
+    now = g.time()
+    evs = [e for e in (recent_events if recent_events is not None else g.events)
+           if e.kind in ("return", "point_fly", "point_ai", "serve", "miss") and now - e.t < 1.0
+           and g.state != "gameover"]
+    y = int(H * 0.42)
+    for e in evs[-3:]:
+        col = {"return": GREEN, "point_fly": GREEN, "point_ai": RED, "miss": RED,
+               "serve": YELLOW}.get(e.kind, WHITE)
+        big = e.kind in ("point_fly", "point_ai")
+        (tw, _), _ = cv2.getTextSize(e.text, FONT, 0.9 if big else 0.7, 2)
+        text(img, e.text, (W // 2 - tw // 2, y), 0.9 if big else 0.7, col, 2)
+        y += 34
+    if g.state == "gameover":
+        over = img.copy()
+        cv2.rectangle(over, (W // 2 - 260, H // 2 - 80), (W // 2 + 260, H // 2 + 70), (0, 0, 0), -1)
+        cv2.addWeighted(over, 0.6, img, 0.4, 0, img)
+        msg = "THE FLY WINS!" if g.winner == "fly" else "AI WINS"
+        (tw, _), _ = cv2.getTextSize(msg, FONT, 1.3, 3)
+        text(img, msg, (W // 2 - tw // 2, H // 2 - 30), 1.3, GREEN if g.winner == "fly" else RED, 3)
+        text(img, f"{g.fly_points} : {g.ai_points}   score {int(g.score)}   best rally "
+                  f"{g.best_rally}", (W // 2 - 205, H // 2 + 10), 0.6, WHITE)
+        text(img, "R restart   1/2/3 difficulty   Q quit", (W // 2 - 175, H // 2 + 45), 0.55, GREY)
+    elif g.state == "ready":
+        text(img, "GET READY: the brain moves the green paddle", (W // 2 - 250, H // 2 - 60),
+             0.75, YELLOW, 2)
+    if paused:
+        text(img, "PAUSED (space)", (W // 2 - 110, H // 2 + 110), 0.9, YELLOW, 2)
+    _footer(img, hint)
+    return img
+
+
+def pong_panel(session, size=(400, 640)) -> np.ndarray:
+    """What the brain sees (the ball -> LC10a per eye) and what it does (the paddle)."""
+    W, H = size
+    img = np.full((H, W, 3), PANEL_BG, np.uint8)
+    b = session.brain
+    g = session.game
+    c = g.cfg
+    ph = session.court.phys
+    rt = g.time()
+    text(img, "THE BRAIN", (14, 28), 0.7, YELLOW, 2, outline=False)
+    if b.control == "none":
+        text(img, "disconnected (control): paddle velocity 0", (14, 52), 0.45, ORANGE, 1,
+             outline=False)
+    else:
+        lag = b.lag(rt)
+        st = b.latest
+        rtf = f"x{st.realtime_factor:.2f}" if st is not None else "-"
+        text(img, f"FlyWire v783 LIF, 138,639 neurons  lag {lag or 0:.2f}s {rtf}",
+             (14, 52), 0.4, GREY, 1, outline=False)
+    y = 86
+    text(img, "SEES (ball -> LC10a pursuit neurons, Hz)", (14, y), 0.45, CYAN, 1, outline=False)
+    y += 30
+    pur = b.pursuit_drive(rt)
+    mir = b.control == "mirror"
+    for eye in ("left", "right"):
+        tgt = {"left": "right", "right": "left"}[eye] if mir else eye
+        _bar(img, 14, y, W - 28, 12, pur[eye], 150, CYAN, f"{eye} eye -> {tgt} LC10a")
+        y += 32
+    if ph.in_play:
+        p = session.sim.thorax_position()
+        dx, dy = ph.bx - float(p[0]), ph.by - float(p[1])
+        side = "left" if dy > 0 else "right"
+        text(img, f"ball {np.hypot(dx, dy):4.1f} mm, {abs(np.degrees(np.arctan2(dy, dx))):3.0f} deg "
+                  f"to the {side}", (14, y), 0.45, WHITE, 1, outline=False)
+    else:
+        text(img, "no ball in play", (14, y), 0.45, GREY, 1, outline=False)
+    y += 30
+    r = b.rates if b.control != "none" else {}
+    text(img, "DOES (descending neurons, Hz)", (14, y), 0.45, GREEN, 1, outline=False)
+    y += 30
+    rows = [
+        ("turn L  DNa01/02 L -> paddle left", r.get("turn_L", 0.0), 80, GREEN),
+        ("turn R  DNa01/02 R -> paddle right", r.get("turn_R", 0.0), 80, GREEN),
+        ("walk  BDN2/oDN1/P9 (not mapped: standing)",
+         0.5 * (r.get("walk_L", 0) + r.get("walk_R", 0)), 80, GREY),
+        ("MDN (not mapped here)", 0.5 * (r.get("backward_L", 0) + r.get("backward_R", 0)), 40,
+         GREY),
+        ("giant fibre DNp01 (not mapped here)", r.get("escape", 0.0), 200, RED),
+    ]
+    for label, v, vmax, col in rows:
+        _bar(img, 14, y, W - 28, 12, float(v), vmax, col, label)
+        y += 32
+    y += 4
+    text(img, f"paddle {ph.pv:+5.1f} mm/s (cmd {ph.pcmd:+5.1f}, max {c.paddle_vmax:.0f})",
+         (14, y), 0.5, WHITE, 1, outline=False)
+    t = session.turn
+    arrow = "<- paddle left" if t > 0.05 else ("paddle right ->" if t < -0.05 else "still")
+    text(img, arrow, (14, y + 24), 0.5, YELLOW, 1, outline=False)
+    y += 52
+    for ln in _wrap("Brain responses are real connectome wiring: one eye's LC10a drives the "
+                    "same side's DNa01/02 (turn toward). Here the DNa01/02 left-right "
+                    "difference sets the paddle's sideways speed; the fly stands on the "
+                    "paddle's sled. The opponent is a scripted AI. What the brain sees and "
+                    "how its outputs map to controls is our game interface.", 48):
+        text(img, ln, (14, y), 0.4, (190, 210, 190), 1, outline=False)
+        y += 17
+    return img
+
+
 def compose(frame_rgb: np.ndarray, session, *, panel: bool = True, **hud_kw) -> np.ndarray:
     img = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR)
     name = getattr(session, "game_name", "asteroids")
     hud_fn, panel_fn = {"chase": (draw_chase_hud, chase_panel),
-                        "rings": (draw_rings_hud, rings_panel)}.get(name, (draw_hud, brain_panel))
+                        "rings": (draw_rings_hud, rings_panel),
+                        "pong": (draw_pong_hud, pong_panel)}.get(name, (draw_hud, brain_panel))
     hud_fn(img, session, **hud_kw)
     if not panel:
         return img

@@ -382,7 +382,17 @@ def play(args) -> int:
               f"({brain.info.get('n_neurons', '?')} neurons)", flush=True)
     runner = None
     try:
-        if args.game == "rings":
+        if args.game == "pong":
+            from fly_simulator.games.pong import PONG_DIFFICULTIES, PongConfig
+            from fly_simulator.games.session import PongSession
+
+            if args.difficulty not in PONG_DIFFICULTIES:
+                print(f"difficulty must be one of {sorted(PONG_DIFFICULTIES)}", file=sys.stderr)
+                return 2
+            session = PongSession(brain, PongConfig(difficulty=args.difficulty,
+                                                    win_points=args.win_points), seed=args.seed)
+            title = "FLY PONG"
+        elif args.game == "rings":
             from fly_simulator.games.rings import RINGS_DIFFICULTIES, RingsConfig
             from fly_simulator.games.session import RingsSession
 
@@ -444,7 +454,15 @@ def play(args) -> int:
 def _experiment(session, args) -> int:
     controls = tuple(args.controls.split(","))
     say = lambda m: print(m, flush=True)  # noqa: E731
-    if getattr(session, "game_name", "asteroids") == "rings":
+    if getattr(session, "game_name", "asteroids") == "pong":
+        from fly_simulator.games.pong_experiment import (
+            format_pong_summary, run_pong_experiment, summarize_pong)
+
+        rows = run_pong_experiment(session, args.experiment, controls=controls, seed=args.seed,
+                                   say=say, max_returns=args.max_returns)
+        summ = summarize_pong(rows)
+        text = format_pong_summary(summ)
+    elif getattr(session, "game_name", "asteroids") == "rings":
         from fly_simulator.games.rings_experiment import (
             format_rings_summary, run_rings_experiment, summarize_rings)
 
