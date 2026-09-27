@@ -173,12 +173,15 @@ def test_edit_hit_stop_slowmo_and_flash(run):
     c = job.cfg
     # presentation clock: near-freeze first, then slow motion, then normal speed
     sc = fx["scales"]
-    assert sc[0] == 1.0 and sc[1] == pytest.approx(c.hit_stop_scale)  # (the blast starts mid-chunk)
+    # the blast starts mid-chunk: that chunk still ran at the release slow-mo speed
+    assert sc[0] == pytest.approx(c.release_slowmo) and sc[1] == pytest.approx(c.hit_stop_scale)
     assert c.slowmo_scale in [pytest.approx(v) for v in sc]
-    assert fx["lag_at_boom"] == 0.0
+    # only the release slow-mo (snap + ~50 ms flight at release_slowmo) is behind by the boom
+    want = (c.throw_s + 0.05) * (1.0 / c.release_slowmo - 1.0)
+    assert fx["lag_at_boom"] == pytest.approx(want, abs=0.03)
     expect = (c.hit_stop_s * (1 - c.hit_stop_scale) + c.slowmo_s * (1 - c.slowmo_scale)
               + 0.5 * c.slowmo_ramp_s * (1 - c.slowmo_scale))
-    assert fx["lag_end"] == pytest.approx(expect, abs=0.03)  # one blast's worth, no drift
+    assert fx["lag_end"] == pytest.approx(expect + want, abs=0.03)  # one blast + one release, no drift
     assert job._edit is None  # the edit ended with the cycle
     # post-process: identity (the same array) when idle, the impact flash at the blast
     assert fx["idle_same"]

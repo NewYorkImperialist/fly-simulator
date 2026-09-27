@@ -134,8 +134,9 @@ class BroccoliConfig(JobConfig):
     ponder_min_s: float = 0.75
     ponder_max_s: float = 1.0
     look_back_s: float = 0.15  # the head swings back to the monitors before the flick
-    windup_s: float = 0.12  # the tiny anticipation (the plate dips, the torso winds up a little)
-    throw_s: float = 0.05  # the snap (accelerating; the release at its end)
+    windup_s: float = 0.25  # the anticipation (the plate dips, the torso winds up a little)
+    throw_s: float = 0.10  # the snap (accelerating; the release at its end)
+    release_slowmo: float = 0.5  # presentation speed during the snap + the plate's flight (edit)
     twist_deg: float = 26.0  # torso twist (to its right) at the release; springs back after
     flight_timeout_s: float = 1.0
     boom_s: float = 2.6
@@ -1887,6 +1888,11 @@ class BroccoliTossJob(EternalJob):
     def time_scale(self, present_dt: float) -> float:
         e = self._edit
         if e is None:
+            # a short slow-mo beat on the release (edit, not physics), so the toss
+            # stays readable in real-time recordings
+            if self.cfg.edit_fx and (self.phase == "flight" or (
+                    self.phase == "flick" and self.run_time() - self._t_phase > self.cfg.windup_s)):
+                return self.cfg.release_slowmo
             return 1.0
         e["driven"] = True
         p = e["p"]
