@@ -19,6 +19,7 @@ One line per document. Files derived from FlyWire data are CC BY-NC 4.0; see
 * [COURSE.md](COURSE.md): hand-designed, timed obstacle courses.
 * [JOBS.md](JOBS.md): "eternal jobs" scenes (Sisyphus, hamster wheel, mowing, raking, doner kebab).
 * [FLIGHT.md](FLIGHT.md): flapping-wing flight with MuJoCo's fluid model.
+* [SCENES.md](SCENES.md): scripted cinematic scenes rendered offscreen (`temple_standoff`).
 * [GAMES.md](GAMES.md): games played by the connectome brain (asteroids, chase, fly through rings).
 * [TASTE.md](TASTE.md): sugar and bitter patches tasted with the legs.
 * [RL.md](RL.md): residual-RL environment, PPO training and evaluation scripts.

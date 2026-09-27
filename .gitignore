@@ -12,3 +12,7 @@ MUJOCO_LOG.TXT
 .ruff_cache/
 build/
 dist/
+
+# local reference clips (never commit)
+*_reference.mp4
+YTDown.com_*

@@ -153,6 +153,18 @@ stroke. The task logic is scripted; the fly still walks and pushes through physi
 .venv/bin/python scripts/run_job.py --rotate          # all jobs in turn, forever
 ```
 
+### Scenes
+
+A scripted, dead-serious 13 s short with posed NeuroMechFly bodies: the tall hooded
+fly, the little flies and the energy blade in an original stone hall (fixed shots, hard
+cuts, a real MuJoCo light at the ignition, synthesized audio). [SCENES.md](docs/SCENES.md)
+
+![The temple standoff scene](docs/media/temple_standoff.gif)
+
+```bash
+.venv/bin/python scripts/render_scene.py --scene temple_standoff --out runs/scenes/temple_standoff.mp4
+```
+
 ### Taste
 
 Sugar and bitter spots on the ground, tasted with the legs. Sugar drives the real
