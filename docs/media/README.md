@@ -21,6 +21,7 @@ ffmpeg -ss START -t DUR -i in.mp4 -vf "setpts=PTS/SPEED,fps=FPS,scale=W:-2:flags
 | `kebab.gif` | 1.5 MB | The doner kebab chef job: it carves the spit with the recorded grooming stroke |
 | `dead_hang.gif` | 0.5 MB | The dead-hang job: the fly hangs from the pull-up bar, the flytrap twitches, the fly re-grips, then its grip is drained and it slides off into the trap: CHOMP, then the respawn |
 | `bowling.gif` | 2.3 MB | The bowling job: the fly pushes the ball over the ramp, the ball rolls down the lane and scatters pins (real contacts), the pinsetter sweeps, the scoreboard counts. Recorded with the HUD |
+| `broccoli_toss.gif` | 2.5 MB | The broccoli toss job: the host fly brings a plate of broccoli, the posed viewer fly in the gaming chair ponders it, flicks it over its shoulder without looking, the cartoon blast sends the props flying, the room rebuilds. The flick, flight and first 0.35 s of the blast at 5x slow motion. Compact HUD |
 | `jobs.gif` | 2.5 MB | 2x2 grid of the eternal jobs: Sisyphus, hamster wheel, lawn mowing, leaf raking |
 | `whip.gif` | 2.0 MB | A level-3 physical whip crack from the right knocks the fly sideways. 4x slow motion |
 | `brain_window.png` | 0.1 MB | The brain window with real FlyWire activity 0.1 s after a looming stimulus (giant fibre 115 Hz, JUMP), after two whip hits under `--stress`. Shows the decision meters, DN traces, pain/arousal and the playground panel |
@@ -71,6 +72,19 @@ ffmpeg -framerate 12 -i $S/gif/f%04d.png -vf "scale=480:-2:flags=lanczos,split[a
 [a]palettegen=max_colors=128:stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=4:diff_mode=rectangle" -loop 0 dead_hang.gif
 ```
 Run it live: `python scripts/run_job.py --job dead_hang` (or `run_sim.py --job dead_hang`).
+
+**broccoli_toss.gif** (one cycle, 175 frames, 12 fps, 420 px, 80 colours, bayer dither scale 5).
+The frames came from a small script that builds `create_job_session("broccoli_toss", cfg,
+{"seed": 0})` at 600×400 and steps a `JobRunner(chunk_steps=50)`. It renders a clean frame
+every 1/12 s of sim time, and every 1/60 s from the last 0.05 s of the ponder through the
+flick, the flight and the first 0.35 s of the blast (5x slow motion, tagged `SLOW-MO x5`),
+draws a 3-line HUD with `compose_frame` (title, plates / explosions / viewers, vegetables
+eaten + the job message) and stops 0.8 s into the host's walk back.
+```bash
+ffmpeg -framerate 12 -i $S/gif/f%04d.png -vf "scale=420:-2:flags=lanczos,split[a][b];\
+[a]palettegen=max_colors=80:stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=5:diff_mode=rectangle" -loop 0 broccoli_toss.gif
+```
+Run it live: `python scripts/run_job.py --job broccoli_toss` (or `run_sim.py --job broccoli_toss`).
 
 **jobs.gif**. For each job, the same command at 480×320 with `--max-seconds 6` (raking 10). For
 sisyphus, hamster_wheel and raking the job camera was moved closer, using a small wrapper

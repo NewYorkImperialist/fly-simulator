@@ -15,6 +15,7 @@ constant.
 | `raking` | leaves fall from an autumn tree; the fly sweeps them into a pile with a rake; when the pile is done, the wind blows it away | leaves raked, piles completed, gusts survived |
 | `dead_hang` | dead-hangs by its front legs from a pull-up bar over a Venus flytrap; its grip tires, it re-grips and slips; when it falls, the trap snaps shut, and the fly respawns on the bar | time on the bar, hang streak (best), re-grips, slips, chomps, survival rate |
 | `bowling` | pushes a 3 mm ball over the ramp at the head of the lane; it rolls down and scatters 10 free-body pins; a kinematic pinsetter clears / resets them; standard ten-pin scoring | pins knocked down, games, best / average game, strikes, spares, gutters, fouls |
+| `broccoli_toss` | in a streamer's room the host fly brings a plate of broccoli to the viewer fly in the gaming chair; the viewer ponders it for 3–4 s, flicks the whole plate over its shoulder without looking, and everything behind it explodes (cartoon blast, props fly with real physics); the room rebuilds | plates yeeted, explosions, stream viewers, vegetables eaten: 0 |
 
 ```bash
 python scripts/run_job.py --job sisyphus                   # window; Q quit, C camera, P pause, X reset, I screenshot, TAB HUD
@@ -650,6 +651,154 @@ reached 10 pins; slow, fly-scale pin action rarely clears the deck. The lane is
 compressed, the ramp, stop rule, pinsetter and ball return are engineered (above),
 and the pins are held kinematically while in the machine.
 
+### broccoli_toss
+
+`fly_simulator/jobs/broccoli_toss.py` (scene, viewer, sequence, blast),
+`fly_simulator/jobs/broccoli_toss_assets.py` (procedural meshes / textures), tests in
+`tests/test_jobs_broccoli_toss.py`. HUD: `BROCCOLI TOSS FLY - absolutely not`.
+
+![broccoli_toss](media/broccoli_toss.gif)
+
+A reaction-meme format at fly scale: someone is handed a plate of broccoli, looks at
+it for a few seconds, then casually flicks the whole plate backward over their
+shoulder without looking, and everything behind them explodes. No real people,
+channels or logos: the flies are "the host fly" and "the viewer fly", the stream
+layout is generic ("LIVE", "CHAT", "FOLLOW GOAL").
+
+**Scene.** A fly-scale streamer's room (the fly is ~2.5 mm long; the seat is 2.1 mm
+up, the desk 3.3 mm): dark wooden floor and a round neon rug, an acoustic-foam back
+wall, a side wall with a (decorative) doorway, posters with generic art ("GG" over a
+synthwave sunset, "LEVEL UP", "PRESS START"), RGB LED strips (emissive, hue cycling),
+a ring light, a mic on an arm, a gaming desk with a glowing keyboard and two
+monitors, a big stream TV on the side wall, a shelf with trophies and books, a
+kitchenette (mini fridge, counter, microwave, a stack of plates) and a gaming chair.
+The monitors show a generated stream layout (a game view, a webcam box with a cartoon
+fly, a red LIVE badge, a chat column); the chat blocks are thin emissive bars that
+scroll up over the chat column (six times faster after a blast) and the LIVE dot
+blinks. Lights are moody purple / blue spots plus the monitor glow; the key light
+casts shadows (`shadows=False` turns that off). All meshes and textures are made in
+code, nothing is written to disk.
+
+**The viewer fly (posed, kinematic: engineered, labelled).** A second NeuroMechFly
+body (FlyGym's mesh model, `LEGS_ONLY` joints plus a 3-DoF neck, the passive tarsal
+joints removed) is attached to a mocap mount on the seat with no free joint, pitched
+50° nose-up as if leaning back. It has no actuators and no contacts, and every body is
+gravity compensated; the job writes its 45 joint angles every 1 ms (and zeroes their
+velocities). Its poses are joint-space keyframes solved once by damped least-squares
+IK on a scratch `MjData` (rest: hind legs over the seat edge, mid legs on the
+armrests; take; hold; windup; flick), blended with smoothstep. It is not a second
+simulated walker, so it adds no contact physics. It wears a gaming headset (visual
+geoms on its head). Its gaze is levelled at the monitors with a head pitch; it only
+ever looks down at the plate during the ponder.
+
+**The host fly** is the normal simulated fly (real walking physics, CPG controller,
+fall detection). It walks the straight line from the kitchen spot to its spot beside
+the chair (pure pursuit on the line), so it arrives facing the viewer: at this scale
+the hybrid controller's "turn on the spot" is really arc walking with a ~2 mm radius
+(measured: `turn_right` moved the fly ~2–3 mm while turning 90°), so the job plans
+the facing into the path instead of turning at the end. The way back is a clockwise
+loop under the desk edge that ends at the kitchen heading along the delivery line
+again. The plate rides on the host's back (**kinematic carry**: the plate and florets
+are placed on the thorax pose every 1 ms, no contacts) and appears there at the
+kitchen.
+
+**Sequence** (state machine in `update`, every 1 ms; one cycle is ~15 s):
+
+1. `deliver`: host walks in with the plate; `face`: a 0.25 s stop (`freeze`); if it
+   is more than 45° off it gets a few short turn bursts;
+2. `present` (0.5 s) + `handover` (1.1 s): the plate lifts off the host's back and
+   moves to the viewer's front "hands" (**kinematic handover**, labelled) while the
+   viewer reaches for it;
+3. `ponder`, **3–4 s** (uniform, seeded): the plate stays still in front of its head,
+   the head tilts down at it and rocks (pitch +18°, roll ±14°), a mid leg taps the
+   armrest, a hind leg swings; `hmm...`. The head swings back to the monitors 0.35 s
+   before the end;
+4. `flick` (0.2 s): the left front leg dips (windup 0.1 s) and flicks up and back
+   over the left shoulder (0.1 s) with the plate on its tip, head still on the
+   monitors. At the release the plate and its 4 florets become free bodies with a
+   **launch velocity set by the job (engineered, labelled)**: an aimed ballistic arc
+   that peaks `apex_mm` = 3.2 mm above the release and lands around `target_xy`
+   (-7.4, -2.6) ± 0.9 mm among the props, plus a 45 rad/s tumble; the florets get
+   ±25 mm/s scatter. The leg does not exert this velocity. Typical launch: (-113,
+   -20, +251) mm/s from 4.6 mm up;
+5. `flight`: real physics. Gravity makes it quick at this scale: 55–65 ms from
+   release to landing (a fly-scale throw is ~26× faster than a human one, Froude
+   scaling). The first contact of the plate with anything but its own florets is
+   the landing (timeout 1 s, 0 timeouts so far);
+6. `boom` (1.8 s): **cartoon blast (engineered, labelled)**: a yellow core flash, 12
+   orange / yellow fireball puffs that grow and fade, 9 smoke puffs that rise and
+   fade, a dust ring rolling out along the floor (emissive primitives on a mocap
+   body; their sizes, offsets and material alphas are animated), a point light that
+   flashes the room orange, a camera shake, and **one shockwave velocity kick** (an
+   impulse) to every breakable prop within 9 mm: Δv = 230 mm/s × (2 mm / max(r, 2
+   mm))^0.6 × U(0.8, 1.2) along the outward direction with an upward bias, plus a
+   random spin. From then on the props fly, tumble and collide with real contacts.
+   The pool of 14 debris chips and the florets is launched from the blast centre
+   (120–300 mm/s) and rains down with real physics. The plate itself is shattered
+   (parked);
+7. `aftermath` (2.4 s): the viewer keeps watching the monitors, unbothered, the host
+   stands there, the stream viewers go up (+80 + 12 % × U(0.6, 1.4)), chat scrolls
+   fast;
+8. `rebuild` (1.4 s, **kinematic, counted**): every prop lifts, glides and slerps
+   back onto its spot; debris and florets go back to the pool behind the back wall.
+   Meanwhile the host walks back to the kitchen (`walk_off`), gets the next plate
+   (`fetch`, 0.6 s), and 1. again.
+
+**Props.** 13 breakable free bodies behind the chair (3 cardboard "FRAGILE" boxes
+stacked, a 3-can pyramid, a floor lamp, a speaker, a PC tower with RGB fans, a potted
+plant, two trophies and an action figure on the shelf), 0.01–0.09 mg, friction 0.6,
+contact time constant 1 ms (softer than FlyGym's 0.2 ms for fast hits); they never
+touch the fly. While intact they are **parked kinematically**: contacts off, gravity
+compensated, at rest on their spots, so the solver has no resting contacts to hold
+(this took the step time from 0.5 ms to 0.19 ms: 134 → 14 contacts). They, the plate
+and the florets go live (contacts + gravity) at the release; the debris goes live at
+the blast. The camera has three shots (close on the viewer for the handover and
+ponder, a hard cut to the wide shot of the back room for the flick, a walk shot
+following the host).
+
+**Brain (`--brain`, off by default).** During the ponder the job sends a bitter taste
+pulse every 0.5 s (0.4 s at 150 Hz: `StimulusEvent("taste", tastes=["bitter"])`, the
+Shiu et al. labellar bitter GRN set LB1a–e, labelled `BROCCOLI: BITTER (stand-in:
+LB1 bitter GRNs)`). **Stand-in:** the scene has one connectome brain and it belongs
+to the simulated host fly; the job feeds it the viewer's broccoli so the brain window
+shows the bitter pathway. Bitter drives no behaviour DN in the model (docs/TASTE.md),
+so nothing moves because of it. Checked with the real FlyWire brain (138,639 neurons,
+window off, 7.5 s): 8 bitter pulses in the ponder; brain states in the ponder averaged
+335 spikes per window against 0 before it, and every descending group stayed at 0 Hz.
+The HUD adds `bitter pulses N (stand-in ...)`.
+
+**Counters / HUD.** Plates yeeted (the work counter), explosions, stream viewers (from
+1,337, up after every blast, the last gain in brackets), `vegetables eaten: 0`
+(always), room rebuilds, props launched, plus a message line (`the host fly: 'made you
+broccoli'`, `hmm...`, `*flick*`, `KA-BOOM! (cartoon blast) chat goes wild: +N
+viewers`, `rebuilding the room`) and the label line `(viewer: posed kinematic fly;
+plate launch + blast: cartoon, see docs)`.
+
+**Verified** (headless, 2026-09-27, `run_job.py --job broccoli_toss --headless
+--max-seconds 150`): **10 plates yeeted, 10 explosions, 10 room rebuilds**, 130 props
+launched, stream viewers 1,337 → 5,782, vegetables eaten 0, flights 55–64 ms, 0
+flight timeouts, 0 plates lost, 4 back-away unsticks, **0 falls, 0 auto-recoveries,
+0 instabilities, RTF 0.31**. (An earlier version of the walk loop orbited its end
+point and needed one `stuck` recovery in 150 s; the path follower now lets the carrot
+run on past the end.) `run_sim.py --job broccoli_toss --headless --max-seconds 4`
+runs too. Frames checked by eye (job renderer): the host walking in with the plate
+on its back, the handover, the ponder close-up, the plate on the left front leg over
+the shoulder, the plate in the air over the chair, the fireball and dust ring with
+props flying, the aftermath with the viewer still facing the monitors, the rebuilt
+room. Tests: `tests/test_jobs_broccoli_toss.py` (7 tests, ~36 s: scene / viewer
+without free joint, actuators or contacts; the full phase order and a 3–4 s ponder;
+the launch goes backward and up and lands behind the chair; the blast moves props and
+the rebuild puts them back; counters and HUD; bitter pulses with a fake brain; a
+reset mid-cycle).
+
+**Limitations.** The viewer is posed, not simulated (no dynamics, it can't be
+knocked over), the carry, handover, launch velocity, blast, debris launch and rebuild
+are engineered (above). The flick is fast in real time (the flight is ~60 ms): the
+GIF shows it at 5× slow motion; the live window runs at RTF ~0.3, so it reads there.
+The host's arrival heading is within ~5–25° of the viewer, not exact. Blast-launched
+props sometimes fly out toward the camera (invisible walls keep them in the room).
+The chat on the monitors is geometry over a static texture (no text).
+
 ## Verification
 
 The test file is `tests/test_jobs.py`: synthetic tests of the registry, steering and
@@ -681,6 +830,7 @@ the same time:
 | `mowing` headless + 640×432 timelapse every 3 s (job renderer) | 185 s | **30 rows, 5 lawns**, 1251 mm² (0.00125 m²) mowed, 6627 blades cut, 30 pushes started, 1 back-away unstick, 0 instabilities | 0 / 0 | 0.47 |
 | `dead_hang` headless + 640×426 event screenshots, shadows on | 180 s | **7 falls: 5 chomps, 2 missed the trap** (survival rate 29 %), best streak 39.3 s, 167 s on the bar, 5 re-grips, 3 slips (2 legs physically slid off), 8 re-grabs, 55 re-grab misses, 8 twitches, 0 instabilities | 7 explicit respawns (5 chomped, 2 missed_trap) | 0.31 with the screenshots (0.44–0.53 in earlier runs without rendering, shadows off) |
 | `raking` headless + 640×432 timelapse every 3 s | 185 s | **46 leaves raked**, 2 piles completed, 2 gusts survived (47 leaves blown about, 14 out of the yard and back to the tree), 38 leaves fallen from the tree, 0 instabilities | 0 / 0 | 0.55 |
+| `broccoli_toss` headless | 150 s | **10 plates yeeted, 10 explosions**, 10 rebuilds, 130 props launched, viewers 1,337 → 5,782, vegetables eaten 0, 0 flight timeouts, 4 back-away unsticks, 0 instabilities | 0 / 0 | 0.31 |
 
 I checked the timelapse frames by eye (rendered by the job renderer only). The
 sisyphus shot shows the trough, the boulder, the flag and the summit counter

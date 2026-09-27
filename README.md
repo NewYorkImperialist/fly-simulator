@@ -33,6 +33,7 @@ uv venv --python 3.12 .venv && uv pip install --python .venv/bin/python -e ".[de
 .venv/bin/python scripts/run_job.py --job hamster_wheel    # hamster wheel
 .venv/bin/python scripts/run_job.py --job dead_hang        # dead hang over a Venus flytrap (T: trap twitch)
 .venv/bin/python scripts/run_job.py --job bowling          # league night, every night
+.venv/bin/python scripts/run_job.py --job broccoli_toss    # absolutely not (the plate goes over the shoulder)
 .venv/bin/python scripts/run_job.py --rotate               # all of them, forever
 .venv/bin/python scripts/run_job.py --job kebab --brain --stress   # + live brain; S startles the chef
 ```
