@@ -109,3 +109,7 @@ Broccoli edit: finishing the current brief (throw, camera, timing, edit effects)
 10b. Job: fry cook: the fly works a fast-food fry station forever, scooping fries into bags (generic fast-food look, no real brand names or logos).
 11. More jobs: snow shoveling, mini golf, jump rope, DJ, dishwasher, barista, shopping carts, crop duster, bouncer, air-traffic controller.
 12. Bigger features: smell without runaway (model fix + odour tracking), squash damage; RL recovery training only if free disk ≥ 3 GB; BANC nerve cord feasibility study (research notes, no big downloads).
+
+## Added to the queue (2026-09-28, after the current jobs)
+13. Scenes (scripts/render_scene.py, original designs): moon landing fly (low gravity, flag, one small step), Kitty Hawk first flight (a fly in a tiny biplane, real flight), crossing the river (a fly standing heroically in a rowboat on choppy water).
+14. Jobs/scenes: debate club fly (podium, heckler fly, tomatoes that splat with real physics), fly paintball arena (cover, paint splats, nobody hurt), town-hall speech fly (a speech interrupted by increasingly absurd things).
