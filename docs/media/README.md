@@ -27,6 +27,8 @@ ffmpeg -ss START -t DUR -i in.mp4 -vf "setpts=PTS/SPEED,fps=FPS,scale=W:-2:flags
 | `trampoline.gif` | 2.1 MB | The trampoline job: the fly stands on the spring mat, the first jump, the rebound jumps pumping the height up beside the ruler (red / gold markers, NEW BEST), a backflip (a real boosted asymmetric push) landed at the mat's edge, the next bounce sends it off onto the lawn, the counted respawn, and it pumps up again. Labelled slow motion x0.2, a one-line HUD |
 | `delivery_pilot.gif` | 2.1 MB | The delivery pilot job on the real flight fly: the parcel slides onto the fly on the depot roof, the jump → wings take-off, the flight to house No. 1 with the parcel hanging under it, the landing on the roof terrace, DELIVERED on the doormat, the take-off and the flight back to the depot's loading mark. Real time, no HUD (the captions are the job's overlay) |
 | `fry_cook.gif` | 2.5 MB | The fry cook job: the basket swings over the holding bin and tips, the fries pour out into the bin (real contacts, labelled slow motion x0.3), the fly scoops fries with the scoop on its right front leg, they drop into the carton (slow motion x0.5), the full carton slides onto the tray, DING! ORDER UP, and a spilled fry is sneaked to the mouth with the left front leg. No HUD |
+| `mini_golf.gif` | 2.3 MB | The mini golf job: hole 1 (the windmill) holed in one through the mill door (labelled slow motion x0.35, HOLE IN ONE! caption), the ball lifted out of the cup onto the fly's back, carried out of the lane and along the walkway to hole 2, set down on the tee, a putt over the ramp and the tap-in for par. Every 2nd frame at 6 fps (real time). No HUD |
+| `snow_shovel.gif` | 2.4 MB | The snow shovel job: the fly pushes the blue shovel across the driveway lane by lane, the blade scrapes the snow cover down to the wet concrete, the load is dumped onto the bank at the lawn edge, the fly walks round the shovel and pushes it back to the next lane while it keeps snowing and the cleared lanes slowly whiten again. 2x speed. No HUD |
 | `temple_standoff.gif` | 2.0 MB | The `temple_standoff` scene (docs/SCENES.md): the establishing wide of the stone hall, the hooded tall fly walks in through the back doorway, the little flies turn, the lead one steps forward and looks up, the long low-angle hold, the handle comes forward, the energy blade ignites and relights the room, the little flies recoil, cut to black. Letterbox cropped; rendered grain-free for the GIF |
 | `jobs.gif` | 2.3 MB | 2x2 grid of the eternal jobs: Sisyphus (Greek hillside at sunset), hamster wheel (pet cage), lawn mowing (front yard), leaf raking (autumn backyard) |
 | `whip.gif` | 2.0 MB | A level-3 physical whip crack from the right knocks the fly sideways. 4x slow motion |
@@ -227,6 +229,27 @@ ffmpeg -framerate 10 -i sel/s%04d.jpg -vf "scale=360:-2:flags=lanczos,split[a][b
 ```
 (400 px / 64 colours / 112 frames was 3.7 MB.) Run it live: `python scripts/run_job.py --job fry_cook` (or
 `run_sim.py --job fry_cook`).
+
+**mini_golf.gif** (default config, seed 0). A small script builds `create_job_session("mini_golf", cfg)` at
+480×320 and steps a `JobRunner(chunk_steps=50)`, rendering a clean frame (`render(hud=False)`, so the
+slow-motion label and the hole captions are in it) every 1/12 s of `session.present_time()`, 0-30 s of sim
+(389 frames); the GIF uses every 2nd of the first 224:
+```bash
+ffmpeg -framerate 12 -i f%04d.jpg -vf "select='lt(n\,224)*not(mod(n\,2))',setpts=N/6/TB,scale=330:-2:flags=lanczos,split[a][b];\
+[a]palettegen=max_colors=48:stats_mode=diff[p];[b][p]paletteuse=dither=none:diff_mode=rectangle" -r 6 -loop 0 mini_golf.gif
+```
+(All 389 frames at 420 px / 96 colours were 18 MB: the felt, pavers and the moving camera compress badly.)
+Run it live: `python scripts/run_job.py --job mini_golf` (or `run_sim.py --job mini_golf`).
+
+**snow_shovel.gif** (default config, seed 0). The same script (`create_job_session("snow_shovel", cfg)`,
+480×320, a clean frame every 1/8 s, 0-32 s of sim, 256 frames); every 2nd of the first 228, played at 8 fps
+(2x speed):
+```bash
+ffmpeg -framerate 8 -i f%04d.jpg -vf "select='lt(n\,228)*not(mod(n\,2))',setpts=N/8/TB,scale=330:-2:flags=lanczos,split[a][b];\
+[a]palettegen=max_colors=40:stats_mode=diff[p];[b][p]paletteuse=dither=none:diff_mode=rectangle" -r 8 -loop 0 snow_shovel.gif
+```
+(All 256 frames at 360 px were 6.1 MB: the falling flakes change every frame.) Run it live:
+`python scripts/run_job.py --job snow_shovel` (or `run_sim.py --job snow_shovel`).
 
 **temple_standoff.gif** (a scripted scene, not an app recording; the grain is off for the GIF
 because it defeats GIF compression; GIF: whole clip, 12 fps, 600 px, letterbox bars cropped,

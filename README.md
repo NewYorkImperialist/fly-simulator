@@ -39,6 +39,8 @@ uv venv --python 3.12 .venv && uv pip install --python .venv/bin/python -e ".[de
 .venv/bin/python scripts/run_job.py --job trampoline      # bounces on a backyard trampoline forever (real jump + spring mat)
 .venv/bin/python scripts/run_job.py --job delivery_pilot  # delivers parcels by air forever (real flapping-wing flight)
 .venv/bin/python scripts/run_job.py --job fry_cook        # works the fry station forever (basket dump, scoop, carton, ORDER UP)
+.venv/bin/python scripts/run_job.py --job snow_shovel     # shovels the driveway forever (it keeps snowing; the bank grows)
+.venv/bin/python scripts/run_job.py --job mini_golf       # plays a 4-hole mini golf course forever (windmill, ramp, tunnel, bumpers)
 .venv/bin/python scripts/run_job.py --rotate               # all of them, forever
 .venv/bin/python scripts/run_job.py --job kebab --brain --stress   # + live brain; S startles the chef
 ```

@@ -21,6 +21,8 @@ constant.
 | `trampoline` | bounces on a backyard trampoline forever: the real Jump action, timed to the rebound of a mat held up by 48 tendon springs, pumps the height up to ~5 mm; now and then a backflip (real, boosted asymmetric push), crash landings and falls off are counted and reset | bounces, best height (mm, body lengths), streak, backflips, crash landings, falls off |
 | `delivery_pilot` | on the **real flight fly** (flapping wings, air, dt 5e-5 s) it picks up a parcel at the depot, takes off with the jump → wings, flies to a numbered house, lands on its roof terrace, drops the parcel on the doormat (DELIVERED, *ding-dong*), flies back, forever | parcels delivered, flight time, distance flown, on-time %, missed / crash landings |
 | `fry_cook` | works a fast-food fry station: a basket on an auto-lift dumps fried fries (pooled free bodies) into the heated bin, the fly takes a carton, scoops fries into it with a scoop on its right front leg (they drop into the carton with real physics), the carton slides onto the tray at the pass window, *ding*, ORDER UP; now and then a fry spills and the fly sneaks it (with `--brain` the connectome's MN9) | orders served, cartons filled, fries per carton, spilled, sneaked, batches, salt level |
+| `snow_shovel` | shovels a driveway in front of a little house: pushes a snow shovel (planar prop, like the mower) across it lane by lane, the blade scrapes the snow cover, the load is dumped onto the snowbank as pooled clumps (real free bodies); it keeps snowing, so the driveway is never done | m of path cleared, clumps shoveled, bank height, days of winter |
+| `mini_golf` | plays a 4-hole mini golf course (windmill, ramp, tunnel, bumpers): walks behind the ball and head-butts it (the putt speed / aim come from a labelled skill model), the ball rolls with real physics and drops into a real cup; the fly carries it on its back to the next tee | holes played, scorecard vs par, holes-in-one, rounds |
 
 ```bash
 python scripts/run_job.py --job sisyphus                   # window; Q quit, C camera, P pause, X reset, I screenshot, TAB HUD
@@ -1725,6 +1727,201 @@ pops out of the carton on release (it is counted as a spill). The taste is a sta
 sugar / bitter GRN sets for low / high salt); the saltiness is our number. The cartons hold 6-8
 fries because the fries are cartoon-sized (0.43 mm, a sixth of the fly). The window mode
 (`LiveViewer`) was not opened in this session.
+
+### snow_shovel
+
+`fly_simulator/jobs/snow_shovel.py` (scene, snow, shovel, clumps, bank),
+`fly_simulator/jobs/snow_shovel_assets.py` (procedural meshes / textures), tests in
+`tests/test_jobs_snow_mini.py`. HUD (TAB): `SNOW SHOVEL FLY - the fly shovels snow forever`.
+
+![snow_shovel](media/snow_shovel.gif)
+
+**Scene** (all visual except the shovel's brace and the clumps). A driveway (22 × 9 mm, wet concrete) in
+front of a little house (lap siding, shuttered windows, a red door, a snowy shingle roof, a sign "THE FLY
+RESIDENCE / PLEASE SHOVEL YOUR WALK"), a porch lantern with a warm point light, a picket fence with snow on
+the rail, a snowman on the lawn (coal eyes and buttons, carrot nose, twig arms, scarf, top hat), snowy pines,
+a mailbox with a snow cap, the street with slush and a curb on the camera side, an overcast winter sky with a
+treeline. The floor plane carries a snow texture. Lights: a cool key spot with shadows (`shadows: false`
+turns the shadow map off), a directional fill, the porch light. `znear` 0.05.
+
+**Snow.** The snow cover is a fixed pool of 792 flattened snow domes (visual ellipsoids, 0.5 mm grid, no
+contacts: the fly walks through the snow, its feet sink in), each with its own depth (0 .. 0.2 mm × a fixed
+drift pattern). It snows everywhere at `snow_rate` 0.0012 mm/s × the weather (lulls and storms, 0.35 .. 1.65,
+period 97 s), so a scraped lane whitens again within ~3 minutes. The snowfall you see is a pool of 110
+kinematic flakes (mocap hexagons, visual) that flutter down and are recycled to the sky when they land; how
+many are in the air follows the weather. A "day of winter" is 60 s of sim (`day_s`).
+
+**Shovel.** Like the mowing job's mower: planar joints (slide x, slide y, a yaw hinge) at a fixed height, so it
+can't tip or be lost; slide damping 0.3 µN per mm/s × (1 + load / 3 mm³, at most × 2): heavier with snow on
+the blade. The only colliding part is a round brace (R 0.8 mm, 0.2 mg) behind the blade that the fly pushes
+with head / thorax / abdomen at friction 0.05 (`slippery_body_contact`, legs excluded). The curved blue blade
+(3 mm wide, a steel edge), the wooden shaft and the D-grip over the fly's head are visual. The job turns the
+yaw hinge toward the push direction (rate limited, like the mower).
+
+**Behaviour.** Seven lanes across the driveway toward the bank (+y), 3 mm apart. `PushPilot` pushes the shovel
+up a lane (pure-pursuit goal 2.5 mm ahead on the lane line) with the blade down: every snow dome under the
+blade's footprint (0.2-1.35 mm ahead of the brace, ±1.5 mm) is scraped to 0 and its volume (0.6 × area × depth)
+goes into the load, a snow heap on the blade that grows with it. At the driveway edge the load is **dumped**:
+up to 6 pooled clumps (0.6 mm³ of snow each; cartoon clumps, R 0.26 mm, 3 µg) are thrown off the blade onto
+the bank with a velocity set by the job (**engineered**), then fly, tumble and settle with real contacts
+(condim 6, rolling friction; they touch each other and the ground, never the fly or the shovel). A clump at
+rest for 0.3 s (or 4 s after the throw) **sleeps** (contacts off, gravity compensated, held); sleepers near a
+new dump are woken so the new clumps land on them. The pool of 30 is compiled with its live contact bits and
+switched off at run time (the fry_cook lesson); when it runs out, the oldest clumps are packed into the bank
+(recycled, counted). Then the fly walks round the shovel and pushes it back to the next lane's start with the
+**blade up** (no scraping on the return, labelled), turns it round at the start (the mower's U-turn) and does
+the next lane; after the last lane it starts again from the first ("DRIVEWAY DONE ... and it's snowing
+again", a 1.5 s groom).
+
+**Bank.** 12 visual segments of plowed snow (a grey-blue gritty texture) along the lawn edge between the
+driveway and the fence. Each dump adds its volume to the nearest segments; a segment's height is
+0.2 + 0.8 √V mm (capped at 2.6 mm), and the bank settles / sublimates with τ 1500 s, so it stays bounded
+however long the job runs.
+
+**Counters / HUD** (TAB, off by default): path cleared in metres (the work counter: snow-covered area
+scraped / the 3 mm blade width), clumps shoveled, snow moved (mm³), bank height (mm and at human scale,
+× 1.75 m / 2.5 mm), day of winter, lane and mode, lanes, passes, the share of the driveway that is clear, the
+snowfall intensity, and the label line `(dump throw set by the job, clumps real physics; blade up on the way
+back)`. Captions (a screen overlay, `post_process`): `DAY n OF WINTER (still snowing)`, `DRIVEWAY DONE`.
+Constant memory: fixed pools (792 domes, 110 flakes, 30 clumps, 12 bank segments), counters only.
+
+**Verified** (headless, 2026-09-27, Apple M1, one process at a time, default config):
+
+* `run_job.py --job snow_shovel --headless --max-seconds 120`: **0.0513 m of path cleared** (154 mm²),
+  **27 clumps shoveled**, 16.3 mm³ of snow, **bank 1.79 mm** (~1.25 m at human scale), **day 2 of winter**,
+  8 lanes, 1 full pass, 8 dumps, 0 clumps lost, 27.7 % of the driveway clear at the end, 21 pushes, 10
+  back-away unsticks, **0 falls, 0 auto-recoveries, 0 instabilities, RTF 0.48** (~15 s per lane incl. the
+  return). An earlier run with twice the snowfall (0.0022 mm/s) had the driveway 1.5 % clear after 120 s: the
+  cleared lanes were white again before the pass was done.
+* `run_sim.py --job snow_shovel --headless --max-seconds 5` runs (0 falls).
+* Frames checked by eye (job renderer, 640×426 and the GIF's 480×320 frames): the fly behind the shovel, the
+  scraped lane showing the wet concrete, the bank lumps along the fence, the house, snowman, pines and the
+  flakes; lanes whitening again over ~30 s.
+
+Tests (`tests/test_jobs_snow_mini.py`, with mini_golf: 8 tests, ~150 s): the snow domes / flakes are visual
+and the clumps never touch the fly, the fixed pools and znear; scraping empties the domes under the blade and
+fills the load, the snowfall re-covers them, a dump throws clumps and raises the bank, more dumps than the pool
+recycle the oldest; 14 s of the real loop (the shovel pushed > 2 mm, a lane done, clumps, counters, HUD); a
+reset mid-cycle keeps the shovel where it was and the job continues.
+
+**Limitations.** The snow is visual (no resistance except the load-dependent slide damping; the fly's feet go
+through it), the scraping is a geometric footprint test, the dump's throw velocity is set by the job, the
+return trip is "blade up" by rule, and the bank is a visual volume counter (fresh clumps sit on the ground
+at its foot; the bank has no collider). White clumps on the white lawn are hard to see from the job camera.
+The window mode (`LiveViewer`) was not opened in this session.
+
+### mini_golf
+
+`fly_simulator/jobs/mini_golf.py` (course, ball, aim model, routing, scorecard),
+`fly_simulator/jobs/mini_golf_assets.py` (procedural meshes / textures), tests in
+`tests/test_jobs_snow_mini.py`. HUD (TAB): `MINI GOLF FLY - the fly plays mini golf forever`.
+
+![mini_golf](media/mini_golf.gif)
+
+**Course** (bright arcade colours; "FLY GOLF - 4 HOLES OF ETERNITY" and the hole signs are our own). Four
+parallel lanes along +x, 26 × 11 mm, one every 17 mm in y: **1 WINDMILL** (par 3), **2 THE RAMP** (par 2),
+**3 THE TUNNEL** (par 3), **4 BUMPERS** (par 2). Each is green felt with glossy coloured rails, a tee mat, a
+cup with a numbered flag, a sign, and an opening in the back rail (the fly's entrance). Around them: colourful
+pavers, flower beds and shrubs between the lanes, cartoon palms, a neon sign, a sky backdrop with a toy castle.
+Lights: a sun spot with shadows (`shadows: false` turns it off) and a directional fill. `znear` 0.05.
+
+**The ball and the cup (real physics).** The ball is a free sphere (R 0.6 mm, 0.05 mg, white with dimples).
+The felt is made of ball-only boxes (contype bit 64, priority 2, condim 6, rolling friction 0.012 mm) whose
+tops are at z = 0 and which leave an octagonal hole at the cup (4 rectangles round a square + 4 45° corner
+boxes); under it a cup floor 1.4 mm down and a white liner. **The fly walks on FlyGym's own ground plane**,
+flush with the felt top and hidden (render group 3); the ball's contact bits never meet the plane's, so the cup
+is a hole for the ball while the fly's feet stand on the plane (over the cup too: engineered, labelled). The
+course draws its own ground. A ball that runs over the cup slowly enough drops in and stays. Measured on the
+felt: a rolling ball decelerates at **138 mm/s²** (80 → 38.6 mm/s in 0.3 s), so a 70 mm/s putt rolls ~18 mm;
+the aim model uses 135. Rails and obstacles are ball-only, bouncy (contact time constant 3 ms, damping ratio
+0.08; measured rebounds at 40 mm/s: 0.32 at (2 ms, 0.1), 0.8 at (4 ms, 0.05); the default was not measured
+separately). A ball that leaves the course falls onto a hidden catch floor.
+
+**Obstacles.** *Windmill*: a barn-red mill across the lane (ball-only walls with a 1.6 mm door through the
+middle, the ball can also go round the sides) whose four sails turn at 15 rpm in front of the door (a mocap
+body with ball-only colliders: **kinematic, labelled**; a sail pointing down blocks the door). *Ramp*: a hump
+across the lane, 7° up, a 1 mm flat top 0.3 mm high, 7° down: a real static slope for **both** the fly and the
+ball (`ground_height` follows it). *Tunnel*: a striped pipe along the lane (ball-only side walls 0.82 mm from
+the centre line). *Bumpers*: three round rubber posts.
+
+**One stroke.** The **aim model** (`plan_shot`, a documented skill model, not the fly's brain) picks a target:
+the cup if the straight line is clear, else a gate (just past the mill door / the tunnel exit) if its line is
+clear, else the lay-up point with the shortest clear route; and a speed √(2 a d) for the distance d (+ 0.8 mm
+past the cup), or more to climb the ramp (+ 1.25 × (10/7) g h). `PushPilot` (the mowing loop) walks the fly
+round the ball to its back relative to the aim line, turns it to face the ball, and walks it into the ball
+(speed 0.45). **At the first real contact of the head / thorax with the ball the job sets the ball's velocity
+(and the matching rolling spin) to the planned putt plus the skill errors: the PUTT impulse, engineered and
+labelled.** Errors at the default skill 0.5: aim N(0, 1° + 6° × (1 − skill)), speed × (1 + N(0, 0.05 +
+0.25 × (1 − skill))). At the windmill the fly waits at the ball (freeze) until the aim model predicts the
+sails will be clear of the door when the ball arrives (`mill_waits`). The fly then stands (`freeze`, so
+standing is not read as stuck) and the ball rolls with real physics until it stops (< 0.6 mm/s for 0.3 s),
+drops into the cup, or leaves the course. While the ball waits on its lie its free joint is heavily damped
+(1e-3 µN·s/mm), so a bump of the walking fly only nudges it; the damping is off for the putt.
+
+**House rules (engineered, labelled, counted).** A ball resting within 0.9 mm of a rail or an obstacle, or
+inside the mill / the tunnel, is moved to a playable spot, no penalty (real mini golf's one putter-head from the
+wall), and never within 2 mm of the fly; if the fly has no room behind the ball on the planned line (inside
+the lane and outside the obstacles), the ball is moved along the line until it has (`drops`). Out of bounds =
++1 stroke, replayed from where it was hit. A hole ends after 6 strokes (picked up).
+
+**Between holes.** The fly walks to the cup, the ball rises out of it onto the fly's back (**kinematic
+carry**, 1.9 mm above the thorax, contacts and gravity off), the fly walks out of the lane through its entry
+gap, along the walkway behind the lanes, into the next lane to the tee, and the ball is set down on the tee in
+front of it. The fly's routing keeps its thorax out of capsules round the solid-looking props (the mill, the
+pipe, the posts) and inside the rails.
+
+**Presentation.** Slow motion ×0.35 while the ball rolls faster than 15 mm/s, labelled `SLOW MOTION x0.35
+(edit, not physics)` (`slowmo: 1` turns it off); captions (a screen overlay): `HOLE 1: HOLE IN ONE!`,
+`BIRDIE!`, `PAR`, `OUT OF BOUNDS (+1)`, the next hole's name and par. Job camera: azimuth 50°, elevation −33°,
+23 mm, aimed at 0.45 ball + 0.2 fly + 0.35 lane centre (the fly while it is on the walkway).
+
+**Counters / HUD** (TAB, off by default): holes played (the work counter), the hole / stroke / phase, the
+scorecard (`1:1/3  2:2/2  3:-/3  4:-/2   round 3 (-2)`), rounds, last / best round, total vs par,
+holes-in-one, eagles, birdies, pars, bogeys, out of bounds, drops, the last stroke (`stroke 1: at the cup, 69
+mm/s (plan 70), aim err +0.5 deg`), and the label line `(putt speed/aim: skill model + engineered impulse at
+the real head touch; sails / ball carry: kinematic)`. Constant memory: counters and a 4-entry card.
+
+**Lessons found while building it (apply to any job with explicit contact pairs):**
+
+* **A negative pair margin does not switch a `<pair>` off.** With `pair_margin = -10` a penetrating ball /
+  abdomen pair produced a contact with dist −10.6 (as if 10 mm deep) and launched the fly upside down (2-3
+  falls per 2 minutes until found). Setting `pair_gap` large does stop the force, but the contacts are still
+  *detected*, and the fall detector's contact classifier counts them as body contacts (5 `stuck_on_body` falls
+  in 120 s). So the pairs stay on: a ball the fly must not touch is kept away from it instead (the carry
+  height, the no-drop-near-the-fly rule).
+* A kinematic prop carried just over the thorax (1.45 mm) pressed the fly down (thorax height 0.75 mm) and it
+  walked on the spot until the fall detector called `no_progress`; 1.9 mm is clear.
+* A chain of avoid circles (the pipe) with a sticky side per circle made the fly oscillate between two of
+  them; one capsule per prop fixed it. Waypoints clamped just outside a lane must still count as that lane, or
+  the router sends the fly out through the entry gap.
+* A ball launched without spin loses ~2/7 of its energy to sliding before it rolls; the putt sets the rolling
+  spin too.
+
+**Verified** (headless, 2026-09-27, Apple M1, one process at a time):
+
+* `run_job.py --job mini_golf --headless --max-seconds 120` (default config, seed 0): **7 holes, 1 full round
+  (10 strokes, par 10)**, card of round 2 so far 1 / 2 / 2 (−3), 17 putts, **2 holes-in-one**, 1 birdie, 3
+  pars, 0 bogeys, 0 out of bounds, 5 drops, 1 windmill wait, 5 back-away unsticks, **0 falls, 0
+  auto-recoveries, 0 instabilities, RTF 0.48**. Seed 1 (120 s, before the cup was narrowed from 1.0 to 0.9 mm
+  and the skill lowered from 0.55): 6 holes, round of 8, 3 holes-in-one, 0 falls.
+* `run_sim.py --job mini_golf --headless --max-seconds 5` runs (1 hole, 0 falls).
+* Frames checked by eye (job renderer, 640×426 and the GIF's 480×320 frames): the fly behind the ball on the
+  tee, the ball rolling through the mill door under the turning sails in slow motion, HOLE IN ONE, the ball on
+  the fly's back on the walkway, the ramp putt, the tunnel and bumper holes, the flags and signs.
+
+Tests (`tests/test_jobs_snow_mini.py`): the ball's contact bits never meet the (hidden) floor plane, the ramp
+is walkable and the rails ball-only, `ground_height` on the ramp; the aim model (straight at the cup from tee 1,
+the ramp needs more speed, a clear line past the bumpers); a ball rolled at the cup drops in and is scored;
+45 s of the real loop (putts, a hole played, the scorecard in the HUD) and a reset mid-hole (the job
+continues, the ball stays finite and on the course).
+
+**Limitations.** The putt's speed and direction are the aim model's (the fly's head touch only triggers it:
+a walking push rolls the light ball a few mm and can't be sized), the sails, the carry and the tee placement
+are kinematic, the house-rule drops move the ball, and the cup is only a hole for the ball (the fly walks on
+the hidden plane over it). The fly's legs can overlap a rail visually (the rails are ball-only). The skill
+model is generous: holes-in-one on hole 1 are common, because the tee, the mill door and the cup are on one
+line. The window mode (`LiveViewer`) was not opened in this session.
+
 
 ## Verification
 
