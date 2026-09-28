@@ -47,5 +47,6 @@ One line per document. Files derived from FlyWire data are CC BY-NC 4.0; see
 * [dev/SPEC.md](dev/SPEC.md): the original project spec and milestones.
 * [dev/STATUS.md](dev/STATUS.md): what works, soak and robustness results, known issues.
 * [dev/ROADMAP.md](dev/ROADMAP.md): planned features compared by effort and how much comes from the real wiring.
+* [dev/BANC_FEASIBILITY.md](dev/BANC_FEASIBILITY.md): feasibility study for adding a ventral nerve cord (BANC / MANC / FANC): datasets, modelling options, body coupling, staged plan.
 * [dev/API_NOTES.md](dev/API_NOTES.md): FlyGym 2.x / MuJoCo API facts verified against the installed code.
 * [dev/PERTURBATION_CALIBRATION.md](dev/PERTURBATION_CALIBRATION.md): calibration of the thorax-force shove strength levels.
