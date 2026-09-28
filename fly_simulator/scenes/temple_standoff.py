@@ -960,6 +960,8 @@ class Post:
         r2 = ((xx - width / 2) / (width / 2)) ** 2 + ((yy - height / 2) / (height / 2)) ** 2
         self.vig = (1.0 - 0.32 * np.clip(r2 - 0.15, 0, None) ** 1.2)[..., None].astype(np.float32)
         self.bar = int(round((height - width / 2.39) / 2)) if letterbox else 0
+        self.caption: tuple[str, float, float] | None = None  # (text, t_start, t_end)
+        self._cap_img = None  # (key, RGBA uint8 image) cache of the rendered caption
         self.rays = None  # (mask (H, W) float32, (dx, dy) px): the window light streaks
 
     def _god_rays(self, cv2, x: np.ndarray) -> np.ndarray:
@@ -1025,7 +1027,75 @@ class Post:
         if self.bar > 0:
             out[:self.bar] = 0
             out[H - self.bar:] = 0
+        if self.caption is not None:
+            self._draw_caption(out, t)
         return out
+
+    # subtitles: white text with a soft shadow, centred in the bottom letterbox bar
+    # (or in the lower third without the bar), with a short fade in and out
+    CAPTION_FADE_S = 0.18
+
+    def _caption_rgba(self, text: str) -> np.ndarray:
+        from PIL import Image, ImageDraw, ImageFont
+
+        W, H = self.W, self.H
+        size = max(12, int(round(0.030 * H)))
+        font = None
+        for f in ("/System/Library/Fonts/Supplemental/Arial.ttf", "/System/Library/Fonts/Helvetica.ttc",
+                  "/Library/Fonts/Arial.ttf", "DejaVuSans.ttf"):
+            try:
+                font = ImageFont.truetype(f, size)
+                break
+            except OSError:
+                continue
+        if font is None:
+            font = ImageFont.load_default()
+        # wrap to ~80 % of the width
+        words, lines, cur = text.split(), [], ""
+        probe = ImageDraw.Draw(Image.new("L", (1, 1)))
+        for w in words:
+            t = (cur + " " + w).strip()
+            if probe.textlength(t, font=font) > 0.8 * W and cur:
+                lines.append(cur)
+                cur = w
+            else:
+                cur = t
+        if cur:
+            lines.append(cur)
+        lh = int(size * 1.25)
+        img = Image.new("RGBA", (W, lh * len(lines) + size // 2), (0, 0, 0, 0))
+        d = ImageDraw.Draw(img)
+        for i, ln in enumerate(lines):
+            x = (W - probe.textlength(ln, font=font)) / 2
+            y = i * lh
+            for dx, dy in ((2, 2), (1, 1)):
+                d.text((x + dx, y + dy), ln, font=font, fill=(0, 0, 0, 200))
+            d.text((x, y), ln, font=font, fill=(245, 242, 235, 255))
+        return np.asarray(img)
+
+    def _draw_caption(self, out: np.ndarray, t: float) -> None:
+        text, t0, t1 = self.caption
+        if not text or t < t0 or t > t1:
+            return
+        f = self.CAPTION_FADE_S
+        a = min(1.0, (t - t0) / f, (t1 - t) / f)
+        if a <= 0:
+            return
+        key = (text, self.W, self.H)
+        if self._cap_img is None or self._cap_img[0] != key:
+            self._cap_img = (key, self._caption_rgba(text))
+        img = self._cap_img[1]
+        h = img.shape[0]
+        H = self.H
+        if self.bar > 0:  # centred in the bottom bar
+            y0 = H - self.bar + max(0, (self.bar - h) // 2)
+        else:  # lower third
+            y0 = int(0.84 * H) - h // 2
+        y0 = max(0, min(y0, H - h))
+        region = out[y0:y0 + h].astype(np.float32)
+        alpha = (img[..., 3:4].astype(np.float32) / 255.0) * a
+        region = region * (1 - alpha) + img[..., :3].astype(np.float32) * alpha
+        out[y0:y0 + h] = np.clip(region, 0, 255).astype(np.uint8)
 
 
 class SceneRenderer:
@@ -1205,6 +1275,8 @@ def write_wav(path: Path, x: np.ndarray, sr: int = 48000) -> None:
 # the render
 # ---------------------------------------------------------------------------
 
+DEFAULT_CAPTION = "Master Flywalker\u2026 they're everywhere. Please help us."
+
 
 @dataclass
 class RenderOptions:
@@ -1220,6 +1292,10 @@ class RenderOptions:
     png_dir: str | None = None  # also dump PNG frames here (every png_every-th frame)
     png_every: int = 0
     crf: int = 18
+    # subtitle for the lead little fly (None = off). Default: an original line, shown
+    # during the lead close-up while it looks up at the tall fly.
+    caption: str | None = DEFAULT_CAPTION
+    caption_t: tuple[float, float] = (7.1, 8.4)
 
 
 def render(out: str | Path, opt: RenderOptions, log=print) -> dict:
@@ -1235,6 +1311,8 @@ def render(out: str | Path, opt: RenderOptions, log=print) -> dict:
         f"(nbody {scene.model.nbody}, ngeom {scene.model.ngeom}, IK err {scene.ik_err})")
     W, H = opt.width, opt.height
     srend = SceneRenderer(scene, W, H, opt.letterbox, opt.grain)
+    if opt.caption:
+        srend.post.caption = (opt.caption, float(opt.caption_t[0]), float(opt.caption_t[1]))
     wav = None
     if opt.audio:
         wav = out.with_suffix(".wav")

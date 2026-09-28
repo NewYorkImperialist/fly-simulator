@@ -37,12 +37,23 @@ def main(argv=None) -> int:
     ap.add_argument("--crf", type=int, default=18)
     ap.add_argument("--png-dir", default=None, help="also write PNG stills here")
     ap.add_argument("--png-every", type=int, default=0, help="every N-th frame to --png-dir")
+    ap.add_argument("--caption", default=None,
+                    help="subtitle text for the lead little fly (default: the scene's own line)")
+    ap.add_argument("--caption-at", type=float, nargs=2, metavar=("START", "END"), default=None,
+                    help="caption start / end time in seconds (default 7.1 8.4)")
+    ap.add_argument("--no-caption", action="store_true", help="no subtitle")
     a = ap.parse_args(argv)
     mod = load_scene(a.scene)
     opt = mod.RenderOptions(width=a.width, height=a.height, fps=a.fps, letterbox=not a.no_letterbox,
                             audio=not a.no_audio, shadows=not a.no_shadows, grain=a.grain, t0=a.t0,
                             t1=mod.T_END if a.t1 is None else a.t1, png_dir=a.png_dir,
                             png_every=a.png_every, crf=a.crf)
+    if a.no_caption:
+        opt.caption = None
+    elif a.caption is not None:
+        opt.caption = a.caption
+    if a.caption_at is not None:
+        opt.caption_t = tuple(a.caption_at)
     mod.render(a.out, opt)
     return 0
 
