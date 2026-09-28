@@ -48,6 +48,7 @@ from fly_simulator.jobs import kebab_assets as KA
 from fly_simulator.jobs import taste_tester_assets as A
 from fly_simulator.jobs.base import CameraPreset, EternalJob, JobConfig
 from fly_simulator.jobs.geometry import add_box, contact_kwargs, quat_axis_angle, quat_mul
+from fly_simulator.jobs.geometry import spot_or_directional
 from fly_simulator.jobs.registry import register_job
 
 P = "taste/"
@@ -521,11 +522,11 @@ class TasteTesterJob(EternalJob):
         spec.visual.headlight.specular = (0.12, 0.12, 0.12)
         tgt = np.array([self.x_near, fy - 0.5, 0.4])
         key = np.array([fx + 7.0, fy + 5.0, 14.0])
-        wb.add_light(name=P + "key", type=mj.mjtLightType.mjLIGHT_SPOT, pos=tuple(key),
+        wb.add_light(name=P + "key", type=spot_or_directional(c.shadows), pos=tuple(key),
                      dir=tuple(tgt - key), diffuse=(0.62, 0.64, 0.66), specular=(0.5, 0.5, 0.5),
                      cutoff=40.0, exponent=0.5, castshadow=bool(c.shadows))
         fill = np.array([fx + 4.0, fy - 7.0, 8.0])
-        wb.add_light(name=P + "fill", type=mj.mjtLightType.mjLIGHT_SPOT, pos=tuple(fill),
+        wb.add_light(name=P + "fill", type=mj.mjtLightType.mjLIGHT_DIRECTIONAL, pos=tuple(fill),
                      dir=tuple(tgt - fill), diffuse=(0.28, 0.29, 0.32), specular=(0.2, 0.2, 0.2),
                      cutoff=50.0, exponent=1.0, castshadow=False)
         # fluorescent tube fixtures on the ceiling (emissive, out of view mostly)

@@ -262,3 +262,21 @@ ffmpeg -i $S/gif_src.mp4 -vf "crop=960:402:0:69,fps=12,scale=600:-2:flags=lanczo
 [a]palettegen=max_colors=128:stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=5:diff_mode=rectangle" \
     -loop 0 docs/media/temple_standoff.gif
 ```
+
+**jump_rope.gif** (default config, seed 0, whip off). A script (`create_job_session("jump_rope", cfg)`, 480×320,
+`JobRunner.render(hud=False)`, so the slow-motion label and the captions are in it) saving a clean frame every
+1/12 s of `session.present_time()`, 14-26 s of sim (195 frames, a streak of 23 building):
+```bash
+ffmpeg -framerate 12 -i f%04d.jpg -vf "scale=400:-2:flags=lanczos,split[a][b];\
+[a]palettegen=max_colors=64:stats_mode=diff[p];[b][p]paletteuse=dither=none:diff_mode=rectangle" -loop 0 jump_rope.gif
+```
+Run it live: `python scripts/run_job.py --job jump_rope` (or `run_sim.py --job jump_rope`).
+
+**dj.gif** (default config, seed 0, whip off). The same script, a frame every 1/10 s, 0.5-16.2 s of sim (157
+frames: one whole track, groove, scratch, build-up, the drop, the mix), resampled to 8 fps:
+```bash
+ffmpeg -framerate 10 -i f%04d.jpg -vf "fps=8,scale=360:-2:flags=lanczos,split[a][b];\
+[a]palettegen=max_colors=48:stats_mode=diff[p];[b][p]paletteuse=dither=none:diff_mode=rectangle" -loop 0 dj.gif
+```
+(At 400 px, 64 colours and 10 fps it was 3.2 MB: the strobing floor changes every frame.) Run it live:
+`python scripts/run_job.py --job dj` (or `run_sim.py --job dj`).

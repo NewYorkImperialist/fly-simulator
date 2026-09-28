@@ -23,6 +23,8 @@ constant.
 | `fry_cook` | works a fast-food fry station: a basket on an auto-lift dumps fried fries (pooled free bodies) into the heated bin, the fly takes a carton, scoops fries into it with a scoop on its right front leg (they drop into the carton with real physics), the carton slides onto the tray at the pass window, *ding*, ORDER UP; now and then a fry spills and the fly sneaks it (with `--brain` the connectome's MN9) | orders served, cartons filled, fries per carton, spilled, sneaked, batches, salt level |
 | `snow_shovel` | shovels a driveway in front of a little house: pushes a snow shovel (planar prop, like the mower) across it lane by lane, the blade scrapes the snow cover, the load is dumped onto the snowbank as pooled clumps (real free bodies); it keeps snowing, so the driveway is never done | m of path cleared, clumps shoveled, bank height, days of winter |
 | `mini_golf` | plays a 4-hole mini golf course (windmill, ramp, tunnel, bumpers): walks behind the ball and head-butts it (the putt speed / aim come from a labelled skill model), the ball rolls with real physics and drops into a real cup; the fly carries it on its back to the next tee | holes played, scorecard vs par, holes-in-one, rounds |
+| `jump_rope` | skips rope forever in a schoolyard: two driven crank posts turn a long rope (a kinematic curve of capsules that really collides with the fly); the fly clears it every turn with the real short-mode Jump, fired from the rope's phase; the rope speeds up with the streak; a rope that catches a leg is a real contact (a trip) | skips, streak (best), trips, recoveries, rope rpm |
+| `dj` | DJs forever in a club: a beat clock drives everything; a front leg (IK) scratches a motor-driven record by real contact and friction (scratches counted from the record's own rotation), the drop (a leg in the air, strobing floor, jumping crowd), the other leg slides the crossfader into the next track | tracks mixed, scratches, drops, crowd hype, BPM |
 
 ```bash
 python scripts/run_job.py --job sisyphus                   # window; Q quit, C camera, P pause, X reset, I screenshot, TAB HUD
@@ -1923,6 +1925,128 @@ model is generous: holes-in-one on hole 1 are common, because the tee, the mill 
 line. The window mode (`LiveViewer`) was not opened in this session.
 
 
+### jump_rope
+
+`fly_simulator/jobs/jump_rope.py` (scene, rope, timing, trips), `fly_simulator/jobs/jump_rope_assets.py`
+(procedural meshes / textures), tests in `tests/test_jobs_rope_dj.py`. HUD (TAB): `JUMP ROPE FLY - the fly
+skips rope forever`.
+
+![jump_rope](media/jump_rope.gif)
+
+**Scene** (all visual except the rope). A bright schoolyard: painted asphalt (a hopscotch, a four-square
+court, "JUMP ROPE" and a yellow star on the fly's spot; the fly stands on FlyGym's own plane, hidden, the
+painted slab is flush with it), a brick school ("FLY SCHOOL / RECESS: FOREVER", our own), a chalkboard
+"SKIP-O-METER" with 7-segment STREAK / BEST / RPM, benches, shrubs, a chain-link fence, a basketball hoop, a sky
+with trees. Two candy-striped **turner posts** ("TURNER A / B - DRIVEN CRANK") carry crank wheels 16 mm apart
+(along y). Lights: a sun spot with shadows (`shadows: false` makes it directional) and a directional fill.
+`znear` 0.05.
+
+**The rope (driven, kinematic, labelled; real contacts).** 40 capsules (R 0.09 mm) on mocap bodies laid along a
+loop turning about the crank axis: radius 7 mm in the middle, 0.7 mm (the cranks) at the ends, the middle
+trailing the cranks by 0.28 rad, its bottom 0.04 mm above the ground. The phase runs `dphi/dt = -w (1 + 0.65
+cos phi)`: faster through the bottom (a swinging rope gains speed as it falls). A driven curve rather than a
+simulated cable, because at fly scale a rope turned at 1-2 turns/s would just hang (w^2 R ~ 0.1-0.2 g). The
+capsules collide with the fly (contact kind "fly", contact time constant 4 ms, softer than FlyGym's 0.2 ms).
+
+**The skip: the real `Jump`.** Short mode (6 ms set-up, 15 ms TTM stroke), from the trampoline's `BounceJump`
+with its engineered, labelled airborne aids (attitude stabiliser, <= 0.3 BW horizontal "wing steering", the lean
+toward the spot; horizontal only, never lift). Measured on the floor: the tarsi are above 0.25 mm from ~21 to
+~58 ms after the trigger, and the footprint spans ~3 mm, centred ~1.4 mm behind the thorax (the rope axis sits
+there, `axis_x`). The job predicts from the rope's phase (closed-form time to reach the footprint's centre) and
+fires `lead_s` = 36 ms before it, plus the fly's timing error (our behaviour model): N(0, 3 ms × period0 /
+period) and 3 % missteps of ±22 ms. The rope period starts at 0.8 s (75 rpm) and shortens by 12 ms per skip in
+the streak (down to 0.45 s, 133 rpm). The short-mode stroke pushes the fly back ~0.5 mm per jump, so between
+turns it shuffles back onto its spot (real walking, `Steering`); if it is more than 2.2 mm off, the turners
+pause the rope at the top (`pauses`). First versions: aiming the rope at the thorax, or with the axis under the
+thorax, the rope caught the hind tarsi (3 mm behind the thorax) as it rose behind the fly: 0 skips in 12 s.
+
+**Trips (real contact, counted).** Any rope-fly contact during a turn is a trip: the streak ends, the turners
+finish the turn and park the rope at the top, the fly stumbles or is knocked over (then the base class's
+explicit reset after 2.5 s down, counted as `knocked_down`), walks back onto its spot, stands 0.8 s, and the rope
+starts again at 75 rpm (a counted recovery; `stumbles` = trips it stayed on its feet after). A skip is counted
+when the rope is 0.4 rad past the footprint with no contact that turn.
+
+**Slow motion (edit, labelled `SLOW MOTION x0.30 (edit, not physics)`)** while the rope is near the bottom
+(the jump is ~50 ms in the air); `slowmo: 1` turns it off. Captions: `10 IN A ROW!`, `TRIPPED! (streak n)`,
+`WAIT UP!`.
+
+**Counters / HUD** (TAB, off by default): skips (the work counter), streak and best, rope rpm, trips (stumbled /
+knocked down), recoveries, pauses, missteps, the last timing error, and the label line `(real Jump action; rope +
+cranks: driven kinematic curve with real contacts; airborne attitude + steering aid: engineered wing emulation)`.
+
+**Verified** (headless, 2026-09-28, Apple M1, one process at a time): `run_job.py --job jump_rope --headless
+--max-seconds 120`: **108 skips** in 131 turns, best streak **26**, 23 trips (all stumbles: the fly stayed on its
+feet every time), 23 recoveries, 0 pauses, 6 missteps, the rope up to 112 rpm, **0 falls, 0 auto-recoveries, 0
+instabilities, RTF 0.40**. `run_sim.py --job jump_rope --headless --max-seconds 5` runs. Frames checked by eye
+(job renderer, 480×320, and the GIF frames): the rope over the top, coming down in front, the fly in the air with
+the rope under its feet, the rope rising behind it, the streak caption, the crank wheels turning, the
+chalkboard.
+
+**Limitations.** The rope's shape is driven, not a simulated cable (above), so a caught rope does not wrap or
+drag; the timing is the job's (the brain does not see the rope), the timing noise is ours, and the Jump's
+airborne aids are engineered. The trips in the runs above never knocked the fly over (the soft 4 ms rope contact
+and the Jump's landing stance absorb them), so the `knocked_down` path is only exercised by a reset in the
+tests. No double dutch. The window mode (`LiveViewer`) was not opened in this session.
+
+### dj
+
+`fly_simulator/jobs/dj.py` (scene, stance, schedule, show), `fly_simulator/jobs/dj_assets.py` (procedural
+meshes / textures), tests in `tests/test_jobs_rope_dj.py`. HUD (TAB): `DJ FLY - the fly DJs forever`.
+
+![dj](media/dj.gif)
+
+**Scene.** A club: the fly stands on a stage (FlyGym's plane, hidden, under a black carpet slab) at two
+turntables and a mixer; behind it an LED wall ("FLY FM / NIGHT SHIFT FOREVER", our own) with a 16-bar visualizer,
+a 7-segment BPM readout and a 10-cell HYPE meter (emissive cells switched by material); speaker stacks either
+side whose cones pulse on the beat (mocap) and whose rings flash; a neon booth front; below the stage a dance
+floor of 144 light tiles that change colour per beat; a crowd of 28 cartoon fly silhouettes (upright bodies,
+red eyes, wings, arms up; mocap, visual, labelled) bobbing with the hype; a mirror-ball (turning mocap) with
+three coloured point lights orbiting it; a key spot with shadows (`shadows: false`: directional). No audio.
+
+**Turntables (physics).** Each record is a disc (0.9 mm, 0.1 mg) on a hinge joint, driven at 33 1/3 rpm by a
+velocity actuator (kv 0.02 µN·mm·s/rad) whose torque is limited to 0.5 µN·mm: the slip mat. The record and the
+platter under it collide with the fly (kind "fly"; the platter keeps a leg from sliding under the record: an
+early version's resting tarsi were under the record rims and braked both records to a stop, so the decks now
+sit clear of the standing footprint).
+
+**The fly** holds `DJStance` (all tarsi planted and adhering, like `freeze`, stationary). The job drives both
+front legs with joint targets from damped least-squares IK on a scratch `MjData` (the dead_hang `LegIK`),
+keyframes solved once from the settled pose and interpolated in joint space (a "lift" keyframe first, so the leg
+clears the platter). The mid / hind femur-tibia targets bob with the beat in the groove and the drop.
+
+**One track** (32 beats, the BPM per track 120-128, the beat clock is sim time):
+
+* beats 0-8 groove; 8-16 **scratch**: the leg of the playing deck presses on the record with its tarsal
+  adhesion on and drags it back and forth along the groove (0.3 mm, half a beat each way). The record moves only
+  through that contact and friction (the motor can't hold it: slip mat). **A scratch is counted from the
+  record**: every backward excursion of >= 0.2 rad against the play direction (hysteresis on the record's angle),
+  so a stroke that slips doesn't count. Measured: 7 scratches per scratch section (7 back strokes), the record
+  driven up to ~15 rad/s backward. (Counted on the angular velocity instead, the contact chatter gave ~60 per
+  section.)
+* 16-24 build-up (the floor fills up, the camera cuts wide);
+* beat 24 **THE DROP**: the other front leg goes up, the tiles strobe, the lights flash, the crowd jumps;
+* 28-31 **the mix**: that leg reaches the crossfader knob and slides it to the other deck. **Kinematic,
+  labelled:** the knob follows the tarsus while the tarsus is on it (a geometric test); if the leg misses, the
+  fade is completed by the job (`auto_fades`). Then the other deck plays and its leg scratches.
+
+**Counters / HUD** (TAB): tracks mixed (the work counter), the track, BPM, beat and section, scratches, drops,
+crowd hype (0-100 %: +2 per scratch, +30 per drop, decaying with τ 25 s; it scales the crowd's bobbing and the
+speaker pulse), fader moves, auto fades, and the label line `(records: hinge + motor, scratched by real leg
+contact; crossfader knob follows the tarsus: kinematic; crowd / lights / speakers: show props)`. Captions: `NOW
+PLAYING: <track> (<bpm> BPM)`, `THE DROP!`, `SCRATCH x10!`. Camera cuts: close on the decks, wide over the
+crowd for the end of the build-up, a medium shot for the drop (`close_ups: false`: the wide shot only).
+
+**Verified** (headless, 2026-09-28, Apple M1, one process at a time): `run_job.py --job dj --headless --max-seconds 120`: **7 tracks mixed**, **56 scratches** (7-8 per scratch section), 7 drops, 7 fader moves by the leg, **0 auto fades**, the record driven up to 15.5 rad/s backward, IK residual 1 µm, crowd hype 59 %, **0 falls, 0 auto-recoveries, 0 instabilities, RTF 0.55**. `run_sim.py --job dj
+--headless --max-seconds 5` runs. Frames checked by eye (job renderer, 480×320, and the GIF frames): the right
+front leg on the red record and the left on the blue one mid-scratch, the leg on the crossfader, the wide shot
+with the crowd and the floor, the drop shot with THE DROP! and the leg raised, the NOW PLAYING caption.
+
+**Limitations.** The scratch pattern is scripted (the job plays it on the beat; the brain does not), the
+crossfader is kinematic once touched, the crowd, the floor, the lights and the speakers are show props, and
+there is no sound. The record's friction grip comes from the tarsal adhesion (40 µN), far more than a real
+fly's leg would need for a 0.1 mg disc. The window mode (`LiveViewer`) was not opened in this session.
+
+
 ## Verification
 
 The test file is `tests/test_jobs.py`: synthetic tests of the registry, steering and
@@ -1954,6 +2078,27 @@ jobs (trampoline ~16 ms), and the shadow pass is most of it (`shadows: false` sa
 ms). So in the live window (up to 30 frames per wall second) RTF drops by an estimated 0.03–0.1 (e.g. raking ~0.45 → ~0.34).
 The jobs now also set znear to 0.01 mm. The fly's MuJoCo globals are merged in after
 `extension` and leave it at 0.5 µm, and at that value the stripe tiles z-fought with the soil.
+
+**Spot lights without shadows (audit, 2026-09-28).** On macOS OpenGL a MuJoCo spot light with
+`castshadow=False` turns every pixel behind the light's plane black, whatever the other lights and the ambient
+say (reproduced in a two-box scene: the box behind the light's plane vanished, the floor went to 0). MjSpec's
+`add_light` defaults to a spot *with* shadows, and no light came from FlyGym or the app; the unshadowed spots
+were all in the jobs. Rendered from the job camera plus two other angles (±110-140° azimuth, elevations −12°
+and −55°), as-is vs every such spot shadowed: **affected** (black regions): kebab (the burner tiles and the
+heater box black from the default camera; 52 % of the frame black from the side), dead_hang (the floor and
+the wall bottom), bowling (the approach and the ball return; this was the "approach renders black with
+`shadows: false`" in its limitations), broccoli_toss (parts of the room), taste_tester (the floor behind the
+fill from the side), pizza_chef, mowing (its sun had no shadows by default: a black band at the horizon), trampoline,
+sisyphus and hamster_wheel (a black band at a low angle); raking showed nothing but had one too. Fixes: every
+fill / rim spot without shadows is now a directional light along the same direction (sisyphus, hamster_wheel,
+raking, mowing, taste_tester, pizza_chef, trampoline, kebab rim, dead_hang rim and trap glow, bowling deck
+and lane, broccoli_toss rim and backroom); local glows became point lights with attenuation (kebab heat light,
+pizza_chef oven light, broccoli_toss monitor glow, ring light and blast rim); every key light whose shadow a
+`shadows: false` config turns off now becomes directional instead (`geometry.spot_or_directional`, all jobs),
+and broccoli_toss's key light turns directional (not an unshadowed spot) while the room burns. After the fix no
+job model has an unshadowed spot; the re-rendered views have no black regions (bowling with `shadows: false`
+too) and otherwise look as before (bowling's deck light was dimmed from 0.75 to 0.55 because a directional
+light also reaches the approach). `scenes/temple_standoff.py` (a scripted scene, not a job; not touched here) casts shadows from its spots by default, but its `shadows=False` option would give unshadowed spots.
 
 **znear fix in the framework (2026-09-27).** That merge order also silently undid the
 `spec.visual.map.znear = 0.05` in the newer jobs' `extension`s (kebab, trampoline,

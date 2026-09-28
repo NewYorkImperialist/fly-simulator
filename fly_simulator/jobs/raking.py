@@ -48,6 +48,7 @@ from fly_simulator.jobs import raking_assets as A
 from fly_simulator.jobs.base import CameraPreset, EternalJob, JobConfig
 from fly_simulator.jobs.geometry import contact_kwargs, quat_axis_angle
 from fly_simulator.jobs.mowing import PushPilot
+from fly_simulator.jobs.geometry import spot_or_directional
 from fly_simulator.jobs.registry import register_job
 
 P = "rake/"
@@ -264,11 +265,11 @@ class RakingJob(EternalJob):
         spec.visual.headlight.specular = (0.06, 0.06, 0.06)
         tgt = np.array([(c.yard_x0 + c.yard_x1) / 2, 2.0, 0.0])
         sun = np.array([tgt[0] - 18.0, -16.0, 30.0])
-        wb.add_light(name=P + "sun", type=mj.mjtLightType.mjLIGHT_SPOT, pos=tuple(sun),
+        wb.add_light(name=P + "sun", type=spot_or_directional(c.shadows), pos=tuple(sun),
                      dir=tuple(tgt - sun), diffuse=(0.72, 0.62, 0.48), specular=(0.35, 0.32, 0.28),
                      cutoff=45.0, exponent=0.3, castshadow=bool(c.shadows))
         fill = np.array([tgt[0] + 16.0, -14.0, 12.0])
-        wb.add_light(name=P + "fill", type=mj.mjtLightType.mjLIGHT_SPOT, pos=tuple(fill),
+        wb.add_light(name=P + "fill", type=mj.mjtLightType.mjLIGHT_DIRECTIONAL, pos=tuple(fill),
                      dir=tuple(tgt - fill), diffuse=(0.18, 0.2, 0.26), specular=(0.05, 0.05, 0.08),
                      cutoff=55.0, exponent=0.5, castshadow=False)
 

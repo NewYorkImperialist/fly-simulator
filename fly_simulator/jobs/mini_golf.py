@@ -63,6 +63,7 @@ from fly_simulator.jobs.geometry import (
     wrap_angle,
 )
 from fly_simulator.jobs.mowing import PushPilot
+from fly_simulator.jobs.geometry import spot_or_directional
 from fly_simulator.jobs.registry import register_job
 from fly_simulator.terrain import FLY_BIT, TERRAIN_BIT
 
@@ -553,7 +554,7 @@ class MiniGolfJob(EternalJob):
         ymid = self.hole_y(len(HOLES) - 1) / 2
         tgt = np.array([10.0, ymid, 0.0])
         sun = np.array([-10.0, ymid - 45.0, 70.0])
-        wb.add_light(name=P + "sun", type=mj.mjtLightType.mjLIGHT_SPOT, pos=tuple(sun), dir=tuple(tgt - sun),
+        wb.add_light(name=P + "sun", type=spot_or_directional(c.shadows), pos=tuple(sun), dir=tuple(tgt - sun),
                      diffuse=(0.75, 0.73, 0.68), specular=(0.4, 0.4, 0.4), cutoff=45.0, exponent=0.2,
                      castshadow=bool(c.shadows))
         wb.add_light(name=P + "fill", type=mj.mjtLightType.mjLIGHT_DIRECTIONAL, pos=(30, ymid, 40),

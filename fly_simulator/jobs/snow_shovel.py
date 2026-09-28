@@ -49,6 +49,7 @@ from fly_simulator.jobs import snow_shovel_assets as A
 from fly_simulator.jobs.base import CameraPreset, EternalJob, JobConfig
 from fly_simulator.jobs.geometry import contact_kwargs, quat_axis_angle, slippery_body_contact, wrap_angle
 from fly_simulator.jobs.mowing import PushPilot
+from fly_simulator.jobs.geometry import spot_or_directional
 from fly_simulator.jobs.registry import register_job
 from fly_simulator.terrain import TERRAIN_BIT
 
@@ -348,7 +349,7 @@ class SnowShovelJob(EternalJob):
         spec.visual.headlight.specular = (0.05, 0.05, 0.06)
         tgt = np.array([xm, 1.5, 0.0])
         key = np.array([xm - 18.0, -26.0, 34.0])
-        wb.add_light(name=P + "key", type=mj.mjtLightType.mjLIGHT_SPOT, pos=tuple(key), dir=tuple(tgt - key),
+        wb.add_light(name=P + "key", type=spot_or_directional(c.shadows), pos=tuple(key), dir=tuple(tgt - key),
                      diffuse=(0.55, 0.60, 0.72), specular=(0.3, 0.32, 0.4), cutoff=45.0, exponent=0.3,
                      castshadow=bool(c.shadows))
         wb.add_light(name=P + "fill", type=mj.mjtLightType.mjLIGHT_DIRECTIONAL, pos=(xm + 20, -10, 30),

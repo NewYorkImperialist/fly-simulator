@@ -41,6 +41,7 @@ from fly_simulator.jobs.geometry import (
     slippery_body_contact,
     wrap_angle,
 )
+from fly_simulator.jobs.geometry import spot_or_directional
 from fly_simulator.jobs.registry import register_job
 from fly_simulator.terrain import TERRAIN_BIT
 
@@ -381,11 +382,11 @@ class SisyphusJob(EternalJob):
         spec.visual.headlight.specular = (0.05, 0.05, 0.05)
         tgt = np.array([6.0, 0.0, 1.0])
         sun = np.array([-22.0, 14.0, 20.0])
-        wb.add_light(name=P + "sun", type=mj.mjtLightType.mjLIGHT_SPOT, pos=tuple(sun),
+        wb.add_light(name=P + "sun", type=spot_or_directional(c.shadows), pos=tuple(sun),
                      dir=tuple(tgt - sun), diffuse=(0.78, 0.55, 0.36), specular=(0.35, 0.28, 0.2),
                      cutoff=42.0, exponent=0.3, castshadow=bool(c.shadows))
         fill = np.array([8.0, -22.0, 14.0])
-        wb.add_light(name=P + "fill", type=mj.mjtLightType.mjLIGHT_SPOT, pos=tuple(fill),
+        wb.add_light(name=P + "fill", type=mj.mjtLightType.mjLIGHT_DIRECTIONAL, pos=tuple(fill),
                      dir=tuple(tgt - fill), diffuse=(0.2, 0.2, 0.3), specular=(0.05, 0.05, 0.08),
                      cutoff=55.0, exponent=0.5, castshadow=False)
 

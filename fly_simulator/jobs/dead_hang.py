@@ -57,6 +57,7 @@ from fly_simulator.actions.base import LEGS, Action, ActionCommand, smoothstep
 from fly_simulator.jobs import dead_hang_assets as A
 from fly_simulator.jobs.base import CameraPreset, EternalJob, JobConfig
 from fly_simulator.jobs.geometry import add_box, contact_kwargs, quat_axis_angle, quat_mul
+from fly_simulator.jobs.geometry import spot_or_directional
 from fly_simulator.jobs.registry import register_job
 
 P = "hang/"
@@ -444,16 +445,16 @@ class DeadHangJob(EternalJob):
         spec.visual.headlight.specular = (0.12, 0.12, 0.12)
         tgt = np.array([0.0, 0.3, 8.0])
         key = np.array([-6.0, -9.0, 20.0])
-        wb.add_light(name=P + "key", type=mj.mjtLightType.mjLIGHT_SPOT, pos=tuple(key),
+        wb.add_light(name=P + "key", type=spot_or_directional(c.shadows), pos=tuple(key),
                      dir=tuple(tgt - key), diffuse=(0.62, 0.60, 0.56), specular=(0.5, 0.5, 0.5),
                      cutoff=40.0, exponent=0.5, castshadow=bool(c.shadows))
         rim = np.array([4.0, 6.0, 15.0])
-        wb.add_light(name=P + "rim", type=mj.mjtLightType.mjLIGHT_SPOT, pos=tuple(rim),
+        wb.add_light(name=P + "rim", type=mj.mjtLightType.mjLIGHT_DIRECTIONAL, pos=tuple(rim),
                      dir=tuple(tgt - rim), diffuse=(0.30, 0.32, 0.36), specular=(0.4, 0.4, 0.45),
                      cutoff=35.0, exponent=2.0, castshadow=False)
         # a greenish uplight from the trap (drama)
         up = np.array([0.0, -3.0, 3.0])
-        wb.add_light(name=P + "trap_glow", type=mj.mjtLightType.mjLIGHT_SPOT, pos=tuple(up),
+        wb.add_light(name=P + "trap_glow", type=mj.mjtLightType.mjLIGHT_DIRECTIONAL, pos=tuple(up),
                      dir=(0.0, 0.5, 1.0), diffuse=(0.10, 0.16, 0.06), specular=(0, 0, 0),
                      cutoff=50.0, exponent=1.0, castshadow=False)
 

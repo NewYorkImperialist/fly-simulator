@@ -62,6 +62,7 @@ from fly_simulator.jobs import taste_tester_assets as TA
 from fly_simulator.jobs.base import CameraPreset, EternalJob, JobConfig
 from fly_simulator.jobs.geometry import add_box, contact_kwargs, quat_axis_angle, wrap_angle
 from fly_simulator.jobs.kebab import CarveStroke
+from fly_simulator.jobs.geometry import spot_or_directional
 from fly_simulator.jobs.registry import register_job
 from fly_simulator.jobs.taste_tester import DIGITS, SEGS
 
@@ -618,12 +619,13 @@ class PizzaChefJob(EternalJob):
             wb.add_geom(name=f"{P}woodpile{j}", type=mj.mjtGeom.mjGEOM_CYLINDER, size=(0.09, 0.45, 0),
                         pos=(p[0] + 0.19 * col - 0.19 + 0.095 * row, p[1], 0.09 + 0.16 * row),
                         quat=quat_axis_angle((1, 0, 0), math.pi / 2), material=P + "log", **vis)
-        # the oven's glow: a warm spot light out of the mouth (flickers at runtime)
+        # the oven's glow: a warm point light at the mouth (flickers at runtime; not a
+        # spot: unshadowed spots black out what is behind them on macOS)
         lp = self.oven_c + 0.1 * m
-        wb.add_light(name=P + "oven_light", type=mj.mjtLightType.mjLIGHT_SPOT,
+        wb.add_light(name=P + "oven_light", type=mj.mjtLightType.mjLIGHT_POINT,
                      pos=(lp[0], lp[1], hz + 0.55), dir=(m[0], m[1], -0.35),
                      diffuse=(0.9, 0.45, 0.15), specular=(0.2, 0.1, 0.05), cutoff=60.0, exponent=2.0,
-                     castshadow=False)
+                     attenuation=(0.3, 0.6, 0.3), castshadow=False)
         wb.add_light(name=P + "fire_light", type=mj.mjtLightType.mjLIGHT_POINT,
                      pos=(back[0], back[1], hz + 0.4), diffuse=(0.6, 0.25, 0.08), specular=(0, 0, 0),
                      attenuation=(0.3, 0.9, 0.3), castshadow=False)
@@ -777,11 +779,11 @@ class PizzaChefJob(EternalJob):
         spec.visual.headlight.specular = (0.1, 0.1, 0.1)
         tgt = np.array([c.pizza_x, c.pizza_y + 0.5, 0.3])
         key = np.array([c.pizza_x + 6.0, c.pizza_y - 4.0, 13.0])
-        wb.add_light(name=P + "key", type=mj.mjtLightType.mjLIGHT_SPOT, pos=tuple(key),
+        wb.add_light(name=P + "key", type=spot_or_directional(c.shadows), pos=tuple(key),
                      dir=tuple(tgt - key), diffuse=(0.66, 0.63, 0.58), specular=(0.45, 0.45, 0.45),
                      cutoff=42.0, exponent=0.5, castshadow=bool(c.shadows))
         fill = np.array([c.pizza_x + 5.0, c.pizza_y + 6.0, 7.0])
-        wb.add_light(name=P + "fill", type=mj.mjtLightType.mjLIGHT_SPOT, pos=tuple(fill),
+        wb.add_light(name=P + "fill", type=mj.mjtLightType.mjLIGHT_DIRECTIONAL, pos=tuple(fill),
                      dir=tuple(tgt - fill), diffuse=(0.22, 0.24, 0.3), specular=(0.1, 0.1, 0.1),
                      cutoff=50.0, exponent=1.0, castshadow=False)
 

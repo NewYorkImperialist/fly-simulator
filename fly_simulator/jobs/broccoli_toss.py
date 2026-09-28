@@ -97,6 +97,7 @@ from fly_simulator.jobs.geometry import (
     quat_mul,
     wrap_angle,
 )
+from fly_simulator.jobs.geometry import spot_or_directional
 from fly_simulator.jobs.registry import register_job
 from fly_simulator.terrain import TERRAIN_BIT
 
@@ -822,21 +823,29 @@ class BroccoliTossJob(EternalJob):
         spec.visual.headlight.diffuse = (0.18, 0.16, 0.24)
         spec.visual.headlight.specular = (0.05, 0.05, 0.08)
 
-        def spot(name, pos, tgt, col, cutoff=45.0, exp=0.8, shadow=False):
+        def spot(name, pos, tgt, col, cutoff=45.0, exp=0.8, shadow=False, kind=None):
+            # a spot only if it casts shadows: on macOS an unshadowed spot blacks out
+            # everything behind its plane; else a directional / point light
             pos, tgt = np.array(pos, float), np.array(tgt, float)
-            wb.add_light(name=P + name, type=mj.mjtLightType.mjLIGHT_SPOT, pos=tuple(pos), dir=tuple(tgt - pos),
-                         diffuse=col, specular=(0.3, 0.3, 0.35), cutoff=cutoff, exponent=exp, castshadow=shadow)
+            typ = kind if kind is not None else spot_or_directional(shadow)
+            att = (0.4, 0.05, 0.02) if typ == mj.mjtLightType.mjLIGHT_POINT else (1.0, 0.0, 0.0)
+            wb.add_light(name=P + name, type=typ, pos=tuple(pos), dir=tuple(tgt - pos),
+                         diffuse=col, specular=(0.3, 0.3, 0.35), cutoff=cutoff, exponent=exp, castshadow=shadow,
+                         attenuation=att)
 
         spot("key", (8.0, -9.0, 16.0), (-2.0, 0.0, 2.0), (0.50, 0.32, 0.72), 45.0, 0.5, bool(c.shadows))
         spot("rim", (-10.0, 6.0, 13.0), (0.0, 0.0, 3.0), (0.15, 0.45, 0.75), 40.0, 1.0)
-        spot("monitor_glow", (4.8, 0.0, 5.2), (0.0, 0.0, 3.4), (0.30, 0.38, 0.55), 50.0, 1.0)
-        spot("ring", (4.4, 5.6, 6.0), (0.0, 0.0, 3.4), (0.35, 0.33, 0.30), 35.0, 1.0)
+        spot("monitor_glow", (4.8, 0.0, 5.2), (0.0, 0.0, 3.4), (0.30, 0.38, 0.55), 50.0, 1.0,
+             kind=mj.mjtLightType.mjLIGHT_POINT)
+        spot("ring", (4.4, 5.6, 6.0), (0.0, 0.0, 3.4), (0.35, 0.33, 0.30), 35.0, 1.0,
+             kind=mj.mjtLightType.mjLIGHT_POINT)
         spot("backroom", (-2.0, -7.0, 14.0), (-8.5, -1.0, 1.5), (0.45, 0.20, 0.50), 45.0, 0.5)
         # the blast's light on the viewer: from behind its right shoulder (the blast
         # side) onto its back / side, the chair and the rug (off until a blast)
         pos, tgt = np.array((-2.6, -2.2, 5.6)), np.array((0.0, 0.3, 3.2))
-        wb.add_light(name=P + "blast_rim", type=mj.mjtLightType.mjLIGHT_SPOT, pos=tuple(pos), dir=tuple(tgt - pos),
-                     diffuse=(0, 0, 0), specular=(0, 0, 0), cutoff=60.0, exponent=0.3, castshadow=False)
+        wb.add_light(name=P + "blast_rim", type=mj.mjtLightType.mjLIGHT_POINT, pos=tuple(pos), dir=tuple(tgt - pos),
+                     diffuse=(0, 0, 0), specular=(0, 0, 0), cutoff=60.0, exponent=0.3, castshadow=False,
+                     attenuation=(0.2, 0.1, 0.02))
 
     # ------------------------------------------------------------ attach
     def on_attach(self) -> None:
@@ -910,6 +919,7 @@ class BroccoliTossJob(EternalJob):
         self.rim_light = m.light(P + "blast_rim").id
         self.key_light = m.light(P + "key").id
         self.key_shadow0 = int(m.light_castshadow[self.key_light])
+        self.key_type0 = int(m.light_type[self.key_light])
         self.chair_mocap = int(m.body_mocapid[m.body(P + "chair").id])
         self.mount_mocap = int(m.body_mocapid[m.body(P + "viewer_mount").id])
         self.mount_pos0 = np.array(self._viewer_mount_pos())
@@ -1568,8 +1578,11 @@ class BroccoliTossJob(EternalJob):
         self._blast = dict(t0=t, c=centre)
         d.mocap_pos[self.blast_mocap] = centre
         # (MuJoCo's shadow map blacks out the emissive puffs where the key light is
-        # shadowed: the key light casts no shadow while the room burns)
+        # shadowed: the key light casts no shadow while the room burns; it becomes a
+        # directional light meanwhile, since an unshadowed spot blacks out everything
+        # behind its plane on macOS)
         self.sim.model.light_castshadow[self.key_light] = 0
+        self.sim.model.light_type[self.key_light] = mj.mjtLightType.mjLIGHT_DIRECTIONAL
         # the shockwave: one radial velocity kick to the props in range (an impulse)
         n = 0
         for k in range(len(BREAKABLES)):
@@ -1741,6 +1754,7 @@ class BroccoliTossJob(EternalJob):
         m.light_diffuse[self.blast_light] = (0.0, 0.0, 0.0)
         m.light_diffuse[self.rim_light] = (0.0, 0.0, 0.0)
         m.light_castshadow[self.key_light] = self.key_shadow0
+        m.light_type[self.key_light] = self.key_type0
         if len(self.m_viewer):
             m.mat_emission[self.m_viewer] = self.viewer_emission0
         self._blast = None

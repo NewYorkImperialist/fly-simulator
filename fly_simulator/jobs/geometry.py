@@ -191,3 +191,11 @@ def add_plane_box(parent, name: str, top_point, x_axis, normal, half_x: float, h
     center = np.asarray(top_point, float) - n * thickness / 2
     return add_box(parent, name, (half_x, half_y, thickness / 2), center,
                    quat=tuple(float(v) for v in q), **kw)
+
+
+def spot_or_directional(castshadow: bool):
+    """Light type for a key light whose shadow map can be switched off: a spot when it
+    casts shadows, else a directional light along the same ``dir``. On macOS OpenGL a
+    MuJoCo spot light with ``castshadow=False`` turns every pixel behind the light's
+    plane black (docs/JOBS.md, "Spot lights without shadows"), so jobs never add one."""
+    return mj.mjtLightType.mjLIGHT_SPOT if castshadow else mj.mjtLightType.mjLIGHT_DIRECTIONAL

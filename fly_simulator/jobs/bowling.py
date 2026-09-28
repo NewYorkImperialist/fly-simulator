@@ -66,6 +66,7 @@ from fly_simulator.jobs.geometry import (
     slippery_body_contact,
 )
 from fly_simulator.jobs.mowing import PushPilot
+from fly_simulator.jobs.geometry import spot_or_directional
 from fly_simulator.jobs.registry import register_job
 from fly_simulator.terrain import TERRAIN_BIT
 
@@ -727,17 +728,17 @@ class BowlingJob(EternalJob):
         bed = c.bed_height
         a_pos = np.array([self.ramp_x0 - 11.0, -6.0, self.approach_z + 20.0])
         a_tgt = np.array([self.ramp_x0 - 3.5, 0.0, self.approach_z])
-        wb.add_light(name=P + "approach_light", type=mj.mjtLightType.mjLIGHT_SPOT, pos=tuple(a_pos),
+        wb.add_light(name=P + "approach_light", type=spot_or_directional(c.shadows), pos=tuple(a_pos),
                      dir=tuple(a_tgt - a_pos), diffuse=(0.85, 0.82, 0.76), specular=(0.4, 0.4, 0.4),
                      cutoff=32.0, exponent=0.5, castshadow=bool(c.shadows))
         d_tgt = np.array([self.head_x + 5.0, 0.0, bed])
         d_pos = np.array([self.head_x - 6.0, -3.0, bed + 16.0])
-        wb.add_light(name=P + "deck_light", type=mj.mjtLightType.mjLIGHT_SPOT, pos=tuple(d_pos),
-                     dir=tuple(d_tgt - d_pos), diffuse=(0.75, 0.72, 0.66), specular=(0.5, 0.5, 0.5),
+        wb.add_light(name=P + "deck_light", type=mj.mjtLightType.mjLIGHT_DIRECTIONAL, pos=tuple(d_pos),
+                     dir=tuple(d_tgt - d_pos), diffuse=(0.55, 0.53, 0.48), specular=(0.5, 0.5, 0.5),
                      cutoff=40.0, exponent=1.0, castshadow=False)
         m_pos = np.array([c.foul_x + 6.0, 0.0, 18.0])
         m_tgt = np.array([c.foul_x + 12.0, 0.0, bed])
-        wb.add_light(name=P + "lane_light", type=mj.mjtLightType.mjLIGHT_SPOT, pos=tuple(m_pos),
+        wb.add_light(name=P + "lane_light", type=mj.mjtLightType.mjLIGHT_DIRECTIONAL, pos=tuple(m_pos),
                      dir=tuple(m_tgt - m_pos), diffuse=(0.35, 0.33, 0.40), specular=(0.3, 0.3, 0.3),
                      cutoff=50.0, exponent=0.5, castshadow=False)
 

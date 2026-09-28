@@ -26,6 +26,7 @@ import numpy as np
 from fly_simulator.jobs import hamster_wheel_assets as A
 from fly_simulator.jobs.base import CameraPreset, EternalJob, JobConfig
 from fly_simulator.jobs.geometry import add_box, contact_kwargs, quat_axis_angle
+from fly_simulator.jobs.geometry import spot_or_directional
 from fly_simulator.jobs.registry import register_job
 
 P = "wheel/"
@@ -248,11 +249,11 @@ class HamsterWheelJob(EternalJob):
         spec.visual.headlight.specular = (0.12, 0.12, 0.12)
         tgt = np.array([0.0, 2.0, 3.0])
         lamp = np.array([-9.0, -12.0, 26.0])
-        wb.add_light(name=P + "lamp", type=mj.mjtLightType.mjLIGHT_SPOT, pos=tuple(lamp),
+        wb.add_light(name=P + "lamp", type=spot_or_directional(c.shadows), pos=tuple(lamp),
                      dir=tuple(tgt - lamp), diffuse=(0.62, 0.57, 0.5), specular=(0.45, 0.42, 0.4),
                      cutoff=45.0, exponent=0.4, castshadow=bool(c.shadows))
         fill = np.array([14.0, -12.0, 10.0])
-        wb.add_light(name=P + "fill", type=mj.mjtLightType.mjLIGHT_SPOT, pos=tuple(fill),
+        wb.add_light(name=P + "fill", type=mj.mjtLightType.mjLIGHT_DIRECTIONAL, pos=tuple(fill),
                      dir=tuple(tgt - fill), diffuse=(0.2, 0.22, 0.27), specular=(0.15, 0.15, 0.2),
                      cutoff=50.0, exponent=0.5, castshadow=False)
 

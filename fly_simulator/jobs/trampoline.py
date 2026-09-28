@@ -43,6 +43,7 @@ from fly_simulator.jobs import trampoline_assets as A
 from fly_simulator.jobs.base import CameraPreset, EternalJob, JobConfig
 from fly_simulator.jobs.geometry import (FLY_BODY_GEOMS, LEG_SEGMENTS, LEGS, contact_kwargs,
                                          quat_axis_angle)
+from fly_simulator.jobs.geometry import spot_or_directional
 from fly_simulator.jobs.registry import register_job
 from fly_simulator.jobs.taste_tester import DIGITS, SEGS
 
@@ -396,11 +397,11 @@ class TrampolineJob(EternalJob):
         spec.visual.headlight.specular = (0.1, 0.1, 0.1)
         tgt = np.array([0.0, 0.0, c.mat_z + 2.0])
         sun = np.array([-10.0, -14.0, 30.0])
-        wb.add_light(name=P + "sun", type=mj.mjtLightType.mjLIGHT_SPOT, pos=tuple(sun),
+        wb.add_light(name=P + "sun", type=spot_or_directional(c.shadows), pos=tuple(sun),
                      dir=tuple(tgt - sun), diffuse=(0.62, 0.6, 0.55), specular=(0.4, 0.4, 0.4),
                      cutoff=35.0, exponent=0.5, castshadow=bool(c.shadows))
         fill = np.array([12.0, -10.0, 12.0])
-        wb.add_light(name=P + "fill", type=mj.mjtLightType.mjLIGHT_SPOT, pos=tuple(fill),
+        wb.add_light(name=P + "fill", type=mj.mjtLightType.mjLIGHT_DIRECTIONAL, pos=tuple(fill),
                      dir=tuple(tgt - fill), diffuse=(0.25, 0.27, 0.32), specular=(0.1, 0.1, 0.1),
                      cutoff=45.0, exponent=1.0, castshadow=False)
 

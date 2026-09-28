@@ -60,6 +60,7 @@ from fly_simulator.actions.behaviours import Groom
 from fly_simulator.jobs import kebab_assets as A
 from fly_simulator.jobs.base import CameraPreset, EternalJob, JobConfig
 from fly_simulator.jobs.geometry import PROP_BIT, add_box, contact_kwargs, quat_axis_angle
+from fly_simulator.jobs.geometry import spot_or_directional
 from fly_simulator.jobs.registry import register_job
 from fly_simulator.terrain import TERRAIN_BIT
 
@@ -409,7 +410,7 @@ class KebabJob(EternalJob):
         add_box(wb, P + "hood", (0.35, rmax + 0.55, 0.04), (hx - 0.26, sy, hz + h_half + 0.02),
                 quat=quat_axis_angle((0, 1, 0), -0.25), material=P + "heater_steel", collide="visual")
         # warm glow from the burners onto the meat
-        wb.add_light(name=P + "heat_light", type=mj.mjtLightType.mjLIGHT_SPOT,
+        wb.add_light(name=P + "heat_light", type=mj.mjtLightType.mjLIGHT_POINT,
                      pos=(hx - 0.3, sy, hz), dir=(-1.0, 0.0, -0.05), diffuse=(0.95, 0.42, 0.14),
                      specular=(0.35, 0.18, 0.06), ambient=(0.0, 0.0, 0.0), cutoff=80.0,
                      exponent=1.0, castshadow=False, attenuation=(0.4, 0.0, 0.12))
@@ -498,11 +499,11 @@ class KebabJob(EternalJob):
         spec.visual.headlight.specular = (0.15, 0.15, 0.15)
         key_pos = np.array([sx - 7.0, sy - 7.0, 16.0])
         tgt = np.array([sx - 1.0, sy, 1.2])
-        wb.add_light(name=P + "key", type=mj.mjtLightType.mjLIGHT_SPOT, pos=tuple(key_pos),
+        wb.add_light(name=P + "key", type=spot_or_directional(c.shadows), pos=tuple(key_pos),
                      dir=tuple(tgt - key_pos), diffuse=(0.62, 0.6, 0.56), specular=(0.5, 0.5, 0.5),
                      cutoff=45.0, exponent=0.5, castshadow=bool(c.shadows))
         rim_pos = np.array([sx + 2.0, sy + 5.0, 6.0])
-        wb.add_light(name=P + "rim", type=mj.mjtLightType.mjLIGHT_SPOT, pos=tuple(rim_pos),
+        wb.add_light(name=P + "rim", type=mj.mjtLightType.mjLIGHT_DIRECTIONAL, pos=tuple(rim_pos),
                      dir=tuple(tgt - rim_pos), diffuse=(0.25, 0.28, 0.33), specular=(0.4, 0.4, 0.45),
                      cutoff=35.0, exponent=2.0, castshadow=False)
 

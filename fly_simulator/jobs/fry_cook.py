@@ -48,6 +48,7 @@ from fly_simulator.jobs import taste_tester_assets as TA
 from fly_simulator.jobs.base import CameraPreset, EternalJob, JobConfig
 from fly_simulator.jobs.geometry import add_box, contact_kwargs, quat_axis_angle
 from fly_simulator.jobs.pizza_chef import ChefStance, _Puffs, _qmul, _yaw_quat
+from fly_simulator.jobs.geometry import spot_or_directional
 from fly_simulator.jobs.registry import register_job
 from fly_simulator.jobs.taste_tester import DIGITS, SEGS
 
@@ -630,7 +631,7 @@ class FryCookJob(EternalJob):
         spec.visual.headlight.specular = (0.1, 0.1, 0.1)
         tgt = np.array([2.2, 0.0, 0.3])
         key = np.array([-1.5, -6.0, 11.0])
-        wb.add_light(name=F + "key", type=mj.mjtLightType.mjLIGHT_SPOT, pos=tuple(key),
+        wb.add_light(name=F + "key", type=spot_or_directional(c.shadows), pos=tuple(key),
                      dir=tuple(tgt - key), diffuse=(0.62, 0.6, 0.56), specular=(0.4, 0.4, 0.4),
                      cutoff=40.0, exponent=0.5, castshadow=bool(c.shadows))
         wb.add_light(name=F + "fill", type=mj.mjtLightType.mjLIGHT_DIRECTIONAL, pos=(6.0, -6.0, 8.0),
