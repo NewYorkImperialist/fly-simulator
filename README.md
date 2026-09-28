@@ -38,6 +38,7 @@ uv venv --python 3.12 .venv && uv pip install --python .venv/bin/python -e ".[de
 .venv/bin/python scripts/run_job.py --job pizza_chef      # the fly makes pizza forever (knead, toss, toppings, oven, slice)
 .venv/bin/python scripts/run_job.py --job trampoline      # bounces on a backyard trampoline forever (real jump + spring mat)
 .venv/bin/python scripts/run_job.py --job delivery_pilot  # delivers parcels by air forever (real flapping-wing flight)
+.venv/bin/python scripts/run_job.py --job fry_cook        # works the fry station forever (basket dump, scoop, carton, ORDER UP)
 .venv/bin/python scripts/run_job.py --rotate               # all of them, forever
 .venv/bin/python scripts/run_job.py --job kebab --brain --stress   # + live brain; S startles the chef
 ```

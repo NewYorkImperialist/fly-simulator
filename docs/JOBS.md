@@ -20,6 +20,7 @@ constant.
 | `pizza_chef` | in a fly-scale pizzeria the fly kneads a dough ball flat with IK leg presses, tosses it (a spinning free body, real flight), sauces and tastes it (with `--brain` the connectome's MN9), toppings rain from the bowls (pooled free bodies), the peel slides it into the brick oven, it bakes, a cutter wheel makes 8 slices, it is boxed and served | pizzas served, dough tosses, perfect tosses, slices, tips |
 | `trampoline` | bounces on a backyard trampoline forever: the real Jump action, timed to the rebound of a mat held up by 48 tendon springs, pumps the height up to ~5 mm; now and then a backflip (real, boosted asymmetric push), crash landings and falls off are counted and reset | bounces, best height (mm, body lengths), streak, backflips, crash landings, falls off |
 | `delivery_pilot` | on the **real flight fly** (flapping wings, air, dt 5e-5 s) it picks up a parcel at the depot, takes off with the jump → wings, flies to a numbered house, lands on its roof terrace, drops the parcel on the doormat (DELIVERED, *ding-dong*), flies back, forever | parcels delivered, flight time, distance flown, on-time %, missed / crash landings |
+| `fry_cook` | works a fast-food fry station: a basket on an auto-lift dumps fried fries (pooled free bodies) into the heated bin, the fly takes a carton, scoops fries into it with a scoop on its right front leg (they drop into the carton with real physics), the carton slides onto the tray at the pass window, *ding*, ORDER UP; now and then a fry spills and the fly sneaks it (with `--brain` the connectome's MN9) | orders served, cartons filled, fries per carton, spilled, sneaked, batches, salt level |
 
 ```bash
 python scripts/run_job.py --job sisyphus                   # window; Q quit, C camera, P pause, X reset, I screenshot, TAB HUD
@@ -1580,6 +1581,150 @@ start at the end of the leg stroke so it has cleared it every time, but it is no
 150 s run no landing failed, so the missed-landing and crash paths are exercised by the tests only.
 With `run_sim.py` the app keys still work: L / the arrows act on the same FlightMode and can fight the
 job. The window mode (`LiveViewer`) was not opened in this session.
+
+### fry_cook
+
+`fly_simulator/jobs/fry_cook.py` (scene, stance, machines, pools),
+`fly_simulator/jobs/fry_cook_assets.py` (procedural meshes / textures), tests in
+`tests/test_jobs_fry_cook.py`. HUD (TAB): `FRY COOK FLY - the fly works the fry station forever`.
+
+![fry_cook](media/fry_cook.gif)
+
+"The fly works a fast-food fry station forever, putting fries in the bag."
+
+**Scene** (a generic fast-food look: "FLY FRIES" and the badge, a cartoon fly on a yellow disc
+holding three fries, are our own; red / yellow colours, no real brand, logo or mascot). A
+fly-scale kitchen on a brushed stainless counter (the floor plane's material): a stainless fryer
+with a front panel (dial, knobs, `FRYER 1`) and translucent hot oil (its emission shimmers; a pool
+of 36 bubbles rises and pops, more while cooking; steam), a wire basket on an overhead `AUTO-LIFT`
+gantry (post, rail, trolley, a hanger rod stretched at run time), the heated holding bin
+(`HOT & READY`, a perforated plate) under a red heat lamp (three glowing bulbs and a warm point
+light), a salt shaker (glass, the salt inside shows the level, a steel cap, `SALT`), a nested stack
+of red fry cartons, a serving tray with a printed liner, a brass service bell, the tiled back wall
+(white with a red row) with the pass-through window (steel frame, an `ORDER UP` light box that
+blinks on a ding, a ticket rail with four order tickets, a soft-focus dining room behind), an
+`ORDERS` counter (three 7-segment digits) and a backlit menu board (`SMALL FRY 1.00 ...
+ETERNITY MEAL ?`). Lights: a key spot with shadows (`shadows: false` turns the shadow map off), a
+directional cool fill (no spot light without shadows: on macOS such a spot blacks out pixels
+behind its plane), the heat lamp, the headlight. `znear` 0.05.
+
+**Fries** are a fixed pool of 48 free bodies: a hidden capsule collider (r 0.024 mm, 0.43 mm long,
+1 µg, condim 3, a little angular damping so a spilled fry rolls and stops) under a rounded-square
+fry mesh (4 variants) with a potato texture tinted from raw (pale) to golden while it cooks.
+Contacts: fries `contype` 128, `conaffinity` 128 | 64 | TERRAIN: they touch each other, the job's
+hidden colliders (`contype` 64: the bin, the basket, the carton being filled) and the counter;
+never the fly. The colliders are thick boxes and the contacts 0.5 ms (the pizza_chef lesson), and
+the carton's wall colliders stop at the rim height (higher, a fry lying across the carton bridged
+the invisible walls and slid off). Found while building it: MuJoCo filters collisions with a
+per-body `contype` / `conaffinity` aggregate computed at compile time, so a free body compiled with
+all-zero bits never collides even if its geom bits are switched on later; the fries are compiled
+with their live bits and switched off at run time. A fry is parked (under the floor, contacts off,
+gravity compensated), rides kinematically (in the basket while cooking, in the scoop, in a carton
+that slides, on the leg while sneaked), or is live. Live fries at rest in the bin or the carton
+**sleep** after 0.3 s (contacts off, held in place) and are woken when the basket tips over the bin
+or the scoop tips over the carton, so a pile forms with real contacts but a resting pile costs
+nothing (with condim 6 and no sleeping the physics RTF was 0.13-0.22; now 0.36-0.42).
+
+**Machines (kinematic, labelled).** The fryer cycle: `load` (raw fries into the basket from an
+unseen freezer: a hidden recycle of the pool, in two layers of rows, never overlapping) → `lower`
+(a splash of bubbles) → `cook` (`cook_s` 6 s, the fries turn golden) → `lift` → `drip` (oil drips)
+→ `hold` until the bin has fewer than `low_mark` (8) fries → `swing` over the bin → `tip` (118°):
+here the fries become **live bodies inside the basket** (its floor and walls are colliders on the
+mocap body) and slide out over its lip and fall into the bin with real contacts → `untip` →
+`return` → `load`. A run starts with a cooked batch in the raised basket. After each dump the **salt
+shaker** flies over the bin, turns over and shakes (salt grains), its level drops by 7 % and it is
+refilled when nearly empty (counted); the shake gives the fries in the bin a saltiness (random,
+~1). The **carton** slides from the fill spot onto the tray, the **bell** dings (plunger, a ring),
+`ORDER UP` blinks, the ORDERS digits count, the **tray** slides through the window and comes back
+empty (the carton and its fries go back to the pools). Three pooled cartons (filling, on the tray,
+on the stack); the static stack below never changes.
+
+**The fly** holds a stance action, `CookStance` (pizza_chef's `ChefStance`: all tarsi planted and
+adhering, registered as stationary). The job drives both front legs with joint targets from damped
+least-squares IK on a scratch `MjData` (the dead_hang `LegIK`), interpolated in joint space; the legs
+are position-controlled like any action, a lifted leg's adhesion is off. The thorax stays at
+(0.62, 0.01, 1.00) mm through the runs. The **fry scoop** (a steel bowl on a red handle, a mocap
+prop) is placed at the right front tarsus every millisecond; the job sets its yaw and pitch, and
+the leg's IK target is the grip that puts the bowl where the job wants it. One order:
+
+1. `grab`: the left front leg reaches over the top carton of the stack and pulls it to the fill spot
+   (the carton follows the same path, kinematic); a target of 6-8 fries.
+2. `scoop_wait` → `scoop_reach` (over the densest spot of resting fries in the bin) → `scoop_dip`
+   → `scoop_drag` (the bowl drags toward the fly, tipping up): **the pick-up is a labelled kinematic
+   transfer**: up to 5 resting fries within 0.22 mm of the bowl blend over 0.12 s into slots in the
+   bowl and ride in it → `scoop_lift` → `scoop_carry` over the carton → `scoop_tip` (the scoop
+   tips to 100°; past 75° the fries are released one by one, hanging about vertical, and **drop into
+   the carton with real physics**, landing, leaning and settling) → `scoop_back`. On 15 % of the
+   carries one fry slips off on the way (`spill_p`) and falls / rolls on the counter; fries that miss
+   the carton count as spills too. Repeat until the carton has its fries (at most 5 scoops).
+3. `serve`: the carton's fries freeze to it (kinematic carry), the carton slides onto the tray,
+   *ding*, ORDER UP; the fly takes the next carton meanwhile.
+4. Between scoops, a spilled fry that has come to rest within reach of the left front leg is
+   **sneaked** with probability `sneak_p` (0.6): the leg reaches it, picks it up (kinematic), brings
+   it in front of the mouth, and it is nibbled away (`sneak_*` states). Resting spills out of reach
+   stay on the counter until the pool needs them (recycled oldest first, counted).
+
+**Taste (with `--brain`, off by default).** On a sneak the job sends
+`StimulusEvent("taste", "left", duration 0.5 s)` labelled `FRY TASTE (stand-in: LB3 sugar GRNs =
+low salt / starch; LB1 bitter GRNs when over-salted)`: **stand-in** sets (docs/TASTE.md: the model has
+no salt-specific or tarsal input). In flies low salt is appetitive and activates sweet GRNs, high salt
+recruits bitter GRNs (Jaeger et al. 2018, *eLife*), so the labellar sugar set is driven at 150 Hz and,
+if the fry's saltiness is above `oversalt` (1.3), the bitter set too (160 Hz × (salt − 1) / 0.6,
+at most 200 Hz). The proboscis follows the brain's MN9 (fully out at 60 Hz, τ 0.1 s), the HUD and
+the terminal report the MN9 peak (`'mmm, salty'` at ≥ 30 Hz). Without a brain a labelled scripted
+proboscis dab (`[scripted: no brain]`).
+
+**Edit effects (labelled on screen).** Slow motion while the basket dumps (×0.3) and while the fries
+drop into the carton (×0.5), `SLOW MOTION x0.30 (edit, not physics)`; a `DING!  ORDER UP #n` caption
+for 1.6 s (`captions: false` turns it off); `slowmo: false` turns the slow motion off. The camera
+cuts (at most every 1.6 s, except to the dump) between a wide station shot, a scoop close-up, the
+dump, the pass window and a sneak close-up (`close_ups: false`: the wide shot only).
+
+**Counters / HUD** (TAB, off by default): orders served (the work counter), cartons filled, fries per
+carton (mean and last), spilled, sneaked, batches fried (fries into the bin), fries in the bin, scoops,
+salt level and refills, the fryer and station states, the last message, the taste line, the MN9 /
+proboscis line and the label line `(fries: real physics in the basket / bin / carton; scoop pick-up,
+basket lift, shaker, carton + tray slides: kinematic; slow motion: edit)`. Constant memory: fixed
+pools (48 fries, 3 cartons, 80 particles, 14 steam puffs), counters only; the brain's `stim_log` is
+trimmed.
+
+**Verified** (headless, 2026-09-27, Apple M1, one process at a time):
+
+* `run_job.py --job fry_cook --headless --max-seconds 150`: **16 orders served**, 16 cartons, **7.44
+  fries per carton** (119 in cartons), 11 batches (139 fries into the bin), 42 scoops picking 136
+  fries, **9 spilled**, 1 sneaked, 1 spill recycled, 0 fries lost, 10 shakes (salt 100 → 30 %),
+  **0 falls, 0 auto-recoveries, 0 instabilities, RTF 0.38**: ~9.4 s per order on average.
+* with the **real FlyWire brain** (v783, 138,639 neurons, window off), `run_job.py --job fry_cook
+  --brain --headless --no-brain-window --max-seconds 30 --job-config '{"spill_p": 0.6, "sneak_p":
+  1.0}'`: 2 sneaked fries (salt ×1.1, ×1.2: the sugar set only), **MN9 peaks 90 and 80 Hz**
+  (`'mmm, salty'`), the proboscis out; 1 order, 0 falls, RTF 0.39.
+* `run_sim.py --job fry_cook --headless --max-seconds 5` runs (0 falls).
+* Frames checked by eye (job renderer, 640×426): the basket tipped over the bin with the fries
+  pouring out (slow-motion label), the scoop dragging through the fries in the bin, fries riding in
+  the scoop over the carton, the scoop tipped over the carton with fries standing in it, the full
+  carton on the tray at the window, the DING / ORDER UP caption with the ORDERS digits, the shaker
+  upside down over the bin, the HUD with TAB; and in the GIF recording (420×280) the sneak close-up (the spilled fry picked up by the left front leg, held at the mouth, nibbled away).
+
+Tests: `tests/test_jobs_fry_cook.py` (5 tests, ~56 s): registry / config and the taste stand-in
+(sugar only; over-salted adds bitter); no job geom can touch the fly, only fry capsules and the
+bin / carton / basket colliders collide, the fixed pools, the fly's mass, the stationary stance, the
+proboscis actuators, znear; one fast-config order (the fryer's swing → tip → untip → return → load,
+≥ 8 fries into the bin, grab → the scoop states in order → serve → grab, the tray home → slide → ding
+→ out → back, ≥ 2 fries settled in the carton, 0 lost, the pool size constant every step, no contact
+between a fry and the fly, the ORDERS digit, the HUD); a sneaked, over-salted spill with a fake
+brain (one taste stimulus with the sugar and bitter sets, the stand-in label, the duration, the
+proboscis follows MN9, the fry eaten = parked); a reset mid-carry voids the order, parks the fries,
+frees the fill spot and the job gets back to tipping a scoop.
+
+**Limitations.** The pick-up is a kinematic transfer (fries within reach of the bowl are moved into
+it), not a physical scoop; the scoop, the basket lift, the shaker, the carton and tray slides, the
+bell and the freezer are engineered / kinematic; fries in a sliding carton ride on it
+kinematically; the sneak is a kinematic pick-up by the leg and the "eating" a fade. Sleeping fries
+do not collide until woken, so a fry spilled onto a resting pile can sink into it. A fry now and then
+pops out of the carton on release (it is counted as a spill). The taste is a stand-in (labellar
+sugar / bitter GRN sets for low / high salt); the saltiness is our number. The cartons hold 6-8
+fries because the fries are cartoon-sized (0.43 mm, a sixth of the fly). The window mode
+(`LiveViewer`) was not opened in this session.
 
 ## Verification
 

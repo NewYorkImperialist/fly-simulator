@@ -26,6 +26,7 @@ ffmpeg -ss START -t DUR -i in.mp4 -vf "setpts=PTS/SPEED,fps=FPS,scale=W:-2:flags
 | `pizza_chef.gif` | 2.4 MB | The pizza chef job, one pizza: the dough ball kneaded flat, the toss (a spinning free body, labelled slow motion x0.1), sauce, cheese / pepperoni / basil raining from the bowls (slow motion x0.3), into the brick oven on the peel, baked, sliced by the cutter wheel, boxed and served; the chalkboard counts. No HUD |
 | `trampoline.gif` | 2.1 MB | The trampoline job: the fly stands on the spring mat, the first jump, the rebound jumps pumping the height up beside the ruler (red / gold markers, NEW BEST), a backflip (a real boosted asymmetric push) landed at the mat's edge, the next bounce sends it off onto the lawn, the counted respawn, and it pumps up again. Labelled slow motion x0.2, a one-line HUD |
 | `delivery_pilot.gif` | 2.1 MB | The delivery pilot job on the real flight fly: the parcel slides onto the fly on the depot roof, the jump → wings take-off, the flight to house No. 1 with the parcel hanging under it, the landing on the roof terrace, DELIVERED on the doormat, the take-off and the flight back to the depot's loading mark. Real time, no HUD (the captions are the job's overlay) |
+| `fry_cook.gif` | 2.5 MB | The fry cook job: the basket swings over the holding bin and tips, the fries pour out into the bin (real contacts, labelled slow motion x0.3), the fly scoops fries with the scoop on its right front leg, they drop into the carton (slow motion x0.5), the full carton slides onto the tray, DING! ORDER UP, and a spilled fry is sneaked to the mouth with the left front leg. No HUD |
 | `temple_standoff.gif` | 2.0 MB | The `temple_standoff` scene (docs/SCENES.md): the establishing wide of the stone hall, the hooded tall fly walks in through the back doorway, the little flies turn, the lead one steps forward and looks up, the long low-angle hold, the handle comes forward, the energy blade ignites and relights the room, the little flies recoil, cut to black. Letterbox cropped; rendered grain-free for the GIF |
 | `jobs.gif` | 2.3 MB | 2x2 grid of the eternal jobs: Sisyphus (Greek hillside at sunset), hamster wheel (pet cage), lawn mowing (front yard), leaf raking (autumn backyard) |
 | `whip.gif` | 2.0 MB | A level-3 physical whip crack from the right knocks the fly sideways. 4x slow motion |
@@ -212,6 +213,20 @@ colours, no dither):
 ffmpeg -framerate 15 -i $S/rec/%04d.png -vf "trim=end=7.4,fps=10,scale=480:-2:flags=lanczos,split[a][b];\
 [a]palettegen=max_colors=64:stats_mode=diff[p];[b][p]paletteuse=dither=none:diff_mode=rectangle" -loop 0 delivery_pilot.gif
 ```
+
+**fry_cook.gif** (`--job-config '{"spill_p": 0.35, "sneak_p": 1.0}'`, a demo setting so a spill is sneaked
+within the clip; otherwise the default config, seed 0, no brain). Clean frames (`JobRunner(session, job,
+headless=True, chunk_steps=50).render(hud=False)`, so the job's slow-motion label and ORDER UP caption are in them)
+at 420×280, one every 1/15 s of presentation time (`session.present_time()`), 0-44 s of sim; a montage by frame
+index: the carton grab every 3rd frame, the basket dump (frames 30-68) and the first scoop (68-122) every other
+frame, the next scoops every 9th, the carton slide and the ding (220-250) every other frame, the sneak (800-846)
+every other frame (102 frames), then:
+```bash
+ffmpeg -framerate 10 -i sel/s%04d.jpg -vf "scale=360:-2:flags=lanczos,split[a][b];\
+[a]palettegen=max_colors=48:stats_mode=diff[p];[b][p]paletteuse=dither=none:diff_mode=rectangle" -loop 0 fry_cook.gif
+```
+(400 px / 64 colours / 112 frames was 3.7 MB.) Run it live: `python scripts/run_job.py --job fry_cook` (or
+`run_sim.py --job fry_cook`).
 
 **temple_standoff.gif** (a scripted scene, not an app recording; the grain is off for the GIF
 because it defeats GIF compression; GIF: whole clip, 12 fps, 600 px, letterbox bars cropped,
