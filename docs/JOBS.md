@@ -29,6 +29,8 @@ constant.
 | `barista` | makes coffee forever at "THE COMPOUND EYE" café: grinds, tamps the grounds with a tamper on its left front leg (real contact), presses SHOT / STEAM (real contact), the shot runs into a paper cup with the customer's name, steams the milk, holds the jug with its right front leg and pours latte art (heart / tulip / rosetta, drawn as it pours), rings the bell, the cup slides to the pickup counter; orders queue on the ticket rail | drinks served, shots pulled, latte-art score, orders in queue, tamps, spills |
 | `shopping_carts` | returns shopping carts forever in a supermarket parking lot ("FRESH FLY MARKET", our own): pushes each cart (planar joints + gravity, real physics) into the corral, where it nests into the train (kinematic snap); a "customer" (kinematic) takes carts out and leaves them around the lot, sometimes on the loading ramp, where they roll away down the slope and the fly chases them | carts returned, longest cart train, runaways caught (still rolling), customers |
 | `crop_duster` | on the **real flight fly** crop-dusts a patchwork of fields forever: take-off from a grass airstrip, transit, low velocity-controlled passes along the crop rows with pull-up turns at the ends, a dust trail (visual particles) that tints the rows it settles on; the crop grows back; lands to refill the hopper; physical wind with gusts | fields dusted, rows, flight distance, refills, wind gusts |
+| `bouncer` | works the door of a night club ("CLUB HALTERE"): each guest (a posed NeuroMechFly copy) steps up = a loom on both eyes; with `--brain` the giant fibre makes the bouncer flinch (never jump), the LC4 → GF depression (on by default) habituates it over the night; a rowdy guest (bigger, faster loom + a chest bump) breaks through; the rope unclips (let in) or a leg wave turns them away | guests let in / turned away, flinches (per club hour, per sim hour), rowdy guests, GF peak per guest |
+| `air_traffic` | an air-traffic controller in a tower cab at night: the calling plane is an LC10a target; with `--brain` DNa01/02 set the yaw rate of the fly's swivel stool until it faces the plane, which is then cleared to land (kinematic) on the runway; others circle in holding stacks | planes cleared, mean response time, holding length, near misses, diverted, first turn toward the plane |
 
 ```bash
 python scripts/run_job.py --job sisyphus                   # window; Q quit, C camera, P pause, X reset, I screenshot, TAB HUD
@@ -2325,6 +2327,206 @@ behind it, the turns at the field ends, the barn / silo / windpump from the tran
 is a footprint model downwind of the track); the refill is a timer; the guidance (passes, turns, lead-in, cross-track
 integral, when to land) is our code, not the brain; the passes hold the altitude to about +1 mm (the COM rises ~0.9 mm
 when accelerating out of a turn). No ground effect. The window mode (`LiveViewer`) was not opened in this session.
+
+### bouncer
+
+`fly_simulator/jobs/bouncer.py` (scene, guests, loom, flinch, rule, nights), `fly_simulator/jobs/bouncer_assets.py`
+(procedural meshes / textures), tests in `tests/test_jobs_bouncer_atc.py`. HUD (TAB): `BOUNCER FLY - the fly works the
+door of a club forever`.
+
+![bouncer](media/bouncer.gif)
+
+The GIF is the real FlyWire brain (138,639 neurons), default config, seed 0: 0-7 s (guests #1 and #2 step up, the GF
+fires, FLINCH, the rope swings open, they walk in) and 42-52 s (a habituated guest #14 walks up with the GF at 20 Hz,
+then the rowdy guest #15: wings spread, a fast lunge, CHEST BUMP, FLINCH, the wave, NOT TONIGHT; the next normal guest
+flinches again after the bump). The HUD line `LC4->GF` is the model's synaptic efficacy (docs/HABITUATION.md).
+
+**Scene** (all visual; the bouncer stands on FlyGym's floor, drawn as a wet pavement). A brick facade at night with a
+padded club door (open, a dim purple interior), a neon sign `CLUB HALTERE` (an emissive texture, our own name and fly
+mark), gig posters (our own copy), lit windows, a red carpet from the door spot to the door, brass stanchions with velvet
+ropes along the queue, a guest-list lectern, a street lamp and the curb. The bouncer wears sunglasses and an earpiece
+(visual geoms on the head). Lights: a key light (spot with shadows, or directional with `shadows: false`), point lights for
+the neon glow, the door and the street lamp. `znear` 0.05.
+
+**The bouncer (real body).** The simulated fly stands at the origin facing the queue (+x) in `BouncerStance` (an action
+like `freeze`: the standing pose with all tarsi adhering; the CPG idles underneath). Two job-controlled additions (our
+motor patterns, joint targets): the **flinch** (0.35 s: femur-tibia flexion of all legs = a crouch, the front legs
+pulled in; 1 s refractory) and the **wave** (the right front leg lifts beside the head and waves, its adhesion off).
+
+**Guests (posed, kinematic; labelled).** A pool of 6 NeuroMechFly copies (leg + wing joints, no actuators, no contacts,
+gravity compensated, the passive tarsal joints removed) on mocap mounts, like broccoli_toss's viewer. The job writes
+their mount poses and joint angles (the standing pose, a shuffling tripod pattern while they walk, the wings spread for a
+rowdy one). Seven colour variations (material tints); rowdy guests are tinted red. 5 wait in the queue (2.9 mm apart),
+the 6th walks back into line from off-screen after it is let in or turned away (constant memory).
+
+**The step-up = a loom (LC4 / LPLC2).** The guest at the head of the queue steps up from 6.0 mm to the door spot
+(thorax 2.55 mm ahead of the bouncer's origin) in 1.1 s along a profile on which 1 / distance grows linearly (fast
+while far, leaning in at the end: a steady loom). It is a `LoomingVision` source (a head sphere + a body capsule) on
+both eyes, computed from the **resting** eye poses (a perfect efference copy, as in dead_hang: the bouncer's own flinch
+and wave do not make the close guest loom). `guest_response()` (our interface tuning, not a fit): LC4 = 200 tanh(max(0,
+dθ/dt − 4) / 10) Hz for θ ≥ 10°, LPLC2 = 200 ramp(θ; 30°, 60°) ramp(dθ/dt; 4, 14 °/s). Measured without a brain: a normal
+guest drives **LC4 ~199 Hz on both eyes for ~0.5 s** (θ 16° → 32°, dθ/dt 20-37 °/s) and LPLC2 0 Hz (it never gets big
+enough); a **rowdy** guest (wings spread: two extra spheres; a 0.4 s lunge to 2.38 mm) drives LC4 200 Hz for ~0.3 s and
+**LPLC2 up to 61 Hz** (θ 39°, dθ/dt up to 137 °/s). The loom events go to the brain with `--brain`.
+
+**Flinch rule (brain).** The job reads the giant fibre (DNp01, the `escape` group) from every BrainState (0.1 s windows):
+above `gf_flinch_hz` = 60 Hz (the jump rule's threshold) the bouncer **flinches** instead of jumping. With `--brain-actions`
+the trigger's giant-fibre check is replaced (no jump is ever started); the flinch uses the same state-based rule in both
+modes. The GF peak of every guest (from its step-up start for 1.6 s) is logged (the last 120 in `gf_log`; `stats()` shows
+the last 6).
+
+**Habituation (on by default for this job).** With a brain the job enables the LC4 / LPLC2 → GF short-term depression
+(`BrainProcess.set_habituation`, docs/HABITUATION.md) with the **documented defaults (U 0.006, recovery 20 s)** and
+`dishabituate_frac` 0.6; `--habituation` / `brain.habituation_config` overrides are merged on top. A rowdy guest's
+**chest bump** is sent to the brain as a `shove` touch stimulus (intensity 0.6), which triggers the model's
+dishabituation shortcut (efficacies 60 % of the way back to 1; a phenomenological shortcut, not a physical push, not a
+sensitisation model). A new night resets the depression (a day's rest is far longer than the 20 s recovery).
+
+How the loom was tuned (all with the real brain, 30-40 s runs, one guest every 3.27 s): with a first response that also
+drove LPLC2 for normal guests (LC4 200 + LPLC2 up to 170 Hz), the GF peaked at 175 Hz on the first guest and stayed at
+120-140 Hz at a steady-state efficacy of 0.25 (LC4) / 0.33 (LPLC2); a weaker drive (110 Hz) gave 150 → 120 Hz; recovery
+60 s gave efficacies 0.10 / 0.14 and still 85-105 Hz; depressing LC4 / LPLC2 onto *all* targets (`post_types: []`) 70-80
+Hz; U 0.03 / 20 s 65-85 Hz; U 0.05 / 40 s hovered at the threshold (55-80 Hz, flinches on and off). So LPLC2 is the potent
+GF input here and a ~40 Hz LPLC2 drive at 13 % efficacy still fires the GF. LC4 alone at ~60 Hz gave only 40 Hz. The
+final design: a normal guest drives **LC4 only** (like the key-O loom the depression was calibrated on), which
+habituates with the default parameters; LPLC2 (large, fast looms) is reserved for the rowdy guests, so they still get a
+response from fresh synapses.
+
+**Real brain** (`run_job.py --job bouncer --brain --headless --max-seconds 60`, default config, seed 0, one brain process,
+184 s wall, RTF 0.33): 19 guests, 17 let in, 1 turned away (the rowdy guest #15), **4 flinches, 0 jumps, 0 falls**, 11 GF
+bursts > 60 Hz. GF peak per guest (0.1 s windows) and the LC4 efficacy when its step-up began (same run from a probe
+script):
+
+| guest | 1 | 2 | 3 | 4 | 5 | 6-14 | 15 (rowdy) | 16 | 17 | 18 | 19 |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| LC4 → GF efficacy | 1.00 | 0.57 | 0.39 | 0.31 | 0.27 | 0.26-0.25 | 0.25 | 0.69 (after the bump) | 0.44 | 0.33 | 0.28 |
+| GF peak (Hz) | 125 | 85 | 35 | 30 | 15 | 15-25 | 110 | 70 | 50 | 35 | 20 |
+| flinch | yes | yes | no | no | no | no | yes | yes | no | no | no |
+
+LPLC2 efficacy stayed at 0.94-0.98 (normal guests barely drive it). So the flinches stop after the second guest, a rowdy
+guest breaks through (LPLC2 + a faster LC4 drive), the chest bump dishabituates for one more flinch, and it
+re-habituates within two guests. In a second recording (the GIF, 5 ms chunks) the peaks were 125 / 85 / ... / 105 / 90
+Hz. `flinch_rate_per_sim_hour` over the run: 240.
+
+**Without a brain** the flinch is a **scripted probability** (labelled on the HUD): p = 0.03 + (0.95 − 0.03)
+exp(−h / 2.5), where h grows by 1 per harmless guest and decays with 40 s; a rowdy guest always flinches (p = 0.95) and
+its bump multiplies h by 0.3.
+
+**Rule (ours).** Rowdy guests (8 % of guests, at least 6 apart, never the first ones of a night) are turned away, and so
+is everyone while the club is full (round(inside) ≥ `capacity` = 18; the guests inside leave at inside / 50 s).
+Everyone else is let in: the rope's clip end swings open about the hinge stanchion (kinematic, 0.35 s), the guest walks
+through the door and the rope closes behind it while the next one steps up. Turned away: the wave (1 s), the guest walks
+off to the street.
+
+**Nights.** A night runs 22:00-04:00 on the club clock (`shift_s` = 180 sim s, 30 s per club hour), then `CLOSING TIME`,
+the door stays closed for 12 s, and a new night starts: the queue refills, the per-night counters and the per-hour
+flinch / guest counts reset, the scripted habituation resets, and (with a brain) the depression is reset. The HUD shows
+flinches / guests per club hour of the current night (the flinch rate per hour), and all-night totals.
+
+**Verified** (2026-09-28, Apple M1, one process at a time): `run_job.py --job bouncer --headless --max-seconds 120`: 37
+guests, 36 let in, 1 turned away (rowdy), 5 scripted flinches (per club hour 2/10, 0/9, 2/9, 1/9), 0 falls, 0
+auto-recoveries, 0 instabilities, RTF 0.33 (the 6 guest copies add 288 DoFs: mj_step is ~2/3 of the time).
+`run_sim.py --job bouncer --headless --max-seconds 6` works (2 guests). Frames checked (job renderer, 640×400 wide and
+close-ups, and the GIF frames): the queue behind the rope line, the neon sign, the door; the step-up, the rope open, a
+guest walking in; the sunglasses; the flinch crouch and the raised waving leg (front views); the rowdy guest with its
+wings spread walking off. Tests: `tests/test_jobs_bouncer_atc.py` (guests touch nothing and have no actuators, no
+unshadowed spot; a step-up drives LC4 > 150 Hz on both eyes and LPLC2 < 60 Hz; GF 120 Hz → flinch, never a jump, not
+counted twice; a synthetic habituating GF: flinches on the first two guests, none after, GF peaks logged; the scripted
+probability habituates and a bump dishabituates; rowdy → bump (a `shove` sent) and turned away, a reset mid-cycle; the
+capacity rule and a new night).
+
+**Limitations.** The guests are posed kinematic copies (no physics contact with the bouncer; the chest bump is only a
+touch stimulus to the brain). The loom response and its LC4-only design for normal guests are our interface choices
+(see above); the depression parameters are the documented, unfitted defaults; dishabituation is the reset shortcut.
+Only the guest at the door is a looming source (the shuffling queue behind it is not, the guests walking past are not).
+The flinch and the wave are our motor patterns; the admission rule is a rule, not the brain. The efference copy is
+perfect. With the default traffic the GF habituates within two guests; a slower door (longer cycles) would recover
+more between guests (tau 20 s). The window mode (`LiveViewer`) was not opened in this session.
+
+### air_traffic
+
+`fly_simulator/jobs/air_traffic.py` (cab, airfield, traffic, stool, clearance), `fly_simulator/jobs/air_traffic_assets.py`
+(procedural meshes / textures), `fly_simulator/jobs/air_traffic_experiment.py` (brain vs mirror vs none), tests in
+`tests/test_jobs_bouncer_atc.py`. HUD (TAB): `AIR TRAFFIC CONTROLLER FLY - the fly clears planes to land forever`.
+
+![air_traffic](media/air_traffic.gif)
+
+The GIF is the real FlyWire brain, default config, seed 0, 0.8-30 s of sim at 8 fps (real time): planes call from the
+right and the left; the HUD shows the LC10a rate per eye, the DNa01/02 turn groups and the stool's turn signal; each
+plane is `CLEARED TO LAND` once the fly faces it and flies a kinematic approach onto runway 09.
+
+**Scene** (all visual). A fly-scale control tower cab at night (radius 6.8 mm): 12 glass panels with mullions (no
+mullion straight ahead or behind), a sill wall, six consoles (the view ahead stays clear) with two radar scopes (a
+rotating sweep; the blips are the real plane positions, the calling one yellow) and a flight-strip board (our own flight
+numbers), a carpet floor, and the controller's **swivel stool** in the middle. Below (6 mm down) the airfield: runway 09
+(our airport "FLY") with edge lights, an approach light bar, a taxiway with blue lights, hangars; stars and a far city
+glow. `znear` 0.1, `zfar` 300.
+
+**Traffic (kinematic; labelled).** A pool of 8 small airliners (3.3 mm long, 3.6 mm span; mocap, no contacts; red / green
+navigation lights, a flashing strobe, a landing light while calling / landing). Arrivals every 4.5 s × U(0.6, 1.4), from
+the left or the right corridor (the other one than the last arrival with p 0.7). If nobody is being served the plane is
+**called**: it flies inbound (2.5 s) to its calling point (world azimuth ±30-55°, 16 mm out, 1.5-3.5 mm up) and then
+**requests clearance**, loitering in a 1.2 mm circle. Otherwise it joins its side's **holding stack** (a 3 mm circle
+34 mm out, stacked 1.5 mm apart), called in arrival order. **Near miss**: a plane arriving while `crowded` (3) are
+already holding (a conflict alert). A plane that requests for 30 s diverts (counted).
+
+**What the controller sees (LC10a).** The requesting plane is a small moving target for `PursuitVision` (the chase / pong
+/ rings interface, docs/GAMES.md): per gaze-stabilised eye, LC10a = 150 Hz · size(θ) · ecc(azimuth) · fov (visual radius
+1.4 mm: θ ≈ 10°, so the size term is saturated; ecc = ramp(az; 0, 30°): a plane straight ahead drives neither eye), sent
+as `manual` LC10a events. Only the requesting plane is a source (inbound and holding planes are not).
+
+**How it turns (a documented body-yaw mapping).** turn = tanh(turn_L / 25 Hz) − tanh(turn_R / 25 Hz) (the DNa01 / DNa02
+groups, the games' readout) sets the **yaw rate of the swivel stool**: 150 °/s × min(|turn| / 0.8, 1), dead band 0.06.
+The stool is a round top (radius 3 mm, 0.08 mm high) on a hinge with a velocity servo; the fly stands on it in the
+standing pose with all tarsi adhering (`BouncerStance`) and turns with it by contact and adhesion (measured over 2 s:
++147 / −143 °/s at turn = ±1, 69 °/s at 0.4; the thorax stays within 0.01 mm of where it stood). So the turn *decision* is the connectome's, the turning
+*mechanism* is a motorised stool, not the fly's legs. Why a stool: the walking CPG's turn in place ([−a, +a] drive)
+translated the fly by 1-2 mm per 90° of turn (0.7 mm per 360° at the fastest drive), and in brain runs the fly wandered
+off its spot within tens of seconds; scripted walks back to the spot orbited it or looped.
+
+**Clearance.** When the heading points at the requesting plane within ±15° for 0.15 s: `CLEARED TO LAND runway 09`; the
+plane flies a Bezier approach onto the extended centre line (5 s), touches down, rolls out (3 s) and disappears; the next
+plane is called. Response time = request → clearance.
+
+**Without a brain** a labelled **scripted orientation controller** feeds the same stool map: turn = clip(error / 50°, ±1)
+with a 0.15 s reaction delay, only while the plane is in the field of view (< 165°). **Housekeeping
+(scripted, both modes, counted):** between planes a fly facing more than 60° away from the runway swivels back toward it;
+while the requesting plane is behind it (> 150°, out of sight) it swivels back toward the runway first.
+
+**Real brain** (`run_job.py --job air_traffic --brain --headless --max-seconds 60`, seed 0, 118 s wall, RTF 0.51): **14
+planes cleared** of 15 arrivals, **mean response 0.50 s**, the first turn after a request went **toward the plane 12 / 12**
+(requests already within the tolerance excluded), max holding 1, 0 near misses, 0 diverted, 0 falls; 7 idle swivels back
+to the runway, 0 for a plane behind. A trace: a plane at −34° drives the right LC10a at 150 Hz, the right DNa01/02 group
+reaches 30-60 Hz within ~0.1 s (brain lag 0.02-0.11 s), turn −0.8 to −1.0, the stool turns right, cleared.
+
+**Experiment** (`python -m fly_simulator.jobs.air_traffic_experiment --planes 8`, paired single-plane trials at ±40-90°,
+6 s each, housekeeping off, one brain process, 231 s wall):
+
+| condition | cleared | mean response | first turn (0.6 s) toward / away | mean first turn toward | final error |
+|---|---|---|---|---|---|
+| **brain** (left eye → left LC10a) | **8 / 8** | **0.63 s** (0.49-0.76) | **8 / 0** | **+63°** | 0° |
+| mirror (eyes swapped) | 0 / 8 | – | 0 / 8 | −68° | 164-179° (turned its back on it) |
+| none (no turn drive) | 0 / 8 | – | 0 / 0 | 0° | = the start bearing |
+
+As in the chase game, the orientation comes from the wiring (LC10a → ipsilateral DNa01/02): the same interface with the
+eyes swapped turns the fly away every time. Small sample (8 pairs); no statistics beyond the counts.
+
+**Verified** (2026-09-28, Apple M1): `run_job.py --job air_traffic --headless --max-seconds 120` (scripted): **27
+cleared**, mean response 0.59 s, first turn toward 19 / 19, max holding 1, 0 near misses, 0 diverted, 0 falls, 0
+auto-recoveries, RTF 0.51. `run_sim.py --job air_traffic --headless --max-seconds 6`: 1 cleared. Frames checked (job
+renderer 640×400, the GIF frames): the cab and the stool, the planes calling left and right, the fly turned toward them,
+the approach and the touchdown on the lit runway, the radar blips. Tests: `tests/test_jobs_bouncer_atc.py` (planes touch
+nothing, the stool is a servoed hinge touching only the fly and turns the standing fly in place; scripted clearing; a
+plane ahead is cleared, one at 60° is not; the DNa01/02 turn map and the stool rate; LC10a events on the plane's side and
+swapped by the mirror; holding / near miss / diversion counts; a reset mid-cycle).
+
+**Limitations.** The planes, their approaches and the holding stacks are kinematic; the stool (a motorised turntable) is
+the turning mechanism, so this is not a test of the fly's own turning gait. LC10a is driven by our interface (pooled
+per side, the eccentricity ramp is ours), and only the requesting plane is shown to it. The brain overshoots by ~10-40°
+when it turns fast (a brain window of 0.1 s plus the stool's rate); the ±15° / 0.15 s clearance rule tolerates that.
+With the default traffic the holding stack rarely exceeds one plane (a slow controller, e.g. `control: none`, piles
+them up and diverts). The housekeeping swivels are scripted. Near misses are a queue rule, not a trajectory conflict
+check. The window mode (`LiveViewer`) was not opened in this session.
 
 ## Verification
 

@@ -48,6 +48,8 @@ def _load_builtin() -> None:
     from fly_simulator.jobs import barista  # noqa: F401
     from fly_simulator.jobs import shopping_carts  # noqa: F401
     from fly_simulator.jobs import crop_duster  # noqa: F401
+    from fly_simulator.jobs import bouncer  # noqa: F401
+    from fly_simulator.jobs import air_traffic  # noqa: F401
 
 
 def available_jobs() -> list[str]:

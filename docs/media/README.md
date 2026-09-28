@@ -33,6 +33,8 @@ ffmpeg -ss START -t DUR -i in.mp4 -vf "setpts=PTS/SPEED,fps=FPS,scale=W:-2:flags
 | `barista.gif` | 2.2 MB | The barista job, one drink: the order caption and the ticket rail, grinding, tamping, the shot into the cup with the customer's name, steaming the milk, the right front leg pouring latte art (drawn as it pours), the score, the bell, the cup on the pickup counter. No HUD |
 | `shopping_carts.gif` | 2.3 MB | The shopping carts job at 2x speed: the fly pushes a cart across the lot into the corral mouth, where it nests into the train; a customer's cart left on the loading ramp rolls away down the slope (real physics), the fly chases and catches it (`CAUGHT IT!`). No HUD |
 | `crop_duster.gif` | 2.4 MB | The crop duster job on the real flight fly, real time: take-off from the airstrip, the climb and transit to field 1, the line-up, low dusting passes with the dust trail, pull-up turns at the row ends; the dusted rows turn pale. No HUD |
+| `bouncer.gif` | 1.3 MB | The bouncer job with the real FlyWire brain: guests (posed NeuroMechFly copies) step up to the club door; the first two make the giant fibre fire (FLINCH), later ones no longer do (the LC4 → GF depression, `LC4->GF` on the HUD), a rowdy guest breaks through (CHEST BUMP, FLINCH, the leg wave, NOT TONIGHT), the next guest flinches again. Compact HUD |
+| `air_traffic.gif` | 0.4 MB | The air traffic job with the real FlyWire brain: planes call from the left and the right; the calling plane drives LC10a on its side, DNa01/02 turn the fly's swivel stool toward it, CLEARED TO LAND, the plane lands on runway 09. Real time, compact HUD |
 | `temple_standoff.gif` | 2.0 MB | The `temple_standoff` scene (docs/SCENES.md): the establishing wide of the stone hall, the hooded tall fly walks in through the back doorway, the little flies turn, the lead one steps forward and looks up, the long low-angle hold, the handle comes forward, the energy blade ignites and relights the room, the little flies recoil, cut to black. Letterbox cropped; rendered grain-free for the GIF |
 | `jobs.gif` | 2.3 MB | 2x2 grid of the eternal jobs: Sisyphus (Greek hillside at sunset), hamster wheel (pet cage), lawn mowing (front yard), leaf raking (autumn backyard) |
 | `whip.gif` | 2.0 MB | A level-3 physical whip crack from the right knocks the fly sideways. 4x slow motion |
@@ -321,3 +323,23 @@ ffmpeg -framerate 10 -i f%04d.jpg -vf "select='not(mod(n\,2))',setpts=N/(5*TB),s
 [a]palettegen=max_colors=56:stats_mode=diff[p];[b][p]paletteuse=dither=none:diff_mode=rectangle" -r 5 -loop 0 crop_duster.gif
 ```
 Run it live: `python scripts/run_job.py --job crop_duster` (or `run_sim.py --job crop_duster`).
+
+**bouncer.gif** (default config, seed 0, the real brain in one worker process). A script (`create_job_session("bouncer",
+cfg, brain=BrainLink(...))`, 600×400, `JobRunner(chunk_steps=50).render(hud=False)`, camera target (2.6, 1.0, 2.5),
+azimuth 76°, elevation −8°, distance 10.5) saving a frame every 1/12 s of sim during 0-7.2 s and 42.4-52 s (198 frames),
+a 3-line HUD drawn with `compose_frame` (night / clock / guest / flinches; the GF rate, the guest's GF peak and the LC4 →
+GF efficacy; the job's banner):
+```bash
+ffmpeg -framerate 12 -i f%04d.png -vf "scale=480:-2:flags=lanczos,split[a][b];\
+[a]palettegen=max_colors=96:stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=4:diff_mode=rectangle" -loop 0 bouncer.gif
+```
+Run it live: `python scripts/run_job.py --job bouncer --brain` (or `run_sim.py --job bouncer --brain`).
+
+**air_traffic.gif** (default config, seed 0, the real brain). The same kind of script (`create_job_session("air_traffic",
+cfg, brain=...)`, 600×400, `JobRunner(chunk_steps=50)`, the job camera) saving a frame every 1/8 s of sim from 0.8 to 30 s
+(226 frames), a 3-line HUD (cleared / mean response / holding; LC10a L / R → DNa01/02 L / R → turn; the banner):
+```bash
+ffmpeg -framerate 8 -i f%04d.png -vf "scale=480:-2:flags=lanczos,split[a][b];\
+[a]palettegen=max_colors=96:stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=4:diff_mode=rectangle" -loop 0 air_traffic.gif
+```
+Run it live: `python scripts/run_job.py --job air_traffic --brain` (or `run_sim.py --job air_traffic --brain`).

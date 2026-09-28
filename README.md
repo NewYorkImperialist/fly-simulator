@@ -47,6 +47,8 @@ uv venv --python 3.12 .venv && uv pip install --python .venv/bin/python -e ".[de
 .venv/bin/python scripts/run_job.py --job barista         # makes coffee forever (tamp, shot, steam, latte art, bell, name on the cup)
 .venv/bin/python scripts/run_job.py --job shopping_carts  # returns shopping carts forever (push into the corral; runaways roll down the ramp)
 .venv/bin/python scripts/run_job.py --job crop_duster     # crop-dusts fields forever (real flapping-wing flight, low passes, refills)
+.venv/bin/python scripts/run_job.py --job bouncer --brain  # works a club door forever (guests loom; the real GF flinches, then habituates)
+.venv/bin/python scripts/run_job.py --job air_traffic --brain  # air-traffic controller (LC10a -> DNa01/02 turns it to face each plane)
 .venv/bin/python scripts/run_job.py --rotate               # all of them, forever
 .venv/bin/python scripts/run_job.py --job kebab --brain --stress   # + live brain; S startles the chef
 ```
