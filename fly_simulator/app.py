@@ -263,6 +263,8 @@ class Session:
         self.swatter = None
         self.swatter_handle = None
         self.stress = None  # StressHandle (--stress)
+        self.injury = None  # InjuryHandle (--injury; docs/INJURY.md)
+        self.n_squash_resets = 0
         self.taste = None  # TasteHandle (--taste-patches; docs/TASTE.md)
         self._taste_patches = None
         self.odor = None  # OdorHandle (--odor-zones; docs/FEAR_LEARNING.md)
@@ -311,6 +313,10 @@ class Session:
 
             self._odor_plume = OdorPlume(cfg.plume)
             exts.append(self._odor_plume.extension)
+        if cfg.injury.enabled:  # --- injury: splat / flattened-fly decals (visual only)
+            from fly_simulator.injury import splat_extension
+
+            exts.append(splat_extension)
         exts += list(world_extensions)
         # --real-vision: compound-eye cameras on the fly (must be added before add_fly)
         rv = cfg.real_vision
@@ -391,6 +397,13 @@ class Session:
                 n = len(STRESS_COLUMNS)
                 fns.append(lambda: self.stress.metric_row() if self.stress is not None
                            else (float("nan"),) * n)
+            if cfg.injury.enabled:
+                from fly_simulator.injury import METRIC_COLUMNS as INJURY_COLUMNS
+
+                cols += list(INJURY_COLUMNS)
+                ni = len(INJURY_COLUMNS)
+                fns.append(lambda: self.injury.metric_row() if self.injury is not None
+                           else ("",) * ni)
             self.logger = RunLogger(
                 cfg.logging, config=self.full_config(),
                 terrain_type_fn=self.terrain.terrain_type_at,
@@ -471,6 +484,10 @@ class Session:
             from fly_simulator.stress import install_stress
 
             self.stress = install_stress(self, cfg.stress, say=self.say)
+        if cfg.injury.enabled:  # --- injury (docs/INJURY.md; after the ActionManager)
+            from fly_simulator.injury import install_injury
+
+            self.injury = install_injury(self, cfg.injury, say=self.say)
         if self._job_obj is not None:
             from fly_simulator.jobs import install_job
 
@@ -541,7 +558,8 @@ class Session:
 
     # actions during which the fly deliberately stands still: the detector's
     # "no progress" window is kept empty so standing is not read as being stuck
-    STATIONARY_ACTIONS = ("freeze", "groom", "feed")  # feed: taste patches (docs/TASTE.md)
+    # stunned: --injury (docs/INJURY.md)
+    STATIONARY_ACTIONS = ("freeze", "groom", "feed", "stunned")  # feed: taste patches (docs/TASTE.md)
 
     def _detector_hook(self, sim: Simulation) -> None:
         name = self.actions.active_name
@@ -724,6 +742,8 @@ class Session:
         self.log_event(f"{source}_reset", down_for_s=down, state=self.detector.state.value)
         if source == "auto":
             self.n_auto_resets += 1
+        elif source == "squash":  # --injury respawn (counted on its own)
+            self.n_squash_resets += 1
         else:
             self.n_manual_resets += 1
         self.sim.reset()
@@ -796,6 +816,8 @@ class Session:
         auto reset."""
         if self.brain is not None:
             self.brain.update()
+        if self.injury is not None:  # damage -> limp / rest / stun / squash, healing
+            self.injury.update()
         if self.taste is not None:  # taste patches: legs -> brain, feeding rule
             self.taste.update()
         if self.odor is not None:  # odour zones: thorax -> KC odour code, whip -> DANs
@@ -866,6 +888,8 @@ class Session:
                          "outcomes": dict(self.swat_counts)}
                         if self.swatter_handle is not None else None),
             "stress": self.stress.summary() if self.stress is not None else None,
+            "injury": ({**self.injury.summary(), "n_squash_resets": self.n_squash_resets}
+                       if self.injury is not None else None),
             "whip_vision": ({"n_loom_events": len(self.vision.sent),
                              "sources": [src.name for src in self.vision.sources]}
                             if self.vision is not None else None),
@@ -894,6 +918,8 @@ class Session:
             self.logger.close()
         if self.stress is not None:  # restore the controller / brain (before brain.close)
             self.stress.close()
+        if self.injury is not None:
+            self.injury.close()
 
 
 # ---------------------------------------------------------------------------
@@ -1001,6 +1027,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
                    help="octopamine pain / arousal layer (docs/STRESS.md; implies --brain): "
                         "hits -> OA neurons -> slow level -> faster gait, lower jump threshold. "
                         "Use with --brain-steer (walk-DN bursts) or --brain-actions (jumpiness)")
+    g.add_argument("--injury", action="store_true",
+                   help="squash damage (docs/INJURY.md; phenomenological model): swat / whip / "
+                        "fall contact forces damage legs, body and wings -> limp, lame leg, "
+                        "rests, stunned, squashed (splat + counted respawn); heals over ~40 s")
     g.add_argument("--whip-vision", action="store_true",
                    help="the fly sees the whip coming: compound-eye looming -> LC4 / LPLC2 "
                         "(implies --brain; --brain-actions lets the giant fiber jump). Sets the "
@@ -1282,6 +1312,8 @@ def config_from_args(args: argparse.Namespace) -> AppConfig:
         cfg.swatter.enabled = True
     if getattr(args, "stress", False):
         cfg.stress.enabled = True
+    if getattr(args, "injury", False):
+        cfg.injury.enabled = True
     if getattr(args, "whip_vision", False):
         cfg.whip_vision.enabled = True
     if getattr(args, "real_vision", False):
@@ -1518,6 +1550,9 @@ def run(
         feats.append("stress / octopamine (model)" + (
             "" if cfg.brain.steer or cfg.brain.actions else
             " - tip: add --brain-steer / --brain-actions for its body effects"))
+    if session.injury is not None:
+        feats.append("injury (model): hits damage legs / body / wings -> limp, rests, stunned, "
+                     "squashed + respawn; TAB shows the health bars")
     if session.flight is not None:
         feats.append("flight (L take off / land, arrows steer while flying; escape flight "
                      + ("on: giant fibre -> jump -> wings)" if session.brain is not None
@@ -1639,6 +1674,8 @@ def run(
             lines.append(_vision_hud(session.vision))
         if session.stress is not None:
             lines.append(_stress_hud(session.stress))
+        if session.injury is not None:
+            lines.extend(session.injury.hud_lines())
         if session.flight is not None:
             lines.append(session.flight.hud_line())
         if session.taste is not None:
@@ -1956,6 +1993,11 @@ def run(
     if session.stress is not None:
         print(f"  stress: octopamine level {session.stress.level:.2f} "
               f"(max {session.stress.max_level:.2f})", flush=True)
+    if session.injury is not None:
+        inj = session.injury
+        print(f"  injury: status {inj.status}, impacts {inj.n_impacts}, lame legs {inj.n_lame}, "
+              f"rests {inj.n_rests}, stuns {inj.n_stuns}, squashed {inj.n_squashes} "
+              f"(respawns {session.n_squash_resets})", flush=True)
     if session.vision is not None:
         print(f"  vision: {len(session.vision.sent)} loom events sent "
               f"(sources: {', '.join(src.name for src in session.vision.sources)})", flush=True)

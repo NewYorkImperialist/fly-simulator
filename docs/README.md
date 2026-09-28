@@ -32,6 +32,7 @@ One line per document. Files derived from FlyWire data are CC BY-NC 4.0; see
 * [PLAYGROUND.md](PLAYGROUND.md): virtual optogenetics, virtual lesions and decision meters.
 * [VISION.md](VISION.md): geometric looming sense and real vision (compound eyes, flyvis, LC4 / LPLC2).
 * [STRESS.md](STRESS.md): octopamine arousal layer (whip hits speed the fly up).
+* [INJURY.md](INJURY.md): squash damage (`--injury`): hits make the fly limp, lie stunned or get squashed, and it heals.
 * [HABITUATION.md](HABITUATION.md): short-term depression makes the giant-fibre escape habituate to harmless looms.
 * [FEAR_LEARNING.md](FEAR_LEARNING.md): dopamine-gated mushroom-body learning of an odour paired with whipping.
 * [SMELL.md](SMELL.md): why olfactory input ignites the model's runaway, antennal-lobe fixes, and an odour plume (tracking: negative result).

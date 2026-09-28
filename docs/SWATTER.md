@@ -69,8 +69,9 @@ position at the first contact. At the end of the lift, `SwatEvent` goes to
   slam start but not when the plate landed.
 * `miss`: no hit, and the fly was never under the plate.
 
-The fly survives any swat. There is no damage model: a squashed fly (peak forces
-10³–10⁴ body weights) walks on.
+The fly survives any swat. By default there is no damage model, so a squashed fly
+(peak forces 10³–10⁴ body weights) walks on. With `--injury` it limps, gets
+stunned or is squashed (docs/INJURY.md).
 
 ## 2. Vision: the paddle as a flat looming source
 

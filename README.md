@@ -118,6 +118,8 @@ come from MuJoCo's fluid model on the flapping wings (the GIF at the top).
 .venv/bin/python scripts/run_sim.py --flight --brain-actions --swatter   # press V to swat
 ```
 
+Add `--injury` and hits leave a mark: a phenomenological damage model makes a swatted fly limp, rest or lie stunned. A hard swat squashes it (splat, then a counted respawn), and it heals over ~40 s. [INJURY.md](docs/INJURY.md)
+
 ### Brain window and playground
 
 A second window shows the live brain: neuropil map, descending-neuron traces and

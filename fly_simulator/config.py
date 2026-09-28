@@ -20,6 +20,7 @@ from fly_simulator.metrics.run_logger import LoggingConfig
 from fly_simulator.senses.odor import OdorConfig  # --odor-zones (docs/FEAR_LEARNING.md)
 from fly_simulator.senses.plume import PlumeConfig  # --odor-plume (docs/SMELL.md)
 from fly_simulator.senses.taste import TasteConfig  # --taste-patches (docs/TASTE.md)
+from fly_simulator.injury import InjuryConfig
 from fly_simulator.stress import StressConfig
 
 
@@ -338,6 +339,7 @@ class AppConfig:
     # Optional features (all off by default; see fly_simulator/app.py Session)
     swatter: SwatterAppConfig = field(default_factory=SwatterAppConfig)
     stress: StressConfig = field(default_factory=StressConfig)  # --stress (docs/STRESS.md)
+    injury: InjuryConfig = field(default_factory=InjuryConfig)  # --injury (docs/INJURY.md)
     whip_vision: WhipVisionConfig = field(default_factory=WhipVisionConfig)
     real_vision: RealVisionAppConfig = field(default_factory=RealVisionAppConfig)
     course: CourseAppConfig = field(default_factory=CourseAppConfig)
