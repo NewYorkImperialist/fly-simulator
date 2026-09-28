@@ -86,7 +86,8 @@ def _run_steps(n_steps, step0, S,
                e11, e12, e22, v_0, v_th, v_rst, eps,
                active, is_active, n_active,
                out_step, out_idx, counts, rng, vth, use_vth,
-               use_std, std_pre, std_post, std_x, std_last, std_u, std_tau_steps):
+               use_std, std_pre, std_post, std_x, std_last, std_u, std_tau_steps,
+               use_ad, ad_mask, ad_a, ad_last, ad_inc, ad_ginc, ad_inv_tau, ad_g):
     """Advance the network. Only neurons in the *active set* (state differs from
     rest by more than ``eps`` mV) are integrated; a neuron at exact rest
     (v = v_0, g = 0) is a fixed point of the dynamics, so skipping it is exact.
@@ -115,7 +116,15 @@ def _run_steps(n_steps, step0, S,
     ``x = 1 - (1 - x) exp(-(t - last) / std_tau_steps)``, its synapses onto
     targets with ``std_post[post]`` are delivered scaled by x, then
     ``x -= std_u * x``. With ``use_std`` False the arithmetic is exactly the
-    undepressed model's."""
+    undepressed model's.
+
+    ``use_ad``: spike-triggered threshold adaptation (smell fix, fly_simulator/
+    brain/smell.py). For neurons with ``ad_mask[i]`` the threshold is raised by
+    ``a_i + G``: ``a_i`` (per neuron) jumps by ``ad_inc`` at each of its spikes, the
+    shared term ``G`` (``ad_g = [G, last step]``) jumps by ``ad_ginc`` at every
+    spike of any masked neuron (a pooled, activity-dependent inhibition); both decay
+    exactly with ``exp(-steps * ad_inv_tau)`` (updated lazily from ``ad_last``).
+    With ``use_ad`` False the arithmetic is exactly the unadapted model's."""
     n_slots = ring.shape[0]
     cap = out_step.shape[0]
     n_out = 0
@@ -135,11 +144,23 @@ def _run_steps(n_steps, step0, S,
                 gi = e22 * gi
                 S[i, 0] = vi
                 S[i, 1] = gi
-                if vi > (vth[i] if use_vth else v_th):
+                thr = vth[i] if use_vth else v_th
+                ai = 0.0
+                if use_ad:
+                    if ad_mask[i]:
+                        ai = ad_a[i] * math.exp(-(t - ad_last[i]) * ad_inv_tau)
+                        thr += ai + ad_g[0] * math.exp(-(t - ad_g[1]) * ad_inv_tau)
+                if vi > thr:
                     ring[slot, cnt] = i
                     cnt += 1
                     r = S[i, 3]
                     S[i, 2] = t + (r if r > 1.0 else 1.0)
+                    if use_ad:
+                        if ad_mask[i]:
+                            ad_a[i] = ai + ad_inc
+                            ad_last[i] = t
+                            ad_g[0] = ad_g[0] * math.exp(-(t - ad_g[1]) * ad_inv_tau) + ad_ginc
+                            ad_g[1] = t
                 elif abs(gi) < eps and abs(vi - v_0) < eps:
                     S[i, 0] = v_0
                     S[i, 1] = 0.0
@@ -262,6 +283,15 @@ class LIFEngine:
         self.std_u = 0.0
         self.std_tau_s = 1.0
         self._std_dummy = np.zeros(1, dtype=np.uint8)
+        # spike-triggered threshold adaptation (smell fix, fly_simulator/brain/smell.py);
+        # None = off (the exact unadapted code path). See set_adaptation().
+        self.ad_mask: np.ndarray | None = None
+        self.ad_a = np.zeros(1, dtype=np.float64)
+        self.ad_last = np.zeros(1, dtype=np.float64)
+        self.ad_g = np.zeros(2, dtype=np.float64)
+        self.ad_inc = 0.0
+        self.ad_ginc = 0.0
+        self.ad_tau_s = 0.1
 
     # ------------------------------------------------------------------ inputs
     @property
@@ -288,6 +318,7 @@ class LIFEngine:
         self.ring_cnt[:] = 0
         self._is_active[:] = 0
         self.n_active = 0
+        self.reset_adaptation()
 
     def threshold_array(self) -> np.ndarray:
         """Per-neuron spike thresholds (mV), created on first use as ``v_th``
@@ -373,6 +404,51 @@ class LIFEngine:
         self.std_x[idx] = x + float(np.clip(frac, 0.0, 1.0)) * (1.0 - x)
         self.std_last[idx] = float(self.step_count)
 
+    # ------------------------------------------------------------------ adaptation
+    def set_adaptation(self, idx, inc_mv: float = 0.0, tau_s: float = 0.1,
+                       global_inc_mv: float = 0.0) -> None:
+        """Spike-triggered threshold adaptation of neurons ``idx``: each of their
+        spikes raises that neuron's threshold by ``inc_mv`` and the threshold of
+        *all* of them by ``global_inc_mv`` (pooled activity-dependent inhibition);
+        both decay with ``tau_s``. ``idx`` None / empty = off (exact unadapted
+        path). Adaptation state is reset whenever this is called."""
+        if idx is None or len(idx) == 0 or (inc_mv <= 0 and global_inc_mv <= 0):
+            self.ad_mask = None
+            return
+        mask = np.zeros(self.n, dtype=np.uint8)
+        mask[np.asarray(idx, dtype=np.int64)] = 1
+        self.ad_mask = mask
+        self.ad_a = np.zeros(self.n, dtype=np.float64)
+        self.ad_last = np.full(self.n, float(self.step_count), dtype=np.float64)
+        self.ad_g = np.array([0.0, float(self.step_count)])
+        self.ad_inc = float(max(inc_mv, 0.0))
+        self.ad_ginc = float(max(global_inc_mv, 0.0))
+        self.ad_tau_s = float(max(tau_s, 1e-6))
+
+    def reset_adaptation(self) -> None:
+        """Clear the adaptation state (thresholds back to baseline)."""
+        if self.ad_mask is not None:
+            self.ad_a[:] = 0.0
+            self.ad_g[0] = 0.0
+
+    def adaptation_mv(self, idx=None) -> np.ndarray:
+        """Current threshold raise (mV, per-neuron + pooled) of neurons ``idx``."""
+        idx = np.arange(self.n) if idx is None else np.asarray(idx, dtype=np.int64)
+        if self.ad_mask is None:
+            return np.zeros(len(idx))
+        k = self.p.dt * 1e-3 / self.ad_tau_s
+        a = self.ad_a[idx] * np.exp(-(self.step_count - self.ad_last[idx]) * k)
+        g = self.ad_g[0] * math.exp(-(self.step_count - self.ad_g[1]) * k)
+        return (a + g) * self.ad_mask[idx]
+
+    def _ad_args(self):
+        if self.ad_mask is None:
+            d = self._std_dummy
+            return False, d, self.ad_a, self.ad_last, 0.0, 0.0, 1.0, self.ad_g
+        inv_tau = self.p.dt * 1e-3 / self.ad_tau_s
+        return (True, self.ad_mask, self.ad_a, self.ad_last, self.ad_inc, self.ad_ginc,
+                inv_tau, self.ad_g)
+
     # ------------------------------------------------------------------ running
     def run(self, n_steps: int) -> tuple[np.ndarray, np.ndarray]:
         """Advance ``n_steps`` of dt. Returns (spike_step, spike_neuron) arrays
@@ -386,7 +462,7 @@ class LIFEngine:
             e11, e12, e22, p.v_0, p.v_th, p.v_rst, self.eps,
             self._active, self._is_active, self.n_active,
             self._out_step, self._out_idx, self.counts, self._rng,
-            vth, use_vth, *self._std_args())
+            vth, use_vth, *self._std_args(), *self._ad_args())
         self.step_count += int(n_steps)
         self.dropped_spikes += int(dropped)
         return self._out_step[:n_out].copy(), self._out_idx[:n_out].copy()

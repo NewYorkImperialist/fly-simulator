@@ -36,6 +36,8 @@ Stimulus mapping (``StimulusMapper``)
   docs/TASTE.md): the labellar sugar / bitter GRN sets as a stand-in for leg taste
   (``details["tastes"]``, ``details["sugar_hz"]`` / ``["bitter_hz"]``), optionally
   the ascending leg gustatory afferents (``details["leg_hz"]``).
+* ``odor``: ORNs of an odour's glomeruli per antenna (``details["odor"]``,
+  ``["left"]`` / ``["right"]`` concentrations; fly_simulator/brain/smell.py).
 * ``manual``: ``details`` = {"set": name} (see ``NAMED_SETS``), or
   {"cell_type": "LC4"}, or {"root_ids": [...]}; optional "side", "rate_hz".
 * ``reset``: clears all active stimuli.
@@ -375,6 +377,20 @@ class StimulusMapper:
             if leg_hz > 0:
                 out.append((f"taste:leg_gustatory:{side}",
                             self._sided(self.sets["leg_gustatory"], side), leg_hz))
+        elif kind == "odor":
+            # Odour at the two antennae (fly_simulator/senses/plume.py, docs/SMELL.md):
+            # details["odor"] (smell.ODORS name), details["left"] / ["right"]
+            # (normalised concentrations), optional ["r_max_hz"], ["k_half"]. Drives
+            # the ORNs of the odour's glomeruli, per antenna. Without a smell fix
+            # this ignites the model's runaway state (docs/SENSORY_SCREEN.md).
+            from .smell import odor_drive_groups
+
+            d = ev.details or {}
+            c = float(np.clip(ev.intensity, 0.0, 10.0))
+            out.extend(odor_drive_groups(
+                self.table, d.get("odor", "vinegar"), float(d.get("left", c)),
+                float(d.get("right", c)), float(d.get("r_max_hz", 100.0)),
+                float(d.get("k_half", 0.5))))
         elif kind == "manual":
             d = ev.details or {}
             if "root_ids" in d:

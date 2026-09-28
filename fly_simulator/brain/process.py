@@ -79,6 +79,11 @@ class BrainConfig:
     # ("odor_A", ...) and the punishment DANs ("dan_punish") as named stimulus sets.
     # None = off, engine untouched (bit-identical). docs/FEAR_LEARNING.md
     plasticity: dict | None = None
+    # antennal-lobe smell fix (fly_simulator/brain/smell.py, SmellFixConfig fields,
+    # e.g. {"name": "sign_adapt"}): a documented model change that stops olfactory
+    # input from igniting the runaway state (docs/SMELL.md), plus the BrainState.smell
+    # olfactory readout. None = off, engine untouched (bit-identical).
+    smell_fix: dict | None = None
     # Event-driven fast path (docs/BRAIN.md, "Latency"). {group: threshold Hz} for
     # descending groups (DESCENDING_GROUPS) or probes ("MN9"). After every engine
     # run the worker counts each group's spikes in the trailing ``fast_window_s``
@@ -248,6 +253,12 @@ class BrainProcess:
         KC -> MBON fear-learning plasticity (applied at the next chunk)."""
         self._cmd.put_nowait(("plasticity", None if cfg is None else dict(cfg)))
 
+    def set_smell_fix(self, cfg: dict | str | None) -> None:
+        """Apply (``SmellFixConfig`` fields or a fix name) or remove (None) the
+        antennal-lobe smell fix (applied at the next chunk; docs/SMELL.md)."""
+        self._cmd.put_nowait(("smell", None if cfg is None else
+                              ({"name": cfg} if isinstance(cfg, str) else dict(cfg))))
+
     def set_lesions(self, targets) -> None:
         """Virtual lesions (docs/PLAYGROUND.md): silence exactly these targets
         (names for ``mapping.resolve_target``; empty = no lesion). Applied at the
@@ -347,12 +358,16 @@ class _Model:
         self._pg_used = False
         self.habituation = None  # LoomHabituation (habituation.py) when configured
         self.plasticity = None  # KCMBONPlasticity (plasticity.py) when configured
+        self.smell = None  # SmellFix (smell.py) when configured
+        self.smell_readout = None
         if cfg.get("neuromod"):
             self.configure_neuromod(cfg["neuromod"])
         if cfg.get("habituation"):
             self.configure_habituation(cfg["habituation"])
         if cfg.get("plasticity"):
             self.configure_plasticity(cfg["plasticity"])
+        if cfg.get("smell_fix"):
+            self.configure_smell(cfg["smell_fix"])
         self.load_s = time.time() - t0
         self.engine.run(1)  # JIT warm-up (numba cache makes this fast after the first time)
 
@@ -405,11 +420,37 @@ class _Model:
             self.mapper.sets[PUNISH_SET] = self.plasticity.dan_idx
         self._apply_silenced()
 
+    def configure_smell(self, d: dict | None) -> None:
+        """None: fix removed (original weights / no adaptation; the olfactory
+        readout keeps running if it existed); else SmellFixConfig fields."""
+        from .smell import SmellFix, SmellReadout
+
+        if d is None:
+            if self.smell is not None:
+                self.smell.configure("none")
+        elif self.smell is None:
+            self.smell = SmellFix(self.table, self.engine, d)
+            self.smell_readout = SmellReadout(self.table)
+        else:
+            self.smell.configure(d)
+        self._apply_silenced()
+
+    def smell_state(self, counts: np.ndarray, window_s: float, total: int) -> dict:
+        if self.smell is None:
+            return {}
+        sps = total / max(window_s, 1e-9)
+        return {**self.smell.readout(), **self.smell_readout.rates(counts, window_s),
+                "total_sps": float(sps), "runaway": bool(sps > 100_000.0),
+                "odor": sorted({s.label for s in self.mapper.active
+                                if s.label.startswith("odor:")})}
+
     def _apply_silenced(self) -> None:
-        """Engine lesions = playground lesions + the plasticity add-on's cut."""
+        """Engine lesions = playground lesions + the plasticity / smell add-ons' cuts."""
         parts = [t.idx for t in self.lesions]
         if self.plasticity is not None and len(self.plasticity.silenced_idx):
             parts.append(self.plasticity.silenced_idx)
+        if self.smell is not None and len(self.smell.silenced_idx):
+            parts.append(self.smell.silenced_idx)
         self.engine.set_silenced(np.concatenate(parts) if parts else None)
 
     def set_lesions(self, names: list[str]) -> None:
@@ -490,6 +531,8 @@ class _Model:
                else {}),
             **({"learning": self.plasticity.readout()} if self.plasticity is not None else {}),
             **({"playground": pg} if (pg := self.playground_readout()) else {}),
+            **({"smell": self.smell_state(counts, w, len(idx))} if self.smell is not None
+               else {}),
             **extra)
 
 
@@ -674,6 +717,8 @@ def _worker_loop(cfg: dict, cmd_q, status_q, pubs: dict, fast_q=None) -> None:
             model.configure_habituation(payload)
         elif kind == "plasticity":
             model.configure_plasticity(payload)
+        elif kind == "smell":
+            model.configure_smell(payload)
         elif kind == "lesion":
             model.set_lesions(list(payload))
             labels.append("lesion:" + (", ".join(t.label for t in model.lesions) or "none"))
@@ -686,7 +731,7 @@ def _worker_loop(cfg: dict, cmd_q, status_q, pubs: dict, fast_q=None) -> None:
         if kind == "clock":
             clock = max(clock, float(payload))
             return True
-        if kind in ("neuromod", "lesion", "habituation", "plasticity"):
+        if kind in ("neuromod", "lesion", "habituation", "plasticity", "smell"):
             apply(cmd)
             return True
         if kind == "fast":

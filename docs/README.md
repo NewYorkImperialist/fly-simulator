@@ -34,6 +34,7 @@ One line per document. Files derived from FlyWire data are CC BY-NC 4.0; see
 * [STRESS.md](STRESS.md): octopamine arousal layer (whip hits speed the fly up).
 * [HABITUATION.md](HABITUATION.md): short-term depression makes the giant-fibre escape habituate to harmless looms.
 * [FEAR_LEARNING.md](FEAR_LEARNING.md): dopamine-gated mushroom-body learning of an odour paired with whipping.
+* [SMELL.md](SMELL.md): why olfactory input ignites the model's runaway, antennal-lobe fixes, and an odour plume (tracking: negative result).
 
 ## Science notes
 

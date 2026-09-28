@@ -1367,6 +1367,20 @@ class BrainRenderer:
                         put_text(img, txt, (hx, 50), WARN, 12, 600)
                         sps_x = max(sps_x, hx + text_width(txt, 12, 600) + 16)
                         break
+            # smell fix + olfactory readout (fly_simulator/brain/smell.py), when on
+            sm = getattr(s, "smell", None)
+            if isinstance(sm, dict) and sm:
+                r = sm.get("rates") or {}
+                hx = max(14 + text_width(info, 12) + 16, sps_x)
+                kc = 100 * float(sm.get("kc_active_frac", 0.0))
+                for txt in (f"smell fix {sm.get('name')} (model): PN L{r.get('uPN_L', 0):.0f}"
+                            f"/R{r.get('uPN_R', 0):.0f} KC {kc:.1f}% LH {r.get('LH', 0):.1f} Hz"
+                            + ("  RUNAWAY" if sm.get("runaway") else ""),
+                            f"PN {r.get('uPN_L', 0):.0f}/{r.get('uPN_R', 0):.0f} KC {kc:.1f}%"):
+                    if hx + text_width(txt, 12, 600) < right_x:
+                        put_text(img, txt, (hx, 50), BAD if sm.get("runaway") else WARN, 12, 600)
+                        sps_x = max(sps_x, hx + text_width(txt, 12, 600) + 16)
+                        break
             if s.window_s and s.window_s > 0 and s.total_spikes:
                 sps = s.total_spikes / s.window_s
                 txt = (f"{sps / 1e6:.2f} M spikes / brain-s" if sps >= 1e5 else

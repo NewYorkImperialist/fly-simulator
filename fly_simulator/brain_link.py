@@ -144,6 +144,11 @@ class BrainLinkConfig:
     odors: bool = False
     learning: bool = False
     plasticity_config: dict = field(default_factory=dict)
+    # ---- smell (--smell-fix NAME / --odor-plume; docs/SMELL.md) ---------------------
+    # antennal-lobe model fix in the worker (fly_simulator/brain/smell.py SMELL_FIXES;
+    # "none" = off, bit-identical); smell_fix_config: SmellFixConfig overrides
+    smell_fix: str = "none"
+    smell_fix_config: dict = field(default_factory=dict)
     # ---- brain recording (--brain-record; docs/BRAIN_REPLAY.md) --------------------
     # BrainStates + stimuli / actions -> <run dir>/brain_rec/ (compressed chunks);
     # replay with scripts/brain_replay.py RUN_DIR
@@ -284,7 +289,8 @@ class BrainLink:
             data_dir=cfg.data_dir, window_s=cfg.window_s, pace="sim",
             max_lag_s=cfg.max_lag_s, subscribers=("app",), synthetic=cfg.synthetic,
             fast_triggers=self._fast_thr, fast_window_s=cfg.fast_window_s,
-            habituation=self.habituation_dict(), plasticity=self.plasticity_dict())
+            habituation=self.habituation_dict(), plasticity=self.plasticity_dict(),
+            smell_fix=self.smell_dict())
         self.brain = None
         self.window = None
         self.layout = None
@@ -336,6 +342,23 @@ class BrainLink:
         if not self.cfg.habituation:
             return None
         return {**dict(self.cfg.habituation_config), "enabled": True}
+
+    def smell_dict(self) -> dict | None:
+        """BrainConfig.smell_fix (None = off)."""
+        if self.cfg.smell_fix in ("", "none", None) and not self.cfg.smell_fix_config:
+            return None
+        return {**dict(self.cfg.smell_fix_config), "name": self.cfg.smell_fix or "none"}
+
+    def smell_hud(self) -> str:
+        st = self.latest
+        sm = (getattr(st, "smell", None) or {}) if st is not None else {}
+        if not sm:
+            return f"SMELL fix {self.cfg.smell_fix} (model) waiting for the brain"
+        r = sm.get("rates") or {}
+        return (f"SMELL fix {sm.get('name')} (model)  ORN {r.get('ORN', 0):.1f} "
+                f"PN L{r.get('uPN_L', 0):.0f}/R{r.get('uPN_R', 0):.0f} LN {r.get('ALLN', 0):.0f} "
+                f"KC {100 * sm.get('kc_active_frac', 0):.1f}% LH {r.get('LH', 0):.1f} Hz"
+                + ("  RUNAWAY" if sm.get("runaway") else ""))
 
     def plasticity_dict(self) -> dict | None:
         """BrainConfig.plasticity (None = off: no odours, no learning)."""
@@ -952,6 +975,7 @@ class BrainLink:
         ] + ([self.playground_hud()] if self.pg_used or self.lesions else []) \
           + ([self.habituation_hud()] if self.cfg.habituation else []) \
           + ([self.learning_hud()] if self.cfg.learning else []) \
+          + ([self.smell_hud()] if self.smell_dict() is not None else []) \
           + (["REC brain -> brain_rec/" + (" (size limit: stopped)" if self.recorder.stopped
                                             else "")] if self.recorder is not None else [])
 
@@ -1026,6 +1050,8 @@ class BrainLink:
                 "learning": (dict(getattr(st, "learning", None) or {})
                              if (self.cfg.learning or self.cfg.odors) and st is not None
                              else None),
+                "smell": (dict(getattr(st, "smell", None) or {})
+                          if self.smell_dict() is not None and st is not None else None),
                 "brain_record": self.recorder.summary() if self.recorder is not None else None,
                 "playground": ({"lesions": list(self.lesions),
                                 "log": [[round(t, 3), txt] for t, txt in self.pg_log]}

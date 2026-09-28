@@ -59,6 +59,8 @@ walking, turning or escape DNs? And which inputs make the fly *speed up*, for a
   stochastically. **Flagged runs are artefacts of the model** (it has no adaptation
   and no spontaneous inhibition). They are excluded from all tables below, and
   `docs/BRAIN.md`'s "quiet brain" assumption does not hold for olfactory input.
+  docs/SMELL.md traces the ORN-driven ignition to the model-excitatory AL local
+  neurons and offers opt-in fixes (`--smell-fix`).
 
 ## Results at 200 Hz input (non-runaway runs)
 

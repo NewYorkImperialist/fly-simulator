@@ -18,6 +18,7 @@ from fly_simulator.interaction.whip import WhipConfig
 from fly_simulator.metrics.falls import FallDetectorConfig
 from fly_simulator.metrics.run_logger import LoggingConfig
 from fly_simulator.senses.odor import OdorConfig  # --odor-zones (docs/FEAR_LEARNING.md)
+from fly_simulator.senses.plume import PlumeConfig  # --odor-plume (docs/SMELL.md)
 from fly_simulator.senses.taste import TasteConfig  # --taste-patches (docs/TASTE.md)
 from fly_simulator.stress import StressConfig
 
@@ -346,6 +347,8 @@ class AppConfig:
     taste: TasteConfig = field(default_factory=TasteConfig)
     # --- odour zones / fear learning (--odor-zones, --learning; docs/FEAR_LEARNING.md) ---
     odor: OdorConfig = field(default_factory=OdorConfig)
+    # --- odour plume (--odor-plume; fly_simulator/senses/plume.py, docs/SMELL.md) ---
+    plume: PlumeConfig = field(default_factory=PlumeConfig)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

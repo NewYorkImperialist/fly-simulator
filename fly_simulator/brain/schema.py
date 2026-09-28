@@ -136,6 +136,12 @@ class BrainState:
         odour's KCs}}; a *model* quantity), "main" (first compartment, PPL101 =
         gamma1pedc), "dan_hz", "n_synapses", "n_updates", "t_learned_s", "runaway",
         "n_runaway", "odor_kcs"}.
+    smell: antennal-lobe smell fix + olfactory readout (fly_simulator/brain/smell.py,
+        docs/SMELL.md), empty when off: {"name" (fix), "label", "description",
+        "n_flipped", "n_scaled", "n_adapt", "n_silenced", "rates" ({"ORN", "uPN_L",
+        "uPN_R", "ALLN", "KC", "LH"}: mean Hz in the window), "kc_active_frac",
+        "total_sps", "runaway" (whole-brain > 100k spikes/s), "odor" (active odour
+        stimulus labels)}.
     """
 
     brain_time: float
@@ -159,6 +165,7 @@ class BrainState:
     playground: dict = field(default_factory=dict)
     habituation: dict = field(default_factory=dict)
     learning: dict = field(default_factory=dict)
+    smell: dict = field(default_factory=dict)
 
 
 @dataclass

@@ -140,6 +140,19 @@ def check_feature_config(cfg: AppConfig) -> None:
     if cfg.odor.enabled and (cfg.course.name or cfg.job.name or cfg.flight.enabled):
         raise ConfigError("--odor-zones / --learning can't be combined with --course / --job "
                           "/ --flight")
+    # --- odour plume / smell fix (docs/SMELL.md) ---
+    if cfg.plume.enabled and (cfg.course.name or cfg.job.name or cfg.flight.enabled):
+        raise ConfigError("--odor-plume can't be combined with --course / --job / --flight")
+    from fly_simulator.brain.smell import ODORS, SMELL_FIXES
+
+    if cfg.plume.enabled:
+        for o in (cfg.plume.odor, cfg.plume.control_odor):
+            if o and o not in ODORS:
+                raise ConfigError(f"--odor-plume / --plume-control {o!r}: known odours "
+                                  f"{', '.join(ODORS)}")
+    if (cfg.brain.smell_fix or "none") not in SMELL_FIXES:
+        raise ConfigError(f"--smell-fix {cfg.brain.smell_fix!r}: known fixes "
+                          f"{', '.join(SMELL_FIXES)}")
     # --- taste patches (docs/TASTE.md) ---
     if cfg.taste.enabled and (cfg.course.name or cfg.job.name):
         raise ConfigError("--taste-patches can't be combined with --course / --job: the "
@@ -254,6 +267,8 @@ class Session:
         self._taste_patches = None
         self.odor = None  # OdorHandle (--odor-zones; docs/FEAR_LEARNING.md)
         self._odor_zones = None
+        self.plume = None  # PlumeHandle (--odor-plume; docs/SMELL.md)
+        self._odor_plume = None
         self.swat_counts = {k: 0 for k in SWAT_OUTCOMES}
         self.last_swat = None
         self._job_obj = None
@@ -291,6 +306,11 @@ class Session:
 
             self._odor_zones = OdorZones(cfg.odor)
             exts.append(self._odor_zones.extension)
+        if cfg.plume.enabled:  # --- odour plume: source markers (docs/SMELL.md)
+            from fly_simulator.senses.plume import OdorPlume
+
+            self._odor_plume = OdorPlume(cfg.plume)
+            exts.append(self._odor_plume.extension)
         exts += list(world_extensions)
         # --real-vision: compound-eye cameras on the fly (must be added before add_fly)
         rv = cfg.real_vision
@@ -443,6 +463,10 @@ class Session:
             from fly_simulator.senses.odor import install_odor
 
             self.odor = install_odor(self, self._odor_zones, cfg.odor, say=self.say)
+        if self._odor_plume is not None:  # --- odour plume (docs/SMELL.md) ---
+            from fly_simulator.senses.plume import install_plume
+
+            self.plume = install_plume(self, self._odor_plume, cfg.plume, say=self.say)
         if cfg.stress.enabled:
             from fly_simulator.stress import install_stress
 
@@ -776,6 +800,8 @@ class Session:
             self.taste.update()
         if self.odor is not None:  # odour zones: thorax -> KC odour code, whip -> DANs
             self.odor.update()
+        if self.plume is not None:  # odour plume: antennae -> ORNs (docs/SMELL.md)
+            self.plume.update()
         down = self.down_for()
         if down is None:
             return
@@ -848,6 +874,7 @@ class Session:
             "flight": self.flight.summary() if self.flight is not None else None,
             "taste": self.taste.summary() if self.taste is not None else None,
             "odor": self.odor.summary() if self.odor is not None else None,
+            "plume": self.plume.summary() if self.plume is not None else None,
         }
 
     def _real_vision_summary(self) -> dict | None:
@@ -1002,6 +1029,16 @@ def build_arg_parser() -> argparse.ArgumentParser:
                    help="fear learning (implies --odor-zones): whip hits inside a zone drive "
                         "the PPL1 punishment DANs (stand-in) and KC -> MBON synapses of that "
                         "odour depress (dopamine-gated plasticity, model)")
+    g.add_argument("--smell-fix", metavar="NAME", default=None,
+                   help="antennal-lobe model fix so odours (ORN input) do not ignite the "
+                        "model's runaway state (docs/SMELL.md; implies --brain): none, gaba, "
+                        "adapt, eln, mbdl1, global, sign, sign_adapt (recommended)")
+    g.add_argument("--odor-plume", nargs="?", const="vinegar", default=None, metavar="ODOR",
+                   help="an odour plume (default vinegar) the fly smells with both antennae "
+                        "(docs/SMELL.md; implies --brain and --smell-fix sign_adapt unless "
+                        "given). The brain's turn DNs steer only with --brain-steer")
+    g.add_argument("--plume-control", metavar="ODOR", default=None,
+                   help="with --odor-plume: a second source with this odour (e.g. glom_DL5)")
     g.add_argument("--taste-density", type=float, default=None, metavar="PER_CM",
                    help="with --taste-patches: procedural patches per 10 mm of path "
                         "(default 0.3; 0 = only key-spawned patches)")
@@ -1258,6 +1295,21 @@ def config_from_args(args: argparse.Namespace) -> AppConfig:
         cfg.brain.enabled = cfg.brain.odors = True
         if getattr(args, "learning", False):
             cfg.odor.learning = cfg.brain.learning = True
+    if getattr(args, "smell_fix", None):  # --- smell fix / odour plume (docs/SMELL.md)
+        cfg.brain.enabled = True
+        cfg.brain.smell_fix = str(args.smell_fix)
+    if getattr(args, "odor_plume", None):
+        cfg.plume.enabled = True
+        cfg.plume.odor = str(args.odor_plume)
+        cfg.brain.enabled = True
+        if (cfg.brain.smell_fix or "none") == "none":
+            from fly_simulator.brain.smell import RECOMMENDED
+
+            cfg.brain.smell_fix = RECOMMENDED
+    if getattr(args, "plume_control", None):
+        if not cfg.plume.enabled:
+            raise ConfigError("--plume-control needs --odor-plume")
+        cfg.plume.control_odor = str(args.plume_control)
     if getattr(args, "taste_density", None) is not None:
         if not cfg.taste.enabled:
             raise ConfigError("--taste-density needs --taste-patches")
@@ -1480,6 +1532,11 @@ def run(
         feats.append("odour zones (8 / = spawn A / B; zone -> KC odour code)" + (
             "; fear learning ON (whip hit in a zone -> PPL1 DANs stand-in -> KC>MBON LTD)"
             if cfg.odor.learning else ""))
+    if session.plume is not None:
+        feats.append(f"odour plume {cfg.plume.odor} at ({cfg.plume.source_x_mm:g}, "
+                     f"{cfg.plume.source_y_mm:g}) mm" + (
+                         f", control {cfg.plume.control_odor}" if cfg.plume.control_odor else "")
+                     + f"; smell fix {cfg.brain.smell_fix} (model)")
     if session.job is not None:
         feats.append(f"job {session.job.name}: {session.job.title}")
     if session.course is not None:
@@ -1588,6 +1645,8 @@ def run(
             lines.append(session.taste.hud_line())
         if session.odor is not None:
             lines.append(session.odor.hud_line())
+        if session.plume is not None:
+            lines.append(session.plume.hud_line())
         if brain is not None:
             lines.extend(brain.hud_lines())
         if session.course is not None:
