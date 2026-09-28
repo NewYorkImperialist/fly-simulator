@@ -25,6 +25,8 @@ constant.
 | `mini_golf` | plays a 4-hole mini golf course (windmill, ramp, tunnel, bumpers): walks behind the ball and head-butts it (the putt speed / aim come from a labelled skill model), the ball rolls with real physics and drops into a real cup; the fly carries it on its back to the next tee | holes played, scorecard vs par, holes-in-one, rounds |
 | `jump_rope` | skips rope forever in a schoolyard: two driven crank posts turn a long rope (a kinematic curve of capsules that really collides with the fly); the fly clears it every turn with the real short-mode Jump, fired from the rope's phase; the rope speeds up with the streak; a rope that catches a leg is a real contact (a trip) | skips, streak (best), trips, recoveries, rope rpm |
 | `dj` | DJs forever in a club: a beat clock drives everything; a front leg (IK) scratches a motor-driven record by real contact and friction (scratches counted from the record's own rotation), the drop (a leg in the air, strobing floor, jumping crowd), the other leg slides the crossfader into the next track | tracks mixed, scratches, drops, crowd hype, BPM |
+| `dishwasher` | washes dishes forever at a kitchen sink under a window: the left front leg fetches the top plate of the dirty stack, the right front leg scrubs it with a sponge (the grime fades only while the leg really touches the plate), the plate is rinsed under the running faucet and racked; a full rack is carted off, a new dirty stack comes on the conveyor | plates washed, grime removed %, strokes, sponge wear, sponges, rack loads, stacks |
+| `barista` | makes coffee forever at "THE COMPOUND EYE" café: grinds, tamps the grounds with a tamper on its left front leg (real contact), presses SHOT / STEAM (real contact), the shot runs into a paper cup with the customer's name, steams the milk, holds the jug with its right front leg and pours latte art (heart / tulip / rosetta, drawn as it pours), rings the bell, the cup slides to the pickup counter; orders queue on the ticket rail | drinks served, shots pulled, latte-art score, orders in queue, tamps, spills |
 
 ```bash
 python scripts/run_job.py --job sisyphus                   # window; Q quit, C camera, P pause, X reset, I screenshot, TAB HUD
@@ -2046,6 +2048,144 @@ crossfader is kinematic once touched, the crowd, the floor, the lights and the s
 there is no sound. The record's friction grip comes from the tarsal adhesion (40 µN), far more than a real
 fly's leg would need for a 0.1 mg disc. The window mode (`LiveViewer`) was not opened in this session.
 
+
+### dishwasher
+
+`fly_simulator/jobs/dishwasher.py` (scene, stance, `LegDriver`, pools), `fly_simulator/jobs/dishwasher_assets.py`
+(procedural meshes / textures), tests in `tests/test_jobs_dish_barista.py`. HUD (TAB): `DISHWASHER FLY - the fly
+washes dishes forever`.
+
+![dishwasher](media/dishwasher.gif)
+
+**Scene** (visual except the plate pad). A warm home kitchen: an oiled butcher-block counter (FlyGym's plane hidden
+under it, the sink cut out), a stainless sink full of soapy water with foam islands, a gooseneck faucet with a lever,
+cream subway tiles, a window over the sink onto a garden (gingham curtains, herbs on the sill), wooden upper cabinets,
+a bottle of "SUDSY" dish soap (our own), a dish towel, a white wire dish rack with a `CLEAN` sign, a black rubber
+conveyor with moving cleats and a `DIRTY DISHES` sign, and a 7-segment `WASHED` counter on the wall. Lights: a warm key
+spot with shadows (`shadows: false`: directional), cool window daylight (directional), a warm point glow. `znear` 0.05.
+
+**The fly** holds `DishStance` (the DJ's stance: all tarsi planted and adhering, stationary). `LegDriver` (shared with
+the barista) moves the front legs: damped least-squares IK on a scratch `MjData` (the dead_hang `LegIK`, solutions
+cached) for a tarsus5 target, eased in joint space.
+
+**One plate** (a pool of 16 mocap plates; the stack holds 6, the rack 8):
+
+1. **Fetch (kinematic carry, labelled).** The left front leg reaches over the stack, lowers to the top plate's near
+   rim, and the plate follows the tarsus (fixed offset) up, across and down onto the wash spot in the water.
+2. **Scrub (real contact).** The sponge (a mocap prop: yellow foam, green scourer) rides on the right front tarsus. A
+   hidden fly-only cylinder collider (`dish/pad`, mocap) is placed under the plate only while scrubbing; its top is the
+   plate's face plus the sponge's thickness, so the tarsus touches it where the sponge meets the plate. The leg presses
+   (IK target 0.018 mm into the collider) and scrubs circles (8 keyframes, 75 ms each, a new phase per circle). **The
+   grime comes off only while the tarsus is in contact** (the contact force between `dish/pad` and the right leg's
+   geoms is > 0): by `scrub_per_mm` (0.22) × the plate's toughness (random 0.35-1, baked-on food) × the mm the tarsus
+   moved. The plate's texture steps through 8 stages in which the food smears (3 patterns: tomato sauce, gravy, egg
+   yolk, plus herb flecks and crumbs) break up along a noise field and vanish; suds build up on it. Foam bubbles spawn at
+   the sponge while it scrubs. It stops when the grime is < 3 % or after 4.5 s (then the rest stays: `grime removed`).
+3. **Rinse, rack, cart, conveyor (kinematic, labelled).** The plate carrier slides the plate under the faucet (tilted
+   toward the camera); the water runs (a column, drops and splashes: visual particles with a slowed "cartoon" gravity,
+   900 mm/s², bounded pools of 24 + 24), the suds rinse off; then it goes into the next rack slot, standing. Meanwhile
+   the fly fetches the next plate. A full rack (8) is carted off to the right and comes back empty; an empty stack is
+   replaced by a new dirty stack of 6 that rides in on the conveyor.
+
+**Sponge wear**: the mm scrubbed in contact / `sponge_life_mm` (45); at 100 % a new sponge (counted); the sponge's
+tint darkens in 4 steps.
+
+**Counters / HUD** (TAB): plates washed (the work counter), grime removed (% of the washed plates' initial grime),
+strokes (circles), mm scrubbed in contact, this plate's grime, sponge wear and sponges used, rack fill, rack loads,
+stack and stacks, and the label line `(scrub: the sponge leg's real contact with the plate; fetch carry, plate carrier,
+rack cart, conveyor: kinematic; water / bubbles: visual particles)`. Captions: `PLATE #n CLEAN (x% grime off)`, `RACK
+FULL - CARTED OFF`, `A NEW STACK OF DIRTY DISHES`, `NEW SPONGE`. Camera cuts: wide, a scrub close-up, the rinse;
+`close_ups: false`: the wide shot only. A reset (the fly fell) puts a plate in the hand onto the wash spot and scrubbing
+resumes; the carrier, the cart and the conveyor carry on.
+
+**Verified** (headless, 2026-09-28, Apple M1, one process at a time): `run_job.py --job dishwasher --headless
+--max-seconds 120`: **14 plates washed**, **95.9 % grime removed**, 95 strokes, 102 mm scrubbed with 52.9 s of
+sponge-plate contact (peak 1.4 µN), 3 sponges, 1 rack load, 3 stacks, IK residual 1 µm, **0 falls, 0 auto-recoveries,
+0 instabilities, RTF 0.48**. `run_sim.py --job dishwasher --headless --max-seconds 5` runs (0 falls). Frames checked by
+eye (job renderer, 480×320, and the GIF frames): the fly lifting the top plate off the stack, the sponge on the plate
+with the smears breaking up and the foam, the clean plate under the faucet's stream, the plates standing in the rack,
+the rack carted off with the caption, the new stack on the conveyor.
+
+**Limitations.** The fetch, the rinse / rack placement, the cart and the conveyor are kinematic; the plate itself does
+not move under the sponge (it is a mocap body; only the contact is real), and the grime model (per mm in contact) is
+ours. The water and bubbles are visual particles (no fluid). One grime level per plate (the texture fades as a whole,
+not where the sponge went). The window mode (`LiveViewer`) was not opened in this session.
+
+### barista
+
+`fly_simulator/jobs/barista.py` (scene, stance, machines, pools), `fly_simulator/jobs/barista_assets.py` (procedural
+meshes / textures), tests in `tests/test_jobs_dish_barista.py`. HUD (TAB): `BARISTA FLY - the fly makes coffee
+forever`.
+
+![barista](media/barista.gif)
+
+**Scene** (visual except the job colliders below). A small café, "THE COMPOUND EYE" (our own name; no real brand): a
+walnut counter, a red-and-steel espresso machine (our own badge: a compound-eye honeycomb), its group head, a steam
+wand, READY / BREW / STEAM lamps and a pressure gauge whose needle follows the shot, a drip tray with a grate, a stack
+of paper cups, a black grinder with a glass bean hopper, a tamping mat, a steel button pad (SHOT, STEAM), a brass
+service bell, a milk jug, a glass pastry case (croissants, muffins, cookies), a chalkboard menu, a ticket rail over the
+machine, pendant lamps, a brick wall, and a `PICK UP` counter. Lights: a warm key spot with shadows (`shadows: false`:
+directional), a directional fill, three warm point lights. `znear` 0.05.
+
+**The fly** holds `BaristaStance` (all tarsi planted and adhering, stationary); `LegDriver` (the dishwasher's) drives
+the front legs. **One drink** (~24 s, the state machine in `update`, every 1 ms):
+
+1. `wait_order` → `cup_in`: the first ticket leaves the rail (it is clipped to the machine), a paper cup with the
+   customer's name on its kraft sleeve (16 generic first names; each regular always orders the same drink: latte, flat
+   white, cappuccino or cortado) slides from the stack under the group head.
+2. `pf_to_grinder` → `grind` → `pf_back`: the portafilter slides to the grinder's fork, grounds fall from the chute
+   and the heap grows, it slides back to the tamping mat.
+3. **Tamp (real contact)**: the tamper (a mocap prop: steel base, wooden knob) rides on the left front tarsus. The
+   puck's hidden fly-only collider (`cafe/puck`, placed only while tamping) sits at the grounds' top plus the tamper's
+   thickness. Each press goes 0.04 mm into it and **counts only if the leg's contact force reaches `tamp_force`**
+   (0.3 µN); the heap flattens by a third per counted press (3 presses; a light press is retried).
+4. `pf_lock`: the portafilter slides up into the group head and twists (kinematic).
+5. **SHOT and STEAM (real contact)**: the left front leg presses each button: the brew starts only when the leg's
+   contact with the button's collider is detected (a press that ends without contact is counted, `auto_presses`, and
+   the job presses it). Found while building it: the tarsus5 body's origin is ~0.07 mm behind the claws, so the press
+   target is offset, and the two buttons sit side by side across the leg (they were in line along it and the leg pressed
+   the wrong one).
+6. `shot` (3 s): two dark streams (capsules) run from the spouts into the cup, drops fall (visual), the level rises,
+   the surface goes through 5 crema stages (near-black to hazelnut with tiger flecks), BREW lamp, the needle to 9 bar.
+7. `jug_to_wand` → `steam` (2.4 s): the jug slides under the wand (kinematic), steam puffs (a visual pool of 24), the
+   foam rises, STEAM lamp. `jug_to_pour`: the jug slides next to the cup.
+8. **Pour**: the right front leg grips the jug's handle; the jug follows the tarsus and the job tilts it; the leg is
+   sent along the pour path (forward, down, the rosetta's side-to-side wiggle) **plus this pour's unsteadiness (our
+   model: a random amplitude 0-0.05 mm per drink)**. A white milk stream runs from the spout, the level rises and the
+   **latte art** (heart, tulip or rosetta) is drawn progressively: 8 texture stages on the surface disc. **The score
+   comes from the real leg**: the RMS distance of the tarsus from the ideal path (score = 100 - 1400 × (RMS - 6 µm),
+   40-100); above 25 µm the wobbly version of the art is drawn (-5 points).
+9. `pour_back` → `jug_home`, then the right front leg **rings the bell** (real contact with the plunger's collider),
+   `DING! <NAME>, YOUR <DRINK>!`, and the cup slides to the pickup counter (3 places; the oldest cup is collected). The
+   portafilter goes back to the mat, knocked out. Next order.
+
+**Orders**: arrive at random (exponential, mean 26 s), at most 6 tickets on the rail (more are walk-outs); 2 are
+waiting at the start. **Spills (real physics)**: with `spill_p` (0.3) per drink, during the shot or the pour, a drop
+escapes over the rim: a free body (a 0.03 mm sphere, contacts with the counter, the drip tray's collider and other
+drops, never the fly; compiled with its live bits, parked with contacts off and gravity compensated), it falls,
+lands, and leaves a puddle (a visual pool of 4, fading over 25 s).
+
+**Counters / HUD** (TAB): drinks served (the work counter), the drink in progress and the phase, orders in the queue
+and walk-outs, shots pulled, latte-art score (last and mean), tamps, presses (and auto presses), spills, the label line
+`(tamps / buttons / bell: real leg contact; slides, streams, steam, latte art texture: kinematic / visual; spilled
+drops: real physics)`. Captions: `ORDER: <DRINK> for <NAME>`, `LATTE ART: <PATTERN> n/100`, `DING! ...`, `OOPS - A
+DRIP!`. Camera cuts: wide, the tamp, the shot, the steam, the pour from above (`close_ups: false`: the wide shot only).
+A reset redoes the interrupted leg move (a tamp, a button, the pour, the bell); the timed prop steps resume.
+
+**Verified** (headless, 2026-09-28, Apple M1, one process at a time): `run_job.py --job barista --headless
+--max-seconds 120`: **5 drinks served**, 5 shots, 15 tamps (all by contact, peak 16 µN), 15 button / bell presses by
+contact, **0 auto presses**, latte art mean **71.6** (last 75), 7 orders (1 in the queue at the end, 0 walk-outs), 1
+spill, IK residual 1 µm, **0 falls, 0 auto-recoveries, 0 instabilities, RTF 0.52**. `run_sim.py --job barista
+--headless --max-seconds 5` runs (0 falls). Frames checked by eye (job renderer, 480×320, and the GIF frames): the
+order caption with the tickets on the rail, the grounds falling into the portafilter at the grinder, the tamp
+close-up, the two dark streams into the named cup, the steam wand in the jug, the leg holding the tilted jug over the
+cup with the art forming, the `LATTE ART` and `DING!` captions, the cup with its art on the pickup counter.
+
+**Limitations.** The liquid, the streams, the steam and the latte art are kinematic / visual (no fluid; the art is a
+drawn texture, chosen by pattern and by the measured steadiness). The portafilter, cup and jug slides are kinematic,
+the jug follows the tarsus while poured (no grip forces), the pour's unsteadiness is our random model (the leg's
+tracking of it is real), the shot and steam are compressed in time. The window mode (`LiveViewer`) was not opened in
+this session.
 
 ## Verification
 

@@ -29,6 +29,8 @@ ffmpeg -ss START -t DUR -i in.mp4 -vf "setpts=PTS/SPEED,fps=FPS,scale=W:-2:flags
 | `fry_cook.gif` | 2.5 MB | The fry cook job: the basket swings over the holding bin and tips, the fries pour out into the bin (real contacts, labelled slow motion x0.3), the fly scoops fries with the scoop on its right front leg, they drop into the carton (slow motion x0.5), the full carton slides onto the tray, DING! ORDER UP, and a spilled fry is sneaked to the mouth with the left front leg. No HUD |
 | `mini_golf.gif` | 2.3 MB | The mini golf job: hole 1 (the windmill) holed in one through the mill door (labelled slow motion x0.35, HOLE IN ONE! caption), the ball lifted out of the cup onto the fly's back, carried out of the lane and along the walkway to hole 2, set down on the tee, a putt over the ramp and the tap-in for par. Every 2nd frame at 6 fps (real time). No HUD |
 | `snow_shovel.gif` | 2.4 MB | The snow shovel job: the fly pushes the blue shovel across the driveway lane by lane, the blade scrapes the snow cover down to the wet concrete, the load is dumped onto the bank at the lawn edge, the fly walks round the shovel and pushes it back to the next lane while it keeps snowing and the cleared lanes slowly whiten again. 2x speed. No HUD |
+| `dishwasher.gif` | 2.2 MB | The dishwasher job: the left front leg lifts the top plate off the dirty stack and lays it in the sink, the sponge on the right front leg scrubs it (real contact) while the food smears break up and the foam builds, the plate rinsed under the faucet and racked, later the full rack carted off and a new stack on the conveyor. No HUD |
+| `barista.gif` | 2.2 MB | The barista job, one drink: the order caption and the ticket rail, grinding, tamping, the shot into the cup with the customer's name, steaming the milk, the right front leg pouring latte art (drawn as it pours), the score, the bell, the cup on the pickup counter. No HUD |
 | `temple_standoff.gif` | 2.0 MB | The `temple_standoff` scene (docs/SCENES.md): the establishing wide of the stone hall, the hooded tall fly walks in through the back doorway, the little flies turn, the lead one steps forward and looks up, the long low-angle hold, the handle comes forward, the energy blade ignites and relights the room, the little flies recoil, cut to black. Letterbox cropped; rendered grain-free for the GIF |
 | `jobs.gif` | 2.3 MB | 2x2 grid of the eternal jobs: Sisyphus (Greek hillside at sunset), hamster wheel (pet cage), lawn mowing (front yard), leaf raking (autumn backyard) |
 | `whip.gif` | 2.0 MB | A level-3 physical whip crack from the right knocks the fly sideways. 4x slow motion |
@@ -280,3 +282,22 @@ ffmpeg -framerate 10 -i f%04d.jpg -vf "fps=8,scale=360:-2:flags=lanczos,split[a]
 ```
 (At 400 px, 64 colours and 10 fps it was 3.2 MB: the strobing floor changes every frame.) Run it live:
 `python scripts/run_job.py --job dj` (or `run_sim.py --job dj`).
+
+**dishwasher.gif** (default config, seed 0, whip off). A script (`create_job_session("dishwasher", cfg)`, 480×320,
+`JobRunner(chunk_steps=50).render(hud=False)`, so the captions are in it) saving a clean frame every 1/10 s of
+`session.present_time()`: every frame of 0.5-11 s (one plate) and every 2nd of 66.5-72.5 s (the rack carted off), 135
+frames:
+```bash
+ffmpeg -framerate 10 -i f%04d.jpg -vf "fps=8,scale=380:-2:flags=lanczos,split[a][b];\
+[a]palettegen=max_colors=56:stats_mode=diff[p];[b][p]paletteuse=dither=none:diff_mode=rectangle" -loop 0 dishwasher.gif
+```
+(400 px, 64 colours, 10 fps was 3.0 MB.) Run it live: `python scripts/run_job.py --job dishwasher` (or `run_sim.py --job
+dishwasher`).
+
+**barista.gif** (default config, seed 0, whip off). The same script, 0.5-25.5 s of sim (the first drink): every 3rd
+frame of 0.5-8 s and 12-16.5 s, every 2nd of 8-12 s and 21.5-25.5 s, every frame of the pour (16.5-21.5 s), 130 frames:
+```bash
+ffmpeg -framerate 8 -i f%04d.jpg -vf "scale=380:-2:flags=lanczos,split[a][b];\
+[a]palettegen=max_colors=64:stats_mode=diff[p];[b][p]paletteuse=dither=none:diff_mode=rectangle" -loop 0 barista.gif
+```
+Run it live: `python scripts/run_job.py --job barista` (or `run_sim.py --job barista`).
