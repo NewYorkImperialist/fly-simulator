@@ -27,6 +27,8 @@ constant.
 | `dj` | DJs forever in a club: a beat clock drives everything; a front leg (IK) scratches a motor-driven record by real contact and friction (scratches counted from the record's own rotation), the drop (a leg in the air, strobing floor, jumping crowd), the other leg slides the crossfader into the next track | tracks mixed, scratches, drops, crowd hype, BPM |
 | `dishwasher` | washes dishes forever at a kitchen sink under a window: the left front leg fetches the top plate of the dirty stack, the right front leg scrubs it with a sponge (the grime fades only while the leg really touches the plate), the plate is rinsed under the running faucet and racked; a full rack is carted off, a new dirty stack comes on the conveyor | plates washed, grime removed %, strokes, sponge wear, sponges, rack loads, stacks |
 | `barista` | makes coffee forever at "THE COMPOUND EYE" café: grinds, tamps the grounds with a tamper on its left front leg (real contact), presses SHOT / STEAM (real contact), the shot runs into a paper cup with the customer's name, steams the milk, holds the jug with its right front leg and pours latte art (heart / tulip / rosetta, drawn as it pours), rings the bell, the cup slides to the pickup counter; orders queue on the ticket rail | drinks served, shots pulled, latte-art score, orders in queue, tamps, spills |
+| `shopping_carts` | returns shopping carts forever in a supermarket parking lot ("FRESH FLY MARKET", our own): pushes each cart (planar joints + gravity, real physics) into the corral, where it nests into the train (kinematic snap); a "customer" (kinematic) takes carts out and leaves them around the lot, sometimes on the loading ramp, where they roll away down the slope and the fly chases them | carts returned, longest cart train, runaways caught (still rolling), customers |
+| `crop_duster` | on the **real flight fly** crop-dusts a patchwork of fields forever: take-off from a grass airstrip, transit, low velocity-controlled passes along the crop rows with pull-up turns at the ends, a dust trail (visual particles) that tints the rows it settles on; the crop grows back; lands to refill the hopper; physical wind with gusts | fields dusted, rows, flight distance, refills, wind gusts |
 
 ```bash
 python scripts/run_job.py --job sisyphus                   # window; Q quit, C camera, P pause, X reset, I screenshot, TAB HUD
@@ -2186,6 +2188,143 @@ drawn texture, chosen by pattern and by the measured steadiness). The portafilte
 the jug follows the tarsus while poured (no grip forces), the pour's unsteadiness is our random model (the leg's
 tracking of it is real), the shot and steam are compressed in time. The window mode (`LiveViewer`) was not opened in
 this session.
+
+
+### shopping_carts
+
+`fly_simulator/jobs/shopping_carts.py` (lot, carts, corral, customer), `fly_simulator/jobs/shopping_carts_assets.py`
+(procedural meshes / textures), tests in `tests/test_jobs_carts_duster.py`. HUD (TAB): `SHOPPING CARTS FLY - the fly
+returns shopping carts forever`.
+
+![shopping_carts](media/shopping_carts.gif)
+
+**Scene** (visual except the ramp, the sidewalk and the carts' colliders). A fly-scale supermarket parking lot: asphalt
+(FlyGym's plane, retextured) with two rows of painted bays, a crosswalk and a fire lane, a raised concrete sidewalk in
+front of the store ("FRESH FLY MARKET", a leaf mark, posters, doors, a canopy; our own name, no real brand), planters, a
+blue pipe-frame **cart corral** with a `CART RETURN / THANK YOU!` sign, a concrete **loading ramp** (10 × 10 mm, 4°, a
+real static slope from the lot up to the sidewalk, walkable; `ground_height` follows it) with yellow edges and a
+`CAUTION / SLOPE` sign, four parked cars (visual) in the right-hand bays and one on the left, three light poles (point
+lights under the heads, attenuated), grass verges, trees, a sky backdrop. Lights: a sun spot with shadows (`shadows:
+false` makes it directional), a directional fill, the pole lamps. `znear` 0.05.
+
+**Carts (real physics).** A pool of 9. Each is on planar joints like the mower (slide x, slide y, a yaw hinge) plus a
+vertical slide, so it can't tip or be lost, but it rests on a hidden frictionless skid (a 0.2 mm sphere that touches only
+the ground and the static ramp / sidewalk) and gravity really acts on it. The rolling resistance of the casters is the
+slides' dry friction (`frictionloss` 0.08 µN) plus a little viscous drag (0.03 µN per mm/s); cart mass 0.5 mg. On the
+lot a cart stays where it is left; on the 4° ramp gravity (0.34 µN along the slope) beats the friction and it rolls down
+at a terminal ~8.7 mm/s (measured 8.7 in the test and the runs), then stops within ~0.3 mm on the flat. The fly pushes
+a hidden round collider (R 1.2 mm) that has no contact bits of its own: it touches only the fly's head / thorax / abdomen
+through the slippery pairs (friction 0.05, legs excluded). Carts pass through each other (no cart-cart contacts,
+labelled limitation). The wire basket (tapered, so carts nest), the red handle grip, the bumpers, the child-seat flap and
+the casters are visual meshes. The job turns the yaw hinge toward the push direction (rate limited), and a rolling cart
+toward its motion.
+
+**Behaviour.** The fly picks the loose cart with the lowest cost (distance to the fly + 0.5 × distance to the corral's
+staging point), and `PushPilot` pushes it: pure pursuit onto the corral lane (the line through the mouth) and along it
+into the mouth; a cart left of the staging point and off the lane is first brought round to the lane's outer end. Once
+the cart is inside the mouth it **nests** (kinematic glide into the next slot of the train at 14 mm/s, engineered and
+labelled; nested carts are held, their skid contacts off and their push collider moved away, since explicit pairs can't
+be switched off, the mini_golf lesson). With no loose cart the fly waits (speed 0).
+
+**The customer (kinematic, labelled).** Nobody is drawn: every ~16 s (+2 s, exponential; 2 s after the lot runs empty)
+the last cart of the train rolls out of the corral by itself (a kinematic glide at 12 mm/s, contacts off) to a random
+free spot in the lot (≥ 4.5 mm from the fly, ≥ 3 mm from other carts), `A CUSTOMER LEFT A CART IN THE LOT`; with
+`runaway_p` 0.3 the spot is up the ramp: the cart's physics comes back on there and it **rolls away** down the slope
+(`RUNAWAY CART!`). The fly drops what it is doing and chases it (aims at the cart + 0.4 s of its velocity); within 1.6 mm
+of its collider it is **caught** (`CAUGHT IT!`, counted; "still rolling" if it was faster than 1.5 mm/s), then returned
+like any other. The customer waits while the fly is near the corral mouth. A cart that leaves the lot or goes NaN would
+be re-dropped (`carts_lost`, 0 in all runs).
+
+**Counters / HUD** (TAB): carts returned (the work counter), the cart train now and the longest, loose carts, customers,
+runaways, caught (still rolling), top runaway speed, carts lost, and the label line `(carts: planar joints + gravity on
+the ramp, real physics; nesting glide + customer: kinematic)`. Captions (screen overlay): `CART #n RETURNED` (`- NEW
+RECORD TRAIN OF n!`), `RUNAWAY CART!`, `CAUGHT IT!`, `A CUSTOMER LEFT A CART ...`. Camera: azimuth 95°, elevation −36°,
+32 mm, aimed at 0.4 fly + 0.25 target cart + 0.35 lot centre. A reset puts every cart back where it was (the train
+stays).
+
+**Verified** (headless, 2026-09-28, Apple M1, one process at a time): `run_job.py --job shopping_carts --headless
+--max-seconds 120`: **12 carts returned**, longest train **8**, 9 customers, **4 runaways, 4 caught** (1 still rolling),
+top runaway speed 8.7 mm/s, 20 pushes, 1 back-away unstick, 0 carts lost, **0 falls, 0 auto-recoveries, 0
+instabilities, RTF 0.49**. `run_sim.py --job shopping_carts --headless --max-seconds 5` runs (0 falls). Frames checked by
+eye (job renderer, 480×320, and the GIF frames): the store front and sign, the train in the corral, a cart pushed into
+the mouth and nesting, the runaway rolling down the ramp with the fly after it and the `CAUGHT IT!` caption, the parked
+cars and poles.
+
+**Limitations.** Carts don't collide with each other or with the parked cars / poles / corral rails (those are visual;
+the job keeps drop spots and routes clear of them, but a pushed cart can pass through a parked one); the nesting, the
+customer and the cart's yaw are kinematic; the push collider is round (the fly's head touches it at the handle end, and
+the handle can overlap the fly's head visually). The chase is short: a runaway rolls ~7 mm in ~1 s, so most are caught
+at the foot of the ramp after they stop. The window mode (`LiveViewer`) was not opened in this session.
+
+### crop_duster
+
+`fly_simulator/jobs/crop_duster.py` (farm, guidance, dust, wind), `fly_simulator/jobs/crop_duster_assets.py`
+(procedural meshes / textures), tests in `tests/test_jobs_carts_duster.py`. HUD (TAB): `CROP DUSTER FLY - the fly
+crop-dusts fields forever`.
+
+![crop_duster](media/crop_duster.gif)
+
+**The second flying job** (`needs_flight = True`, like delivery_pilot: the flight fly with stroke-plane wings, MuJoCo's
+fluid model, dt 5e-5 s, `FlightMode`'s take-off and landing). No external force acts on the fly: all lift, thrust and
+steering come from the wings. The delivery_pilot test that no other job flies now allows the two flying jobs.
+
+**Scene** (all visual; the fly flies over it). Four fields (36 × 18 mm, a 2 × 2 patchwork north of the strip), each with
+tilled soil and 6 crop rows 3 mm apart, each row 24 crop cells (576 cells, leafy mounds) and a post-and-rail fence; hedges
+between the fields; a grass airstrip at the origin with edge markers (the fly spawns on it), a windsock (points with the
+wind), a small hangar, the yellow dust hopper (the refill station), a `FLY-BY FARMS / AIRSTRIP - DUST REFILL` sign (our
+own); a red barn with a gambrel roof and a silo on the west, a windpump (lattice tower, the rotor turns with the wind
+speed) on the east; trees, a summer sky with farmland. Lights: a directional sun and fill (no shadows: the farm-wide
+shadow map was coarse in delivery_pilot). `znear` 0.3, `zfar` 400.
+
+**Loop** (`phase`). `ground` → **take-off** (FlightMode's: the long Jump → wings → hover) → `climb` to 10 mm while turning
+toward the next pass start → `transit` (velocity control along the bearing, the position set point following the fly,
+velocity-loop damping 3, trapezoid profile 90 mm/s, 300 up / 220 mm/s² down: delivery_pilot's cruise) → `lineup` (the
+position loop over the pass start 6 mm before the field edge: descend to the pass altitude, turn to the row heading) →
+**`pass`** (velocity control along the row at a COM height of 3.2 mm, 55 mm/s; heading = pure pursuit onto the row line
+7 mm ahead plus an integral on the cross-track error, so a crosswind is rejected; the dust is on over the field) → at
+0.5 mm past the far edge the **pull-up turn** (`turn`: brake along the row while climbing 1.2 mm, then the position loop
+at the braking point moves over to the next row and back down to the pass altitude while FlightMode turns the heading
+180° at 3.5 rad/s) → the next pass in the opposite direction ... After the 6th row the field counts as **dusted** if ≥
+80 % of its cells hold ≥ 0.5 dust (else `FIELD n: x% ONLY - the wind took the rest`); the next field is the one whose
+crop has grown back the most; the rows start from the side nearest the fly. When the hopper (470 mm of spraying, ~2
+fields) can't do another field: `home` (climb, turn, cruise to the strip) → `approach` (the position loop over the strip
+with delivery_pilot's stiffer gains, descent to 4.2 mm) → FlightMode's **landing** (the horizontal integrators cleared at
+touchdown) → **refill** (2 s, kinematic, labelled) → take-off again. Every commanded descent in a hover is rate limited
+to 8 mm/s: at first the step from 10 mm to 2.5 mm over the strip overshot ~0.8 mm below the set point, the legs touched
+down while still hovering and the fly flipped (2 crash landings and 2 counted recoveries in 120 s before the fix, 0
+after). A fly that respawns (explicit reset) with a low hopper refills on the strip first.
+
+**Dust (visual, labelled).** While spraying, a puff from a fixed pool of 70 mocap ellipsoids every 20 ms leaves the fly
+0.7 mm below the COM, drifts with the wind (the same vector as `model.opt.wind`), settles at 45 mm/s, grows and fades over
+1.3 s (recycled oldest first). The crop cells the settling point passes over (downwind of the track by wind × fall
+time, ~1 mm) get a dose 1 − (lateral / 2 mm)² (cells saturate at 1); the cell's material steps through 5 stages from
+green to pale dusted (textures with a growing yellow-white dust coat). The crop **grows back**: the dose fades linearly
+over 100 s, so no field stays done.
+
+**Wind (physical).** MuJoCo's medium velocity: a breeze of 2-18 mm/s whose direction wanders (period ~29 s, like
+delivery_pilot's), plus **gusts** (counted, `WIND GUST!`): on average every 22 s (+4 s) a gust adds up to 14 mm/s in a
+random direction over 2.5 s (sin² profile). The flight controller rejects it (position / cross-track integrators).
+
+**Counters / HUD** (TAB): fields dusted (the work counter), field / row / phase, rows, hopper %, refills, flight time,
+distance flown, wind speed, gusts, the coverage of every field, FlightMode's line, and the label line `real
+flapping-wing flight + physical wind; dust: visual particles, crop tint by the settled plume`. Captions (screen overlay):
+`FIELD n DUSTED`, `REFILLING`, `WIND GUST!`, `CRASH LANDING!`. Camera: over a field, from the south (azimuth 90°) 32 mm
+away, aimed at 0.55 fly + 0.45 field centre, so the passes run across the screen; in transit behind the fly along its
+heading (27 mm); both −26°, the azimuth and distance smoothed (τ 1 s). The job's own stuck rule: no row, field or refill
+for 90 s → explicit reset.
+
+**Verified** (headless, 2026-09-28, Apple M1, one process at a time): `run_job.py --job crop_duster --headless
+--max-seconds 120`: **6 fields dusted** (2 / 2 / 1 / 1), **36 rows**, **2 refills** (the third under way at 120 s), 3
+landings, **3 wind gusts**, **2.12 m flown**, 113 s of flight, 1312 mm of spraying, **0 crash landings, 0 falls, 0
+auto-recoveries, 0 instabilities, RTF 0.50**. `run_sim.py --job crop_duster --headless --max-seconds 5` builds the flight
+fly and takes off (0 falls). Frames checked by eye (job renderer, 480×320, and the GIF frames): the take-off from the
+strip with the hopper and the windsock, the climb over the fields, the passes with the dust trail, the pale dusted rows
+behind it, the turns at the field ends, the barn / silo / windpump from the transit camera.
+
+**Limitations.** The dust and its effect on the crop are visual / geometric (no particles in the fluid model, the dose
+is a footprint model downwind of the track); the refill is a timer; the guidance (passes, turns, lead-in, cross-track
+integral, when to land) is our code, not the brain; the passes hold the altitude to about +1 mm (the COM rises ~0.9 mm
+when accelerating out of a turn). No ground effect. The window mode (`LiveViewer`) was not opened in this session.
 
 ## Verification
 

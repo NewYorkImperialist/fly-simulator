@@ -31,6 +31,8 @@ ffmpeg -ss START -t DUR -i in.mp4 -vf "setpts=PTS/SPEED,fps=FPS,scale=W:-2:flags
 | `snow_shovel.gif` | 2.4 MB | The snow shovel job: the fly pushes the blue shovel across the driveway lane by lane, the blade scrapes the snow cover down to the wet concrete, the load is dumped onto the bank at the lawn edge, the fly walks round the shovel and pushes it back to the next lane while it keeps snowing and the cleared lanes slowly whiten again. 2x speed. No HUD |
 | `dishwasher.gif` | 2.2 MB | The dishwasher job: the left front leg lifts the top plate off the dirty stack and lays it in the sink, the sponge on the right front leg scrubs it (real contact) while the food smears break up and the foam builds, the plate rinsed under the faucet and racked, later the full rack carted off and a new stack on the conveyor. No HUD |
 | `barista.gif` | 2.2 MB | The barista job, one drink: the order caption and the ticket rail, grinding, tamping, the shot into the cup with the customer's name, steaming the milk, the right front leg pouring latte art (drawn as it pours), the score, the bell, the cup on the pickup counter. No HUD |
+| `shopping_carts.gif` | 2.3 MB | The shopping carts job at 2x speed: the fly pushes a cart across the lot into the corral mouth, where it nests into the train; a customer's cart left on the loading ramp rolls away down the slope (real physics), the fly chases and catches it (`CAUGHT IT!`). No HUD |
+| `crop_duster.gif` | 2.4 MB | The crop duster job on the real flight fly, real time: take-off from the airstrip, the climb and transit to field 1, the line-up, low dusting passes with the dust trail, pull-up turns at the row ends; the dusted rows turn pale. No HUD |
 | `temple_standoff.gif` | 2.0 MB | The `temple_standoff` scene (docs/SCENES.md): the establishing wide of the stone hall, the hooded tall fly walks in through the back doorway, the little flies turn, the lead one steps forward and looks up, the long low-angle hold, the handle comes forward, the energy blade ignites and relights the room, the little flies recoil, cut to black. Letterbox cropped; rendered grain-free for the GIF |
 | `jobs.gif` | 2.3 MB | 2x2 grid of the eternal jobs: Sisyphus (Greek hillside at sunset), hamster wheel (pet cage), lawn mowing (front yard), leaf raking (autumn backyard) |
 | `whip.gif` | 2.0 MB | A level-3 physical whip crack from the right knocks the fly sideways. 4x slow motion |
@@ -301,3 +303,21 @@ ffmpeg -framerate 8 -i f%04d.jpg -vf "scale=380:-2:flags=lanczos,split[a][b];\
 [a]palettegen=max_colors=64:stats_mode=diff[p];[b][p]paletteuse=dither=none:diff_mode=rectangle" -loop 0 barista.gif
 ```
 Run it live: `python scripts/run_job.py --job barista` (or `run_sim.py --job barista`).
+
+**shopping_carts.gif** (default config, seed 0, whip off). A script (`create_job_session("shopping_carts", cfg)`, 480×320,
+`JobRunner(chunk_steps=50).render(hud=False)`, so the captions are in it) saving a clean frame every 0.2 s of
+`session.present_time()`, 6-32 s of sim (131 frames), every 2nd frame played at 7 fps (about 2x real time):
+```bash
+ffmpeg -framerate 10 -i f%04d.jpg -vf "select='not(mod(n\,2))',setpts=N/(7*TB),scale=360:-2:flags=lanczos,split[a][b];\
+[a]palettegen=max_colors=56:stats_mode=diff[p];[b][p]paletteuse=dither=none:diff_mode=rectangle" -r 7 -loop 0 shopping_carts.gif
+```
+(Every frame at 400 px, 64 colours, 10 fps was 5.8 MB: the following camera and the asphalt change every frame.) Run it
+live: `python scripts/run_job.py --job shopping_carts` (or `run_sim.py --job shopping_carts`).
+
+**crop_duster.gif** (default config, seed 0, whip off). The same script (`chunk_steps=100` on the flight fly), a frame
+every 0.1 s of sim, 0.3-14.3 s (141 frames), every 2nd frame played at 5 fps (real time):
+```bash
+ffmpeg -framerate 10 -i f%04d.jpg -vf "select='not(mod(n\,2))',setpts=N/(5*TB),scale=360:-2:flags=lanczos,split[a][b];\
+[a]palettegen=max_colors=56:stats_mode=diff[p];[b][p]paletteuse=dither=none:diff_mode=rectangle" -r 5 -loop 0 crop_duster.gif
+```
+Run it live: `python scripts/run_job.py --job crop_duster` (or `run_sim.py --job crop_duster`).

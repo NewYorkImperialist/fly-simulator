@@ -45,6 +45,8 @@ uv venv --python 3.12 .venv && uv pip install --python .venv/bin/python -e ".[de
 .venv/bin/python scripts/run_job.py --job dj              # DJs forever (scratches a motor-driven record with its leg, the drop, the mix)
 .venv/bin/python scripts/run_job.py --job dishwasher      # washes dishes forever (sponge scrubs by real contact, rinse, rack, new stack)
 .venv/bin/python scripts/run_job.py --job barista         # makes coffee forever (tamp, shot, steam, latte art, bell, name on the cup)
+.venv/bin/python scripts/run_job.py --job shopping_carts  # returns shopping carts forever (push into the corral; runaways roll down the ramp)
+.venv/bin/python scripts/run_job.py --job crop_duster     # crop-dusts fields forever (real flapping-wing flight, low passes, refills)
 .venv/bin/python scripts/run_job.py --rotate               # all of them, forever
 .venv/bin/python scripts/run_job.py --job kebab --brain --stress   # + live brain; S startles the chef
 ```

@@ -66,7 +66,7 @@ def test_registered_needs_flight_and_other_jobs_unchanged():
     assert get_job("delivery_pilot") is DeliveryPilotJob
     assert DeliveryPilotJob.needs_flight
     for name in available_jobs():
-        if name != "delivery_pilot":
+        if name not in ("delivery_pilot", "crop_duster"):  # the flying jobs
             assert not get_job(name).needs_flight, name
     # a walking job keeps the canonical walking model
     cfg = AppConfig()
