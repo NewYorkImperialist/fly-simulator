@@ -40,7 +40,7 @@ def main(argv=None) -> int:
     ap.add_argument("--caption", default=None,
                     help="subtitle text for the lead little fly (default: the scene's own line)")
     ap.add_argument("--caption-at", type=float, nargs=2, metavar=("START", "END"), default=None,
-                    help="caption start / end time in seconds (default 7.1 8.4)")
+                    help="caption start / end time in seconds (default 6.6 8.9)")
     ap.add_argument("--no-caption", action="store_true", help="no subtitle")
     a = ap.parse_args(argv)
     mod = load_scene(a.scene)

@@ -1295,7 +1295,7 @@ class RenderOptions:
     # subtitle for the lead little fly (None = off). Default: an original line, shown
     # during the lead close-up while it looks up at the tall fly.
     caption: str | None = DEFAULT_CAPTION
-    caption_t: tuple[float, float] = (7.1, 8.4)
+    caption_t: tuple[float, float] = (6.6, 8.9)
 
 
 def render(out: str | Path, opt: RenderOptions, log=print) -> dict:
