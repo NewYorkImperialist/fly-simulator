@@ -1275,7 +1275,7 @@ def write_wav(path: Path, x: np.ndarray, sr: int = 48000) -> None:
 # the render
 # ---------------------------------------------------------------------------
 
-DEFAULT_CAPTION = "Master Flywalker\u2026 they're everywhere. Please help us."
+DEFAULT_CAPTION = "Master Flywalker\u2026 there are too many of them. What are we going to do?"
 
 
 @dataclass
